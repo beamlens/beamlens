@@ -5,7 +5,7 @@ defmodule Beamlens.MixProject do
     [
       app: :beamlens,
       version: "0.1.0",
-      elixir: "~> 1.15",
+      elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       description: "A minimal AI agent that monitors BEAM VM health",
