@@ -14,7 +14,8 @@ defmodule Beamlens.Runner do
   defstruct interval: :timer.minutes(5),
             mode: :periodic,
             client_registry: nil,
-            last_run_at: nil
+            last_run_at: nil,
+            running: false
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -32,7 +33,14 @@ defmodule Beamlens.Runner do
   end
 
   @impl true
+  def handle_info(:run, %{running: true, interval: interval} = state) do
+    Logger.warning("[BeamLens] Skipping run - previous run still in progress")
+    schedule_run(interval)
+    {:noreply, state}
+  end
+
   def handle_info(:run, %{client_registry: client_registry} = state) do
+    state = %{state | running: true}
     node = Atom.to_string(Node.self())
     trace_id = Telemetry.generate_trace_id()
 
@@ -52,7 +60,7 @@ defmodule Beamlens.Runner do
               tool_count: 0
             }
 
-            new_state = %{state | last_run_at: DateTime.utc_now()}
+            new_state = %{state | last_run_at: DateTime.utc_now(), running: false}
             {{{:ok, analysis}, new_state}, %{}, metadata}
 
           {:error, reason} ->
@@ -60,7 +68,8 @@ defmodule Beamlens.Runner do
               trace_id: trace_id
             )
 
-            {{{:error, reason}, state}, %{}, %{node: node, trace_id: trace_id, error: reason}}
+            new_state = %{state | running: false}
+            {{{:error, reason}, new_state}, %{}, %{node: node, trace_id: trace_id, error: reason}}
         end
       end)
 
