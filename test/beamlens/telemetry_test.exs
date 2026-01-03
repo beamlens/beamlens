@@ -21,10 +21,10 @@ defmodule Beamlens.TelemetryTest do
   end
 
   describe "event_names/0" do
-    test "returns all 9 event names" do
+    test "returns all 13 event names" do
       events = Telemetry.event_names()
 
-      assert length(events) == 9
+      assert length(events) == 13
     end
 
     test "all events start with :beamlens" do
@@ -35,7 +35,7 @@ defmodule Beamlens.TelemetryTest do
       end
     end
 
-    test "includes agent, llm, and tool events" do
+    test "includes agent, llm, tool, and schedule events" do
       events = Telemetry.event_names()
 
       assert [:beamlens, :agent, :start] in events
@@ -47,6 +47,10 @@ defmodule Beamlens.TelemetryTest do
       assert [:beamlens, :tool, :start] in events
       assert [:beamlens, :tool, :stop] in events
       assert [:beamlens, :tool, :exception] in events
+      assert [:beamlens, :schedule, :triggered] in events
+      assert [:beamlens, :schedule, :skipped] in events
+      assert [:beamlens, :schedule, :completed] in events
+      assert [:beamlens, :schedule, :failed] in events
     end
   end
 

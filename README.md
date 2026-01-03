@@ -5,53 +5,39 @@ A minimal, safe AI agent that monitors BEAM VM health and generates analyses usi
 ## Features
 
 - **Safe by design**: Read-only metrics, no PII/PHI exposure, zero side effects
-- **Pure Elixir**: Uses [Strider](https://github.com/bradleygolden/strider) + [BAML](https://github.com/boundaryml/baml) for type-safe LLM calls
+- **Cron scheduling**: Standard cron syntax for flexible scheduling
 - **Structured output**: Returns typed `HealthAnalysis` structs, not raw text
-- **Periodic monitoring**: Runs health checks at configurable intervals
-- **Claude-powered analysis**: Uses Haiku for cost-effective, intelligent analysis
+- **Telemetry integration**: Emits events for observability
+- **Claude-powered**: Uses Haiku for cost-effective, intelligent analysis (~$0.001/run)
 
 ## Installation
 
-Add to your `mix.exs`:
-
 ```elixir
 def deps do
-  [
-    {:beamlens, github: "bradleygolden/beamlens"}
-  ]
+  [{:beamlens, github: "bradleygolden/beamlens"}]
 end
 ```
 
-## Configuration
-
 ```bash
-# Required environment variable
 export ANTHROPIC_API_KEY=your-api-key
 ```
 
-```elixir
-# config/config.exs
-config :beamlens,
-  mode: :periodic,              # :periodic | :manual
-  interval: :timer.minutes(5)
-```
+## Quick Start
 
-## Usage
-
-### As a supervised process
+Add to your supervision tree:
 
 ```elixir
-# In your application.ex
 def start(_type, _args) do
   children = [
-    # ... your other children
-    {Beamlens, []}
+    {Task.Supervisor, name: Beamlens.TaskSupervisor},
+    {Beamlens.Scheduler, schedules: [[name: :default, cron: "*/5 * * * *"]]}
   ]
+
   Supervisor.start_link(children, strategy: :one_for_one)
 end
 ```
 
-### Manual analysis
+Or run manually:
 
 ```elixir
 {:ok, analysis} = Beamlens.run()
@@ -62,48 +48,23 @@ analysis.concerns        #=> []
 analysis.recommendations #=> []
 ```
 
-## Telemetry
+## Documentation
 
-BeamLens emits telemetry events for observability:
+See the module documentation for detailed usage:
 
-| Event | Description |
-|-------|-------------|
-| `[:beamlens, :agent, :start]` | Agent run starting |
-| `[:beamlens, :agent, :stop]` | Agent run completed |
-| `[:beamlens, :agent, :exception]` | Agent run failed |
-
-### Example handler
-
-```elixir
-:telemetry.attach("my-handler", [:beamlens, :agent, :stop],
-  fn _event, %{duration: duration}, %{status: status, analysis: analysis}, _config ->
-    Logger.info("BeamLens: #{status} in #{duration}ns")
-
-    if status == :critical do
-      MyApp.Alerts.send(analysis.summary)
-    end
-  end, nil)
-```
+- `Beamlens` - Main module with full configuration options
+- `Beamlens.Scheduler` - Cron scheduling details
+- `Beamlens.Telemetry` - Telemetry events
 
 ## What it monitors
 
 BeamLens gathers safe, read-only VM metrics:
 
 - OTP release version
-- Scheduler count and utilization (run queue)
-- Memory breakdown (total, processes, atoms, binaries, ETS)
+- Scheduler count and utilization
+- Memory breakdown (processes, atoms, binaries, ETS)
 - Process and port counts
 - System uptime
-
-All data comes from `:erlang.system_info/1` and `:erlang.memory/0` - read-only calls with zero side effects.
-
-## Security
-
-- **Read-only**: No filesystem, shell, or write access
-- **No PII/PHI**: Only aggregate VM statistics
-- **Type-safe**: BAML ensures structured, validated responses
-- **Supervised**: Automatic restart on failure
-- **Cost controlled**: Uses Haiku (~$0.001/run)
 
 ## License
 

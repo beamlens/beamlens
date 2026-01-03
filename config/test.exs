@@ -1,7 +1,6 @@
 import Config
 
-# Test configuration
-config :beamlens,
-  mode: :manual
+# Test configuration - no auto-scheduling
+config :beamlens, schedules: []
 
 config :logger, level: :warning

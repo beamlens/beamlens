@@ -50,6 +50,24 @@ defmodule Beamlens.Telemetry do
     - Metadata: `%{trace_id: String.t(), iteration: integer,
                    tool_name: String.t(), error: term()}`
 
+  ## Schedule Events
+
+  * `[:beamlens, :schedule, :triggered]` - Schedule triggered (timer or manual)
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{name: atom(), cron: String.t(), source: :scheduled | :manual}`
+
+  * `[:beamlens, :schedule, :skipped]` - Schedule skipped (already running)
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{name: atom(), cron: String.t(), reason: :already_running}`
+
+  * `[:beamlens, :schedule, :completed]` - Scheduled task completed successfully
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{name: atom(), cron: String.t(), reason: :normal}`
+
+  * `[:beamlens, :schedule, :failed]` - Scheduled task crashed
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{name: atom(), cron: String.t(), reason: term()}`
+
   ## Example Handler
 
       :telemetry.attach(
@@ -85,7 +103,11 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :llm, :call_error],
       [:beamlens, :tool, :start],
       [:beamlens, :tool, :stop],
-      [:beamlens, :tool, :exception]
+      [:beamlens, :tool, :exception],
+      [:beamlens, :schedule, :triggered],
+      [:beamlens, :schedule, :skipped],
+      [:beamlens, :schedule, :completed],
+      [:beamlens, :schedule, :failed]
     ]
   end
 

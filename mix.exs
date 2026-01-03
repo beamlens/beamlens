@@ -6,7 +6,6 @@ defmodule Beamlens.MixProject do
       app: :beamlens,
       version: "0.1.0",
       elixir: "~> 1.15",
-      start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: "A minimal AI agent that monitors BEAM VM health",
       package: package()
@@ -14,10 +13,7 @@ defmodule Beamlens.MixProject do
   end
 
   def application do
-    [
-      extra_applications: [:logger],
-      mod: {Beamlens.Application, []}
-    ]
+    [extra_applications: [:logger]]
   end
 
   defp deps do
@@ -32,7 +28,8 @@ defmodule Beamlens.MixProject do
        ref: "51fdb81640230dd14b4556c1d078bce8d8218368",
        override: true},
       {:rustler, "~> 0.36", optional: true},
-      {:telemetry, "~> 1.2"}
+      {:telemetry, "~> 1.2"},
+      {:crontab, "~> 1.1"}
     ]
   end
 
