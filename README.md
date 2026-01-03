@@ -18,18 +18,24 @@ def deps do
 end
 ```
 
-```bash
-export ANTHROPIC_API_KEY=your-api-key
-```
-
 ## Quick Start
 
-Add to your supervision tree:
+Add to your supervision tree with a `client_registry` configuration:
 
 ```elixir
 def start(_type, _args) do
   children = [
-    {Beamlens, schedules: [{:default, "*/5 * * * *"}]}
+    {Beamlens,
+      schedules: [{:default, "*/5 * * * *"}],
+      agent_opts: [
+        client_registry: %{
+          primary: "Claude",
+          clients: [
+            %{name: "Claude", provider: "anthropic",
+              options: %{model: "claude-haiku-4-5-20250514", api_key: System.get_env("ANTHROPIC_API_KEY")}}
+          ]
+        }
+      ]}
   ]
 
   Supervisor.start_link(children, strategy: :one_for_one)
@@ -39,7 +45,15 @@ end
 Or run manually:
 
 ```elixir
-{:ok, analysis} = Beamlens.run()
+client_registry = %{
+  primary: "Claude",
+  clients: [
+    %{name: "Claude", provider: "anthropic",
+      options: %{model: "claude-haiku-4-5-20250514", api_key: System.get_env("ANTHROPIC_API_KEY")}}
+  ]
+}
+
+{:ok, analysis} = Beamlens.run(client_registry: client_registry)
 
 analysis.status          #=> :healthy
 analysis.summary         #=> "BEAM VM is operating normally..."

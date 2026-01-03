@@ -6,11 +6,15 @@ defmodule Beamlens.MixProject do
       app: :beamlens,
       version: "0.1.0",
       elixir: "~> 1.15",
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       description: "A minimal AI agent that monitors BEAM VM health",
       package: package()
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   def application do
     [extra_applications: [:logger]]

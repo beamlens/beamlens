@@ -1,18 +1,10 @@
 // BeamLens BAML definitions
+// Note: This placeholder client is overridden at runtime via client_registry
 
-client<llm> Haiku {
+client<llm> Default {
   provider anthropic
   options {
     model "claude-haiku-4-5-20250514"
-    api_key env.ANTHROPIC_API_KEY
-  }
-}
-
-client<llm> Ollama {
-  provider "openai-generic"
-  options {
-    base_url "http://localhost:11434/v1"
-    model "qwen3:1.7b"
   }
 }
 
@@ -61,7 +53,7 @@ class Message {
 
 // Union type - LLM picks exactly one tool
 function SelectTool(messages: Message[]) -> GetSystemInfo | GetMemoryStats | GetProcessStats | GetSchedulerStats | GetAtomStats | GetPersistentTerms | Done {
-  client Haiku
+  client Default
   prompt #"
     You are a BEAM VM health analyst. Analyze the BEAM VM and produce a health analysis.
 

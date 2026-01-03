@@ -12,10 +12,6 @@ defmodule Beamlens do
 
       {:beamlens, github: "bradleygolden/beamlens"}
 
-  Set your API key (required by BAML):
-
-      export ANTHROPIC_API_KEY=your-api-key
-
   ## Supervision Tree Setup
 
   Add BeamLens to your application's supervision tree:
