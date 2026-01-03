@@ -26,47 +26,41 @@ defmodule Beamlens do
         def start(_type, _args) do
           children = [
             # ... your other children ...
-            {Task.Supervisor, name: Beamlens.TaskSupervisor},
-            {Beamlens.Scheduler, beamlens_opts()}
+            {Beamlens, schedules: [{:default, "*/5 * * * *"}]}
           ]
 
           Supervisor.start_link(children, strategy: :one_for_one)
-        end
-
-        defp beamlens_opts do
-          [
-            schedules: [
-              [name: :default, cron: "*/5 * * * *"]
-            ]
-          ]
         end
       end
 
   ## Configuration Options
 
-  Options passed to `Beamlens.Scheduler`:
+  Options passed to `Beamlens`:
 
     * `:schedules` - List of schedule configurations (see below)
     * `:agent_opts` - Global options passed to all agent runs
 
-  Each schedule in `:schedules` accepts:
+  ### Schedule Configuration
 
-    * `:name` (required) - Unique atom identifying the schedule
-    * `:cron` (required) - Cron expression string (e.g., `"*/5 * * * *"`)
-    * `:agent_opts` - Per-schedule options that override global options
+  Schedules can be specified using tuple shorthand or full keyword lists:
+
+      # Tuple shorthand: {name, cron_expression}
+      {:default, "*/5 * * * *"}
+
+      # Full keyword list for per-schedule options
+      [name: :nightly, cron: "0 2 * * *", agent_opts: [timeout: 300_000]]
 
   ### Example Configuration
 
-      [
+      {Beamlens,
         schedules: [
-          [name: :frequent, cron: "*/5 * * * *"],
+          {:frequent, "*/5 * * * *"},
           [name: :nightly, cron: "0 2 * * *", agent_opts: [timeout: 300_000]]
         ],
         agent_opts: [
           timeout: 60_000,
           max_iterations: 10
-        ]
-      ]
+        ]}
 
   ## Manual Usage
 
@@ -96,6 +90,20 @@ defmodule Beamlens do
   BeamLens emits telemetry events for observability. See `Beamlens.Telemetry`
   for the full list of events.
   """
+
+  @doc false
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      type: :supervisor
+    }
+  end
+
+  @doc false
+  def start_link(opts) do
+    Beamlens.Supervisor.start_link(opts)
+  end
 
   @doc """
   Manually trigger a health analysis.

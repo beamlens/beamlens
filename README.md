@@ -29,8 +29,7 @@ Add to your supervision tree:
 ```elixir
 def start(_type, _args) do
   children = [
-    {Task.Supervisor, name: Beamlens.TaskSupervisor},
-    {Beamlens.Scheduler, schedules: [[name: :default, cron: "*/5 * * * *"]]}
+    {Beamlens, schedules: [{:default, "*/5 * * * *"}]}
   ]
 
   Supervisor.start_link(children, strategy: :one_for_one)
