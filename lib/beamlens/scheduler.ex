@@ -19,6 +19,7 @@ defmodule Beamlens.Scheduler do
 
     * `:schedules` - List of schedule keyword lists (see below)
     * `:agent_opts` - Global options merged into all agent runs
+    * `:result_handler` - Module implementing `Beamlens.ResultHandler` behaviour
     * `:run_fun` - Custom function to call instead of `Beamlens.Agent.run/1` (for testing)
 
   ## Schedule Options
@@ -110,13 +111,15 @@ defmodule Beamlens.Scheduler do
     schedule_configs = Keyword.get(opts, :schedules, [])
     global_agent_opts = Keyword.get(opts, :agent_opts, [])
     run_fun = Keyword.get(opts, :run_fun, &Beamlens.Agent.run/1)
+    result_handler = Keyword.get(opts, :result_handler)
 
     case parse_all(schedule_configs) do
       {:ok, schedules} ->
         state = %{
           schedules: start_all_timers(schedules),
           global_agent_opts: global_agent_opts,
-          run_fun: run_fun
+          run_fun: run_fun,
+          result_handler: result_handler
         }
 
         {:ok, state}
@@ -268,20 +271,30 @@ defmodule Beamlens.Scheduler do
     trace_id = Telemetry.generate_trace_id()
     node = Atom.to_string(Node.self())
 
-    # Merge global opts with per-schedule overrides
     agent_opts =
       state.global_agent_opts
       |> Keyword.merge(schedule.agent_opts)
       |> Keyword.put(:trace_id, trace_id)
 
     run_fun = state.run_fun
+    result_handler = state.result_handler
 
     task =
       Task.Supervisor.async_nolink(Beamlens.TaskSupervisor, fn ->
-        # Wrap in agent telemetry span for parity with old Runner
         Telemetry.span(%{node: node, trace_id: trace_id}, fn ->
+          start_time = System.monotonic_time(:millisecond)
+
           case run_fun.(agent_opts) do
             {:ok, analysis} ->
+              duration_ms = System.monotonic_time(:millisecond) - start_time
+
+              dispatch_result(result_handler, analysis,
+                trace_id: trace_id,
+                node: node,
+                schedule: name,
+                duration_ms: duration_ms
+              )
+
               metadata = %{
                 node: node,
                 trace_id: trace_id,
@@ -300,6 +313,21 @@ defmodule Beamlens.Scheduler do
 
     updated = %{schedule | running: task.ref}
     put_in(state.schedules[name], updated)
+  end
+
+  defp dispatch_result(nil, _analysis, _opts), do: :ok
+
+  defp dispatch_result(handler, analysis, opts) do
+    case handler.handle_result(analysis, opts) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[BeamLens] Result handler failed: #{inspect(reason)}",
+          trace_id: opts[:trace_id],
+          handler: handler
+        )
+    end
   end
 
   defp find_schedule_by_ref(schedules, ref) do

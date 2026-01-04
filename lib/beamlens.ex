@@ -35,6 +35,7 @@ defmodule Beamlens do
 
     * `:schedules` - List of schedule configurations (see below)
     * `:agent_opts` - Global options passed to all agent runs
+    * `:result_handler` - Module implementing `Beamlens.ResultHandler` to receive results
 
   ### Schedule Configuration
 
@@ -56,7 +57,8 @@ defmodule Beamlens do
         agent_opts: [
           timeout: 60_000,
           max_iterations: 10
-        ]}
+        ],
+        result_handler: MyApp.BeamlensHandler}
 
   ## Manual Usage
 
