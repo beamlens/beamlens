@@ -106,7 +106,9 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :schedule, :triggered],
       [:beamlens, :schedule, :skipped],
       [:beamlens, :schedule, :completed],
-      [:beamlens, :schedule, :failed]
+      [:beamlens, :schedule, :failed],
+      [:beamlens, :circuit_breaker, :state_change],
+      [:beamlens, :circuit_breaker, :rejected]
     ]
   end
 

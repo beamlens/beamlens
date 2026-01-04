@@ -30,7 +30,7 @@ defmodule Beamlens.Agent do
   require Logger
 
   alias Strider.Context
-  alias Beamlens.{Telemetry, Tools}
+  alias Beamlens.{CircuitBreaker, Telemetry, Tools}
 
   @default_max_iterations 10
   @default_timeout :timer.seconds(60)
@@ -144,26 +144,65 @@ defmodule Beamlens.Agent do
   end
 
   defp call_with_timeout(agent, context, timeout) do
+    if circuit_breaker_allows?() do
+      execute_llm_call(agent, context, timeout)
+    else
+      Logger.warning("[BeamLens] Circuit breaker open, skipping LLM call",
+        trace_id: context.metadata.trace_id
+      )
+
+      {:error, :circuit_open}
+    end
+  end
+
+  defp execute_llm_call(agent, context, timeout) do
     task =
       Task.async(fn ->
         Strider.call(agent, [], context, output_schema: Tools.schema())
       end)
 
-    case Task.yield(task, timeout) do
-      {:ok, result} ->
-        result
+    result =
+      case Task.yield(task, timeout) do
+        {:ok, result} ->
+          result
 
+        nil ->
+          case Task.shutdown(task, :brutal_kill) do
+            {:ok, result} ->
+              Logger.debug("[BeamLens] LLM completed just before shutdown",
+                trace_id: context.metadata.trace_id
+              )
+
+              result
+
+            nil ->
+              {:error, :timeout}
+          end
+      end
+
+    record_circuit_breaker_result(result)
+    result
+  end
+
+  defp circuit_breaker_allows? do
+    case Process.whereis(CircuitBreaker) do
+      nil -> true
+      _pid -> CircuitBreaker.allow?()
+    end
+  end
+
+  defp record_circuit_breaker_result(result) do
+    case Process.whereis(CircuitBreaker) do
       nil ->
-        case Task.shutdown(task, :brutal_kill) do
-          {:ok, result} ->
-            Logger.debug("[BeamLens] LLM completed just before shutdown",
-              trace_id: context.metadata.trace_id
-            )
+        :ok
 
-            result
+      _pid ->
+        case result do
+          {:ok, _response, _context} ->
+            CircuitBreaker.record_success()
 
-          nil ->
-            {:error, :timeout}
+          {:error, reason} ->
+            CircuitBreaker.record_failure(reason)
         end
     end
   end

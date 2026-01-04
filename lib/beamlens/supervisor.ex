@@ -10,10 +10,12 @@ defmodule Beamlens.Supervisor do
   @impl true
   def init(opts) do
     schedules = opts |> Keyword.get(:schedules, []) |> normalize_schedules()
+    circuit_breaker_opts = Keyword.get(opts, :circuit_breaker, [])
     scheduler_opts = Keyword.put(opts, :schedules, schedules)
 
     children = [
       {Task.Supervisor, name: Beamlens.TaskSupervisor},
+      {Beamlens.CircuitBreaker, circuit_breaker_opts},
       {Beamlens.Scheduler, scheduler_opts}
     ]
 

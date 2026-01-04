@@ -35,6 +35,19 @@ defmodule Beamlens do
 
     * `:schedules` - List of schedule configurations (see below)
     * `:agent_opts` - Global options passed to all agent runs
+    * `:circuit_breaker` - Circuit breaker options (see below)
+
+  ### Circuit Breaker Configuration
+
+  The circuit breaker prevents cascading failures when the LLM provider is unavailable:
+
+      {Beamlens,
+        schedules: [{:default, "*/5 * * * *"}],
+        circuit_breaker: [
+          failure_threshold: 5,   # Open after 5 consecutive failures
+          reset_timeout: 30_000,  # Try half_open after 30 seconds
+          success_threshold: 2    # Close after 2 successes in half_open
+        ]}
 
   ### Schedule Configuration
 
@@ -114,6 +127,7 @@ defmodule Beamlens do
 
     * `{:error, :max_iterations_exceeded}` - Agent did not complete within iteration limit
     * `{:error, :timeout}` - LLM call timed out
+    * `{:error, :circuit_open}` - Circuit breaker is open due to consecutive failures
     * `{:error, {:unknown_tool, tool}}` - LLM returned unrecognized tool
     * `{:error, {:encoding_failed, tool_name, reason}}` - Tool result could not be JSON-encoded
   """
@@ -135,4 +149,30 @@ defmodule Beamlens do
   Returns `{:error, :already_running}` if the schedule is already executing.
   """
   defdelegate run_now(name), to: Beamlens.Scheduler
+
+  @doc """
+  Returns the current circuit breaker state.
+
+  ## Example
+
+      Beamlens.circuit_breaker_state()
+      #=> %{
+      #=>   state: :closed,
+      #=>   failure_count: 0,
+      #=>   success_count: 0,
+      #=>   failure_threshold: 5,
+      #=>   reset_timeout: 30000,
+      #=>   success_threshold: 2,
+      #=>   last_failure_at: nil,
+      #=>   last_failure_reason: nil
+      #=> }
+  """
+  defdelegate circuit_breaker_state(), to: Beamlens.CircuitBreaker, as: :get_state
+
+  @doc """
+  Resets the circuit breaker to closed state.
+
+  Use with caution - primarily for manual recovery after resolving issues.
+  """
+  defdelegate reset_circuit_breaker(), to: Beamlens.CircuitBreaker, as: :reset
 end
