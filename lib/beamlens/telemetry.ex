@@ -232,8 +232,6 @@ defmodule Beamlens.Telemetry do
   end
 
   defp format_measurements(measurements) do
-    measurements
-    |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
-    |> Enum.join(" ")
+    Enum.map_join(measurements, " ", fn {k, v} -> "#{k}=#{v}" end)
   end
 end

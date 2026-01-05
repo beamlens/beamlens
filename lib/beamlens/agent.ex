@@ -29,8 +29,8 @@ defmodule Beamlens.Agent do
 
   require Logger
 
-  alias Puck.Context
   alias Beamlens.{Telemetry, Tools}
+  alias Puck.Context
 
   @default_max_iterations 10
   @default_timeout :timer.seconds(60)
@@ -92,12 +92,10 @@ defmodule Beamlens.Agent do
     tools = collect_tools(collectors)
 
     backend_config =
-      [
+      %{
         function: "SelectTool",
-        path: "priv/baml_src",
-        prefix: Beamlens.Baml,
         args_format: :messages
-      ]
+      }
       |> maybe_add_client_config(llm_client, client_registry)
 
     client =
@@ -268,7 +266,7 @@ defmodule Beamlens.Agent do
   end
 
   defp add_tool_message(context, content, metadata) do
-    message = Puck.Message.new(:tool, content, metadata)
+    message = Puck.Message.new(:user, content, metadata)
     %{context | messages: context.messages ++ [message]}
   end
 
@@ -288,10 +286,10 @@ defmodule Beamlens.Agent do
 
   defp maybe_add_client_config(config, _llm_client, client_registry)
        when is_map(client_registry) do
-    Keyword.put(config, :client_registry, client_registry)
+    Map.put(config, :client_registry, client_registry)
   end
 
   defp maybe_add_client_config(config, llm_client, nil) do
-    Keyword.put(config, :llm_client, llm_client)
+    Map.put(config, :llm_client, llm_client)
   end
 end

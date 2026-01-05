@@ -219,16 +219,20 @@ defmodule Beamlens.Scheduler do
     Enum.reduce_while(configs, {:ok, %{}}, fn config, {:ok, acc} ->
       case Schedule.new(config) do
         {:ok, schedule} ->
-          if Map.has_key?(acc, schedule.name) do
-            {:halt, {:error, {:duplicate_schedule, schedule.name}}}
-          else
-            {:cont, {:ok, Map.put(acc, schedule.name, schedule)}}
-          end
+          add_schedule(acc, schedule)
 
         {:error, {:invalid_cron, name, reason}} ->
           {:halt, {:error, {:invalid_cron, name, reason}}}
       end
     end)
+  end
+
+  defp add_schedule(acc, schedule) do
+    if Map.has_key?(acc, schedule.name) do
+      {:halt, {:error, {:duplicate_schedule, schedule.name}}}
+    else
+      {:cont, {:ok, Map.put(acc, schedule.name, schedule)}}
+    end
   end
 
   defp start_all_timers(schedules) do
@@ -278,28 +282,31 @@ defmodule Beamlens.Scheduler do
 
     task =
       Task.Supervisor.async_nolink(Beamlens.TaskSupervisor, fn ->
-        # Wrap in agent telemetry span for parity with old Runner
         Telemetry.span(%{node: node, trace_id: trace_id}, fn ->
-          case run_fun.(agent_opts) do
-            {:ok, analysis} ->
-              metadata = %{
-                node: node,
-                trace_id: trace_id,
-                status: analysis.status,
-                analysis: analysis,
-                tool_count: 0
-              }
-
-              {{{:ok, analysis}, nil}, %{}, metadata}
-
-            {:error, reason} ->
-              {{{:error, reason}, nil}, %{}, %{node: node, trace_id: trace_id, error: reason}}
-          end
+          execute_run(run_fun, agent_opts, node, trace_id)
         end)
       end)
 
     updated = %{schedule | running: task.ref}
     put_in(state.schedules[name], updated)
+  end
+
+  defp execute_run(run_fun, agent_opts, node, trace_id) do
+    case run_fun.(agent_opts) do
+      {:ok, analysis} ->
+        metadata = %{
+          node: node,
+          trace_id: trace_id,
+          status: analysis.status,
+          analysis: analysis,
+          tool_count: 0
+        }
+
+        {{{:ok, analysis}, nil}, %{}, metadata}
+
+      {:error, reason} ->
+        {{{:error, reason}, nil}, %{}, %{node: node, trace_id: trace_id, error: reason}}
+    end
   end
 
   defp find_schedule_by_ref(schedules, ref) do
