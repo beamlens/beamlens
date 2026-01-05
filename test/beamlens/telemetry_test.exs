@@ -41,9 +41,9 @@ defmodule Beamlens.TelemetryTest do
       assert [:beamlens, :agent, :start] in events
       assert [:beamlens, :agent, :stop] in events
       assert [:beamlens, :agent, :exception] in events
-      assert [:beamlens, :llm, :call_start] in events
-      assert [:beamlens, :llm, :call_stop] in events
-      assert [:beamlens, :llm, :call_error] in events
+      assert [:beamlens, :llm, :start] in events
+      assert [:beamlens, :llm, :stop] in events
+      assert [:beamlens, :llm, :exception] in events
       assert [:beamlens, :tool, :start] in events
       assert [:beamlens, :tool, :stop] in events
       assert [:beamlens, :tool, :exception] in events
@@ -126,7 +126,9 @@ defmodule Beamlens.TelemetryTest do
       assert is_integer(measurements.duration)
       assert event_metadata.trace_id == "test-trace-456"
       assert event_metadata.tool_name == "get_atom_stats"
-      assert %RuntimeError{} = event_metadata.error
+      assert event_metadata.kind == :error
+      assert %RuntimeError{} = event_metadata.reason
+      assert is_list(event_metadata.stacktrace)
 
       :telemetry.detach("test-tool-exception-handler-#{inspect(ref)}")
     end

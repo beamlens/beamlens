@@ -3,36 +3,49 @@ defmodule Beamlens.Telemetry do
   Telemetry events emitted by BeamLens.
 
   All events include a `trace_id` for correlating events within a single agent run.
+  Events follow the standard `:start`, `:stop`, `:exception` lifecycle pattern
+  used by Phoenix, Oban, and other Elixir libraries.
+
+  ## Event Schema
+
+  **Start events** include `%{system_time: integer}` measurement.
+
+  **Stop events** include `%{duration: integer}` measurement (native time units).
+
+  **Exception events** include `%{duration: integer}` measurement and metadata:
+  `%{kind: :error | :throw | :exit, reason: term(), stacktrace: list()}`.
 
   ## Agent Events
 
   * `[:beamlens, :agent, :start]` - Agent run starting
     - Measurements: `%{system_time: integer}`
-    - Metadata: `%{trace_id: String.t(), node: String.t()}`
+    - Metadata: `%{trace_id: String.t(), node: atom()}`
 
   * `[:beamlens, :agent, :stop]` - Agent run completed
-    - Measurements: `%{duration: integer}` (native units)
-    - Metadata: `%{trace_id: String.t(), node: String.t(), status: atom(),
+    - Measurements: `%{duration: integer}`
+    - Metadata: `%{trace_id: String.t(), node: atom(), status: atom(),
                    analysis: HealthAnalysis.t()}`
 
   * `[:beamlens, :agent, :exception]` - Agent run failed
     - Measurements: `%{duration: integer}`
-    - Metadata: `%{trace_id: String.t(), node: String.t(), error: term()}`
+    - Metadata: `%{trace_id: String.t(), node: atom(),
+                   kind: atom(), reason: term(), stacktrace: list()}`
 
-  ## LLM Call Events
+  ## LLM Events
 
-  * `[:beamlens, :llm, :call_start]` - LLM call starting
+  * `[:beamlens, :llm, :start]` - LLM call starting
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{trace_id: String.t(), iteration: integer, context_size: integer}`
 
-  * `[:beamlens, :llm, :call_stop]` - LLM call completed
-    - Measurements: `%{system_time: integer}`
+  * `[:beamlens, :llm, :stop]` - LLM call completed
+    - Measurements: `%{duration: integer}`
     - Metadata: `%{trace_id: String.t(), iteration: integer,
-                   tool_selected: String.t(), intent: String.t()}`
+                   tool_selected: String.t(), intent: String.t(), response: struct()}`
 
-  * `[:beamlens, :llm, :call_error]` - LLM call failed
-    - Measurements: `%{system_time: integer}`
-    - Metadata: `%{trace_id: String.t(), iteration: integer, error: term()}`
+  * `[:beamlens, :llm, :exception]` - LLM call failed
+    - Measurements: `%{duration: integer}`
+    - Metadata: `%{trace_id: String.t(), iteration: integer,
+                   kind: atom(), reason: term(), stacktrace: list()}`
 
   ## Tool Events
 
@@ -42,14 +55,14 @@ defmodule Beamlens.Telemetry do
                    tool_name: String.t(), intent: String.t()}`
 
   * `[:beamlens, :tool, :stop]` - Tool execution completed
-    - Measurements: `%{duration: integer}` (native time units)
+    - Measurements: `%{duration: integer}`
     - Metadata: `%{trace_id: String.t(), iteration: integer,
                    tool_name: String.t(), intent: String.t(), result: map()}`
 
   * `[:beamlens, :tool, :exception]` - Tool execution failed
-    - Measurements: `%{system_time: integer}`
-    - Metadata: `%{trace_id: String.t(), iteration: integer,
-                   tool_name: String.t(), error: term()}`
+    - Measurements: `%{duration: integer}`
+    - Metadata: `%{trace_id: String.t(), iteration: integer, tool_name: String.t(),
+                   kind: atom(), reason: term(), stacktrace: list()}`
 
   ## Schedule Events
 
@@ -98,9 +111,9 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :agent, :start],
       [:beamlens, :agent, :stop],
       [:beamlens, :agent, :exception],
-      [:beamlens, :llm, :call_start],
-      [:beamlens, :llm, :call_stop],
-      [:beamlens, :llm, :call_error],
+      [:beamlens, :llm, :start],
+      [:beamlens, :llm, :stop],
+      [:beamlens, :llm, :exception],
       [:beamlens, :tool, :start],
       [:beamlens, :tool, :stop],
       [:beamlens, :tool, :exception],
@@ -147,19 +160,21 @@ defmodule Beamlens.Telemetry do
       :telemetry.execute(
         [:beamlens, :tool, :stop],
         %{duration: System.monotonic_time() - start_time},
-        metadata
+        Map.put(metadata, :result, result)
       )
 
       result
     rescue
       exception ->
+        stacktrace = __STACKTRACE__
+
         :telemetry.execute(
           [:beamlens, :tool, :exception],
           %{duration: System.monotonic_time() - start_time},
-          Map.put(metadata, :error, exception)
+          Map.merge(metadata, %{kind: :error, reason: exception, stacktrace: stacktrace})
         )
 
-        reraise exception, __STACKTRACE__
+        reraise exception, stacktrace
     end
   end
 
@@ -188,13 +203,17 @@ defmodule Beamlens.Telemetry do
   end
 
   @doc """
-  Emits a tool exception event.
+  Emits a tool exception event with duration and exception details.
+
+  `start_time` should be captured via `System.monotonic_time()` before tool execution.
+  `kind` is the exception type (`:error`, `:throw`, or `:exit`).
+  `stacktrace` is the exception stacktrace.
   """
-  def emit_tool_exception(metadata, error) do
+  def emit_tool_exception(metadata, error, start_time, kind \\ :error, stacktrace \\ []) do
     :telemetry.execute(
       [:beamlens, :tool, :exception],
-      %{system_time: System.system_time()},
-      Map.put(metadata, :error, error)
+      %{duration: System.monotonic_time() - start_time},
+      Map.merge(metadata, %{kind: kind, reason: error, stacktrace: stacktrace})
     )
   end
 

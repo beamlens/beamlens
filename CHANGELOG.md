@@ -11,7 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Event system for data provenance — verify AI conclusions against raw data
 - `HealthAnalysis.events` field with ordered list of all events during analysis
-- Tool results now included in `[:beamlens, :tool, :stop]` telemetry events
+
+### Changed
+
+- Standardized telemetry events to follow Phoenix/Oban conventions
+- All exception events now include `kind`, `reason`, and `stacktrace` metadata
+- All stop events now include `duration` measurement and result data
 
 ## [0.1.0] - 2025-01-03
 

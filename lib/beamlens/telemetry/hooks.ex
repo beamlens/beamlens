@@ -21,9 +21,10 @@ defmodule Beamlens.Telemetry.Hooks do
   @impl true
   def on_call_start(_agent, content, context) do
     metadata = extract_trace_metadata(context)
+    Process.put(:beamlens_llm_start_time, System.monotonic_time())
 
     :telemetry.execute(
-      [:beamlens, :llm, :call_start],
+      [:beamlens, :llm, :start],
       %{system_time: System.system_time()},
       Map.put(metadata, :context_size, length(context.messages))
     )
@@ -35,11 +36,13 @@ defmodule Beamlens.Telemetry.Hooks do
   def on_call_end(_agent, response, context) do
     metadata = extract_trace_metadata(context)
     {tool_name, intent} = extract_tool_info(response.content)
+    start_time = Process.delete(:beamlens_llm_start_time) || System.monotonic_time()
+    duration = System.monotonic_time() - start_time
 
     :telemetry.execute(
-      [:beamlens, :llm, :call_stop],
-      %{system_time: System.system_time()},
-      Map.merge(metadata, %{tool_selected: tool_name, intent: intent})
+      [:beamlens, :llm, :stop],
+      %{duration: duration},
+      Map.merge(metadata, %{tool_selected: tool_name, intent: intent, response: response.content})
     )
 
     {:cont, response}
@@ -48,11 +51,13 @@ defmodule Beamlens.Telemetry.Hooks do
   @impl true
   def on_call_error(_agent, error, context) do
     metadata = extract_trace_metadata(context)
+    start_time = Process.delete(:beamlens_llm_start_time) || System.monotonic_time()
+    duration = System.monotonic_time() - start_time
 
     :telemetry.execute(
-      [:beamlens, :llm, :call_error],
-      %{system_time: System.system_time()},
-      Map.put(metadata, :error, error)
+      [:beamlens, :llm, :exception],
+      %{duration: duration},
+      Map.merge(metadata, %{kind: :error, reason: error, stacktrace: []})
     )
   end
 

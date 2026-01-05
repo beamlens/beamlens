@@ -314,7 +314,7 @@ defmodule Beamlens.Agent do
         loop(client, new_context, remaining, timeout, tools)
 
       {:error, reason} ->
-        Telemetry.emit_tool_exception(trace_metadata, reason)
+        Telemetry.emit_tool_exception(trace_metadata, reason, start_time)
 
         Logger.error("[BeamLens] Failed to encode tool result: #{inspect(reason)}",
           trace_id: context.metadata.trace_id,
