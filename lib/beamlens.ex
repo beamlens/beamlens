@@ -21,7 +21,6 @@ defmodule Beamlens do
 
         def start(_type, _args) do
           children = [
-            # ... your other children ...
             {Beamlens, schedules: [{:default, "*/5 * * * *"}]}
           ]
 
@@ -36,15 +35,28 @@ defmodule Beamlens do
     * `:schedules` - List of schedule configurations (see below)
     * `:agent_opts` - Global options passed to all agent runs, including:
       * `:collectors` - List of collector modules (default: `[Beamlens.Collectors.Beam]`)
+    * `:circuit_breaker` - Circuit breaker options (see below)
+
+  ### Circuit Breaker Configuration
+
+  The circuit breaker prevents cascading failures when the LLM provider is unavailable.
+  It is disabled by default and must be explicitly enabled:
+
+      {Beamlens,
+        schedules: [{:default, "*/5 * * * *"}],
+        circuit_breaker: [
+          enabled: true,
+          failure_threshold: 5,
+          reset_timeout: 30_000,
+          success_threshold: 2
+        ]}
 
   ### Schedule Configuration
 
   Schedules can be specified using tuple shorthand or full keyword lists:
 
-      # Tuple shorthand: {name, cron_expression}
       {:default, "*/5 * * * *"}
 
-      # Full keyword list for per-schedule options
       [name: :nightly, cron: "0 2 * * *", agent_opts: [timeout: 300_000]]
 
   ### Example Configuration
@@ -64,23 +76,18 @@ defmodule Beamlens do
 
   You can also run the agent manually without the scheduler:
 
-      # Run analysis and get result
       {:ok, analysis} = Beamlens.run()
 
-      # Run with options
       {:ok, analysis} = Beamlens.run(timeout: 120_000)
 
   ## Runtime API
 
   When using the scheduler, you can interact with schedules at runtime:
 
-      # List all schedules
       Beamlens.list_schedules()
 
-      # Get a specific schedule
       Beamlens.get_schedule(:default)
 
-      # Trigger immediate run (outside of schedule)
       Beamlens.run_now(:default)
 
   ## Telemetry Events
@@ -116,6 +123,7 @@ defmodule Beamlens do
 
     * `{:error, :max_iterations_exceeded}` - Agent did not complete within iteration limit
     * `{:error, :timeout}` - LLM call timed out
+    * `{:error, :circuit_open}` - Circuit breaker is open due to consecutive failures
     * `{:error, {:unknown_tool, tool}}` - LLM returned unrecognized tool
     * `{:error, {:encoding_failed, tool_name, reason}}` - Tool result could not be JSON-encoded
   """
@@ -137,4 +145,30 @@ defmodule Beamlens do
   Returns `{:error, :already_running}` if the schedule is already executing.
   """
   defdelegate run_now(name), to: Beamlens.Scheduler
+
+  @doc """
+  Returns the current circuit breaker state.
+
+  ## Example
+
+      Beamlens.circuit_breaker_state()
+      #=> %{
+      #=>   state: :closed,
+      #=>   failure_count: 0,
+      #=>   success_count: 0,
+      #=>   failure_threshold: 5,
+      #=>   reset_timeout: 30000,
+      #=>   success_threshold: 2,
+      #=>   last_failure_at: nil,
+      #=>   last_failure_reason: nil
+      #=> }
+  """
+  defdelegate circuit_breaker_state(), to: Beamlens.CircuitBreaker, as: :get_state
+
+  @doc """
+  Resets the circuit breaker to closed state.
+
+  Use with caution - primarily for manual recovery after resolving issues.
+  """
+  defdelegate reset_circuit_breaker(), to: Beamlens.CircuitBreaker, as: :reset
 end

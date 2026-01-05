@@ -10,18 +10,28 @@ defmodule Beamlens.Supervisor do
   @impl true
   def init(opts) do
     schedules = opts |> Keyword.get(:schedules, []) |> normalize_schedules()
+    circuit_breaker_opts = Keyword.get(opts, :circuit_breaker, [])
     scheduler_opts = Keyword.put(opts, :schedules, schedules)
 
-    children = [
-      {Task.Supervisor, name: Beamlens.TaskSupervisor},
-      {Beamlens.Scheduler, scheduler_opts}
-    ]
+    children =
+      [
+        {Task.Supervisor, name: Beamlens.TaskSupervisor},
+        maybe_circuit_breaker(circuit_breaker_opts),
+        {Beamlens.Scheduler, scheduler_opts}
+      ]
+      |> Enum.reject(&is_nil/1)
 
     Supervisor.init(children, strategy: :one_for_one)
   end
 
-  # Normalize schedule configs to keyword lists
-  # Supports tuple shorthand: {:name, "cron"} -> [name: :name, cron: "cron"]
+  defp maybe_circuit_breaker(opts) do
+    if Keyword.get(opts, :enabled, false) do
+      {Beamlens.CircuitBreaker, Keyword.delete(opts, :enabled)}
+    else
+      nil
+    end
+  end
+
   defp normalize_schedules(schedules) do
     Enum.map(schedules, &normalize_schedule/1)
   end
