@@ -1,26 +1,61 @@
 # BeamLens
 
-A minimal, safe AI agent that monitors BEAM VM health and generates analyses using Claude Haiku.
+**Your BEAM Expert, Always On**
 
-## Features
+An AI agent that runs alongside your Elixir app—observing your runtime, explaining what it sees, giving you context to investigate faster.
 
-- **Safe by design**: Read-only metrics, no PII/PHI exposure, zero side effects
-- **Cron scheduling**: Standard cron syntax for flexible scheduling
-- **Structured output**: Returns typed `HealthAnalysis` structs, not raw text
-- **Telemetry integration**: Emits events for observability
-- **Claude-powered**: Uses Haiku for cost-effective, intelligent analysis (~$0.001/run)
+## The Problem
+
+Scheduler utilization spikes. Memory grows. A GenServer queue backs up.
+
+You open your dashboards—Prometheus, Datadog, AppSignal. The data is there. But before you can investigate, you're correlating metrics, cross-referencing logs, building context.
+
+BeamLens assembles that context for you—a starting point to verify, not a black box to trust.
+
+## Start With Context, Not Just Metrics
+
+```
+Without BeamLens:
+scheduler_utilization: 0.87
+memory_total: 2147483648
+process_count: 12847
+
+With BeamLens:
+"Scheduler utilization at 87%. Memory usage elevated but stable.
+Process count within normal range. No immediate concerns detected."
+```
+
+## Why BeamLens
+
+- **BEAM-Native Tooling** — Direct access to BEAM instrumentation: schedulers, memory, processes, atoms. The context generic APM tools can't see.
+
+- **Read-Only by Design** — Zero writes to your system. Type-safe outputs. Your data stays in your infrastructure.
+
+- **Supplements Your Stack** — Works alongside Prometheus, Datadog, AppSignal, Sentry—whatever you're already using.
+
+- **Bring Your Own Model** — Anthropic, OpenAI, AWS Bedrock, Google Gemini, Azure OpenAI, Ollama, OpenRouter, Together AI. Your keys, your infrastructure.
+
+## Prerequisites
+
+**Rust toolchain** is required to compile `baml_elixir` from source (temporary requirement until precompiled NIFs are available):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
 ## Installation
 
 ```elixir
 def deps do
-  [{:beamlens, github: "bradleygolden/beamlens"}]
+  [{:beamlens, "~> 0.1.0"}]
 end
 ```
 
 ## Quick Start
 
-Add to your supervision tree with a `client_registry` configuration:
+BeamLens uses BAML's [ClientRegistry](https://docs.boundaryml.com/guide/baml-advanced/client-registry) to configure LLM providers at runtime.
+
+Add to your supervision tree:
 
 ```elixir
 def start(_type, _args) do
@@ -32,7 +67,7 @@ def start(_type, _args) do
           primary: "Claude",
           clients: [
             %{name: "Claude", provider: "anthropic",
-              options: %{model: "claude-haiku-4-5-20250514", api_key: System.get_env("ANTHROPIC_API_KEY")}}
+              options: %{model: "claude-haiku-4-5-20251001", api_key: System.get_env("ANTHROPIC_API_KEY")}}
           ]
         }
       ]}
@@ -45,14 +80,6 @@ end
 Or run manually:
 
 ```elixir
-client_registry = %{
-  primary: "Claude",
-  clients: [
-    %{name: "Claude", provider: "anthropic",
-      options: %{model: "claude-haiku-4-5-20250514", api_key: System.get_env("ANTHROPIC_API_KEY")}}
-  ]
-}
-
 {:ok, analysis} = Beamlens.run(client_registry: client_registry)
 
 analysis.status          #=> :healthy
@@ -61,35 +88,55 @@ analysis.concerns        #=> []
 analysis.recommendations #=> []
 ```
 
-## Documentation
-
-See the module documentation for detailed usage:
-
-- `Beamlens` - Main module with full configuration options
-- `Beamlens.Scheduler` - Cron scheduling details
-- `Beamlens.Telemetry` - Telemetry events
-
-### Attaching to all events
+### Bring Your Own Model
 
 ```elixir
-:telemetry.attach_many(
-  "beamlens-logger",
-  Beamlens.Telemetry.event_names(),
-  &MyHandler.handle_event/4,
-  nil
-)
+# Ollama (run completely offline)
+%{primary: "Ollama", clients: [
+  %{name: "Ollama", provider: "openai-generic",
+    options: %{base_url: "http://localhost:11434/v1", model: "llama4"}}
+]}
+
+# AWS Bedrock
+%{primary: "Bedrock", clients: [
+  %{name: "Bedrock", provider: "aws-bedrock",
+    options: %{model: "anthropic.claude-haiku-4-5-v1:0", region: "us-east-1"}}
+]}
+
+# OpenAI
+%{primary: "OpenAI", clients: [
+  %{name: "OpenAI", provider: "openai",
+    options: %{model: "gpt-4o-mini", api_key: System.get_env("OPENAI_API_KEY")}}
+]}
 ```
 
-## What it monitors
+## What It Observes
 
-BeamLens gathers safe, read-only VM metrics:
+BeamLens gathers safe, read-only runtime metrics:
 
-- OTP release version
-- Scheduler count and utilization
-- Memory breakdown (processes, atoms, binaries, ETS)
-- Process and port counts
-- System uptime
+- Scheduler utilization and run queues
+- Memory breakdown (processes, binaries, ETS, code)
+- Process and port counts with limits
+- Atom table metrics
+- Persistent term usage
+- OTP release and uptime
+
+## Circuit Breaker
+
+Opt-in protection against LLM provider failures:
+
+```elixir
+{Beamlens,
+  schedules: [{:default, "*/5 * * * *"}],
+  circuit_breaker: [enabled: true, failure_threshold: 5, reset_timeout: 30_000]}
+```
+
+## Documentation
+
+- `Beamlens` — Main module with full configuration options
+- `Beamlens.Scheduler` — Cron scheduling details
+- `Beamlens.Telemetry` — Telemetry events for observability
 
 ## License
 
-MIT
+Apache-2.0

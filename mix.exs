@@ -1,17 +1,24 @@
 defmodule Beamlens.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @source_url "https://github.com/bradleygolden/beamlens"
+
   def project do
     [
       app: :beamlens,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       aliases: aliases(),
       dialyzer: dialyzer(),
-      description: "A minimal AI agent that monitors BEAM VM health",
-      package: package()
+      description: "Your BEAM Expert, Always On — an AI agent for runtime analysis",
+      package: package(),
+      docs: docs(),
+      name: "BeamLens",
+      source_url: @source_url,
+      homepage_url: "https://beamlens.dev"
     ]
   end
 
@@ -48,7 +55,8 @@ defmodule Beamlens.MixProject do
       {:crontab, "~> 1.1"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false}
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.35", only: :dev, runtime: false}
     ]
   end
 
@@ -66,8 +74,21 @@ defmodule Beamlens.MixProject do
 
   defp package do
     [
-      licenses: ["MIT"],
-      links: %{}
+      licenses: ["Apache-2.0"],
+      links: %{
+        "GitHub" => @source_url,
+        "Website" => "https://beamlens.dev"
+      }
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      extras: ["README.md", "LICENSE"],
+      source_ref: "v#{@version}",
+      formatters: ["html"],
+      authors: ["Bradley Golden"]
     ]
   end
 end
