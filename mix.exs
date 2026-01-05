@@ -88,7 +88,32 @@ defmodule Beamlens.MixProject do
       extras: ["README.md", "LICENSE"],
       source_ref: "v#{@version}",
       formatters: ["html"],
-      authors: ["Bradley Golden"]
+      authors: ["Bradley Golden"],
+      groups_for_modules: [
+        Core: [
+          Beamlens,
+          Beamlens.Agent,
+          Beamlens.HealthAnalysis
+        ],
+        Scheduling: [
+          Beamlens.Scheduler,
+          Beamlens.Scheduler.Schedule
+        ],
+        Collectors: [
+          Beamlens.Collector,
+          Beamlens.Collectors.Beam,
+          Beamlens.Tool,
+          Beamlens.Tools
+        ],
+        Observability: [
+          Beamlens.Telemetry,
+          Beamlens.Telemetry.Hooks
+        ],
+        Infrastructure: [
+          Beamlens.CircuitBreaker,
+          Beamlens.BAML
+        ]
+      ]
     ]
   end
 end
