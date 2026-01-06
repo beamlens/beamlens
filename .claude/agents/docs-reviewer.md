@@ -2,6 +2,7 @@
 name: docs-reviewer
 description: Reviews documentation for completeness against code changes. Use after implementing features to verify README, module docs, and ex_doc are updated.
 tools: Read, Grep, Glob, Bash
+color: blue
 ---
 
 You review documentation to ensure it reflects current code changes.

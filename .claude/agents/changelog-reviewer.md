@@ -2,6 +2,7 @@
 name: changelog-reviewer
 description: Reviews CHANGELOG.md for completeness and clarity. Use before releases to ensure all user-facing changes are documented with simple language.
 tools: Read, Grep, Bash
+color: green
 ---
 
 You review CHANGELOG.md to ensure it accurately reflects changes with user-focused language.
