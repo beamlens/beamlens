@@ -97,6 +97,60 @@ defmodule Beamlens.Telemetry do
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{name: atom(), cron: String.t(), reason: term()}`
 
+  ## Watcher Events
+
+  * `[:beamlens, :watcher, :started]` - Watcher server started
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t()}`
+
+  * `[:beamlens, :watcher, :triggered]` - Watcher check triggered
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t(), source: :scheduled | :manual}`
+
+  * `[:beamlens, :watcher, :skipped]` - Watcher check skipped (already running)
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t(), reason: :already_running, source: atom()}`
+
+  * `[:beamlens, :watcher, :check_start]` - Watcher check starting
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t()}`
+
+  * `[:beamlens, :watcher, :check_stop]` - Watcher check completed
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t()}`
+
+  * `[:beamlens, :watcher, :baseline_collecting]` - Still collecting baseline observations
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t(), observation_count: integer,
+                   min_required: integer}`
+
+  * `[:beamlens, :watcher, :baseline_analysis_start]` - Baseline analysis starting
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t(), trace_id: String.t()}`
+
+  * `[:beamlens, :watcher, :baseline_analysis_stop]` - Baseline analysis completed
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t(), trace_id: String.t(), success: boolean()}`
+
+  * `[:beamlens, :watcher, :baseline_continue_observing]` - LLM decided to continue observing
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t(), trace_id: String.t(), confidence: atom()}`
+
+  * `[:beamlens, :watcher, :baseline_anomaly_detected]` - Anomaly detected and reported
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t(), trace_id: String.t(), report_id: String.t(),
+                   severity: atom(), anomaly_type: String.t(), confidence: atom()}`
+
+  * `[:beamlens, :watcher, :baseline_anomaly_suppressed]` - Anomaly detected but suppressed (cooldown)
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t(), trace_id: String.t(),
+                   anomaly_type: String.t(), category: atom(), reason: :cooldown}`
+
+  * `[:beamlens, :watcher, :baseline_healthy]` - System determined to be healthy
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{watcher: atom(), cron: String.t(), trace_id: String.t(),
+                   confidence: atom(), summary: String.t()}`
+
   ## Example Handler
 
       :telemetry.attach(
@@ -139,6 +193,18 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :schedule, :skipped],
       [:beamlens, :schedule, :completed],
       [:beamlens, :schedule, :failed],
+      [:beamlens, :watcher, :started],
+      [:beamlens, :watcher, :triggered],
+      [:beamlens, :watcher, :skipped],
+      [:beamlens, :watcher, :check_start],
+      [:beamlens, :watcher, :check_stop],
+      [:beamlens, :watcher, :baseline_collecting],
+      [:beamlens, :watcher, :baseline_analysis_start],
+      [:beamlens, :watcher, :baseline_analysis_stop],
+      [:beamlens, :watcher, :baseline_continue_observing],
+      [:beamlens, :watcher, :baseline_anomaly_detected],
+      [:beamlens, :watcher, :baseline_anomaly_suppressed],
+      [:beamlens, :watcher, :baseline_healthy],
       [:beamlens, :circuit_breaker, :state_change],
       [:beamlens, :circuit_breaker, :rejected]
     ]

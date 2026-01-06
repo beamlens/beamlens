@@ -51,6 +51,8 @@ defmodule Beamlens.Agent do
 
     * `:collectors` - List of collector modules to use for gathering metrics.
       Defaults to configured collectors or `[Beamlens.Collectors.Beam]`.
+    * `:snapshot` - Pre-computed snapshot map to use instead of calling `Beam.snapshot()`.
+      Useful for testing with mock data.
     * `:client_registry` - Full LLM client configuration map. When provided,
       takes precedence and `:llm_client` is ignored. See example below.
     * `:llm_client` - LLM client name string (e.g., "Ollama"). Only used
@@ -185,7 +187,7 @@ defmodule Beamlens.Agent do
     tools = collect_tools(collectors)
     initial_context = Keyword.get(opts, :initial_context)
 
-    snapshot = Beam.snapshot()
+    snapshot = Keyword.get(opts, :snapshot) || Beam.snapshot()
     snapshot_json = Jason.encode!(snapshot)
 
     snapshot_event = %ToolCall{

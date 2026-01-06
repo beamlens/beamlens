@@ -5,11 +5,20 @@ defmodule Beamlens.Watchers.Server do
   Each watcher server:
   1. Starts with a cron schedule
   2. On each tick: collects snapshot, detects anomaly
-  3. If anomaly: creates Report, sends to ReportQueue
+  3. If anomaly: creates Report, sends to ReportQueue (unless in cooldown)
   4. Emits telemetry events for lifecycle
 
   This is the runtime component of the **Orchestrator-Workers** pattern.
   Each Server runs a single watcher module continuously.
+
+  ## Alert Cooldown
+
+  To prevent alert fatigue, detected anomalies are subject to a 5-minute cooldown
+  per metric category. After reporting a "memory_high" anomaly, subsequent memory
+  anomalies within 5 minutes are suppressed (emitting telemetry event
+  `[:beamlens, :watcher, :baseline_anomaly_suppressed]`).
+
+  Categories are derived from the anomaly type prefix (e.g., "memory_high" → :memory).
 
   ## Example
 
@@ -38,6 +47,7 @@ defmodule Beamlens.Watchers.Server do
 
   @default_window_size 60
   @default_min_observations 3
+  @default_cooldown_seconds 300
 
   defstruct [
     :name,
@@ -55,7 +65,8 @@ defmodule Beamlens.Watchers.Server do
     :llm_client,
     :client_registry,
     run_count: 0,
-    running: false
+    running: false,
+    alert_cooldowns: %{}
   ]
 
   @doc """
@@ -262,32 +273,55 @@ defmodule Beamlens.Watchers.Server do
          state,
          %Decision.ReportAnomaly{} = decision,
          snapshot,
-         history,
+         _history,
          _context,
          trace_id
        ) do
     emit_telemetry(:baseline_analysis_stop, state, %{trace_id: trace_id, success: true})
 
-    report =
-      build_report(
-        state,
-        String.to_atom(decision.anomaly_type),
-        decision.severity,
-        decision.summary,
-        snapshot
-      )
+    category = metric_category(decision.anomaly_type)
+    window_size = Map.get(state.baseline_config, :window_size, @default_window_size)
 
-    emit_telemetry(:baseline_anomaly_detected, state, %{
-      trace_id: trace_id,
-      report_id: report.id,
-      severity: decision.severity,
-      anomaly_type: decision.anomaly_type,
-      confidence: decision.confidence
-    })
+    if in_cooldown?(state.alert_cooldowns, category) do
+      emit_telemetry(:baseline_anomaly_suppressed, state, %{
+        trace_id: trace_id,
+        anomaly_type: decision.anomaly_type,
+        category: category,
+        reason: :cooldown
+      })
 
-    state.report_handler.(report)
+      %{
+        state
+        | observation_history: ObservationHistory.new(window_size: window_size),
+          baseline_context: Context.new()
+      }
+    else
+      report =
+        build_report(
+          state,
+          String.to_atom(decision.anomaly_type),
+          decision.severity,
+          decision.summary,
+          snapshot
+        )
 
-    %{state | observation_history: history, baseline_context: Context.new()}
+      emit_telemetry(:baseline_anomaly_detected, state, %{
+        trace_id: trace_id,
+        report_id: report.id,
+        severity: decision.severity,
+        anomaly_type: decision.anomaly_type,
+        confidence: decision.confidence
+      })
+
+      state.report_handler.(report)
+
+      %{
+        state
+        | observation_history: ObservationHistory.new(window_size: window_size),
+          baseline_context: Context.new(),
+          alert_cooldowns: Map.put(state.alert_cooldowns, category, DateTime.utc_now())
+      }
+    end
   end
 
   defp handle_baseline_decision(
@@ -348,5 +382,20 @@ defmodule Beamlens.Watchers.Server do
         extra
       )
     )
+  end
+
+  defp metric_category(anomaly_type) when is_binary(anomaly_type) do
+    [prefix | _] = String.split(anomaly_type, "_")
+    String.to_atom(prefix)
+  end
+
+  defp in_cooldown?(cooldowns, category) do
+    cooldowns |> Map.get(category) |> cooldown_active?()
+  end
+
+  defp cooldown_active?(nil), do: false
+
+  defp cooldown_active?(reported_at) do
+    DateTime.diff(DateTime.utc_now(), reported_at, :second) < @default_cooldown_seconds
   end
 end

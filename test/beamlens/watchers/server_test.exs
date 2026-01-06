@@ -245,4 +245,29 @@ defmodule Beamlens.Watchers.ServerTest do
       :telemetry.detach(ref)
     end
   end
+
+  describe "alert cooldown" do
+    test "initializes with empty alert_cooldowns", %{queue: queue} do
+      {:ok, pid} =
+        Server.start_link(
+          watcher_module: TestWatcher,
+          cron: "0 0 1 1 *",
+          config: [],
+          report_handler: &ReportQueue.push(&1, queue)
+        )
+
+      state = :sys.get_state(pid)
+      assert state.alert_cooldowns == %{}
+    end
+
+    test "baseline_anomaly_suppressed telemetry event is registered" do
+      event_names = Beamlens.Telemetry.event_names()
+      assert [:beamlens, :watcher, :baseline_anomaly_suppressed] in event_names
+    end
+
+    test "baseline_anomaly_detected telemetry event is registered" do
+      event_names = Beamlens.Telemetry.event_names()
+      assert [:beamlens, :watcher, :baseline_anomaly_detected] in event_names
+    end
+  end
 end
