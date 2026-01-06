@@ -29,18 +29,20 @@ defmodule Beamlens.Agent do
 
   require Logger
 
-  alias Beamlens.{CircuitBreaker, Telemetry, Tools}
+  alias Beamlens.{CircuitBreaker, Judge, Telemetry, Tools}
   alias Beamlens.Events.{LLMCall, ToolCall}
   alias Puck.Context
 
   @default_max_iterations 10
   @default_timeout :timer.seconds(60)
+  @default_max_judge_retries 2
 
   @doc """
   Run a health analysis using the agent loop.
 
   The agent will iteratively select tools to gather information,
-  then generate a final health analysis.
+  then generate a final health analysis. By default, a judge agent
+  reviews the output and may request retries for quality assurance.
 
   ## Options
 
@@ -53,12 +55,18 @@ defmodule Beamlens.Agent do
     * `:max_iterations` - Maximum tool calls before forcing completion (default: 10)
     * `:trace_id` - Correlation ID for telemetry (auto-generated if not provided)
     * `:timeout` - Timeout in milliseconds for each LLM call (default: 60000)
+    * `:judge` - Enable judge agent review (default: true). Set to false for
+      faster runs without quality verification.
+    * `:max_judge_retries` - Maximum retries if judge rejects output (default: 2)
 
   ## Examples
 
       {:ok, analysis} = Beamlens.Agent.run()
       analysis.status
       #=> :healthy
+
+      # Disable judge for faster development runs
+      {:ok, analysis} = Beamlens.Agent.run(judge: false)
 
       # Use a different preconfigured client
       {:ok, analysis} = Beamlens.Agent.run(llm_client: "Ollama")
@@ -83,12 +91,27 @@ defmodule Beamlens.Agent do
       )
   """
   def run(opts \\ []) do
+    judge_enabled = Keyword.get(opts, :judge, true)
+    max_judge_retries = Keyword.get(opts, :max_judge_retries, @default_max_judge_retries)
+    trace_id = Keyword.get(opts, :trace_id, Telemetry.generate_trace_id())
+
+    opts = Keyword.put(opts, :trace_id, trace_id)
+
+    if judge_enabled do
+      run_with_judge(opts, max_judge_retries)
+    else
+      run_agent_loop(opts)
+    end
+  end
+
+  defp run_agent_loop(opts) do
     max_iterations = Keyword.get(opts, :max_iterations, @default_max_iterations)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     llm_client = Keyword.get(opts, :llm_client)
     client_registry = Keyword.get(opts, :client_registry)
-    trace_id = Keyword.get(opts, :trace_id, Telemetry.generate_trace_id())
+    trace_id = Keyword.get(opts, :trace_id)
     collectors = Keyword.get(opts, :collectors, default_collectors())
+    initial_context = Keyword.get(opts, :initial_context)
 
     tools = collect_tools(collectors)
 
@@ -106,8 +129,16 @@ defmodule Beamlens.Agent do
         hooks: Beamlens.Telemetry.Hooks
       )
 
+    initial_messages =
+      if initial_context do
+        [Puck.Message.new(:user, initial_context, %{judge_feedback: true})]
+      else
+        []
+      end
+
     context =
       Context.new(
+        messages: initial_messages,
         metadata: %{
           trace_id: trace_id,
           started_at: DateTime.utc_now(),
@@ -119,6 +150,75 @@ defmodule Beamlens.Agent do
       )
 
     loop(client, context, max_iterations, timeout, tools)
+  end
+
+  defp run_with_judge(opts, max_retries, attempt \\ 1, accumulated_events \\ []) do
+    trace_id = Keyword.get(opts, :trace_id)
+
+    case run_agent_loop(opts) do
+      {:ok, analysis} ->
+        all_events = accumulated_events ++ analysis.events
+        analysis_with_all_events = %{analysis | events: all_events}
+
+        judge_opts = [
+          attempt: attempt,
+          trace_id: trace_id,
+          llm_client: Keyword.get(opts, :llm_client),
+          client_registry: Keyword.get(opts, :client_registry),
+          timeout: Keyword.get(opts, :timeout, @default_timeout)
+        ]
+
+        case Judge.review(analysis_with_all_events, judge_opts) do
+          {:ok, %{verdict: :accept} = judge_event} ->
+            final_events = all_events ++ [judge_event]
+
+            Logger.info("[BeamLens] Judge accepted analysis on attempt #{attempt}",
+              trace_id: trace_id
+            )
+
+            {:ok, %{analysis | events: final_events}}
+
+          {:ok, %{verdict: :retry} = judge_event} when attempt <= max_retries ->
+            Logger.info(
+              "[BeamLens] Judge requested retry (attempt #{attempt}/#{max_retries + 1}): #{judge_event.feedback}",
+              trace_id: trace_id
+            )
+
+            new_events = all_events ++ [judge_event]
+            feedback_opts = inject_feedback(opts, judge_event)
+            run_with_judge(feedback_opts, max_retries, attempt + 1, new_events)
+
+          {:ok, %{verdict: :retry} = judge_event} ->
+            Logger.warning(
+              "[BeamLens] Judge rejected after #{attempt} attempts, returning anyway",
+              trace_id: trace_id
+            )
+
+            final_events = all_events ++ [judge_event]
+            {:ok, %{analysis | events: final_events}}
+
+          {:error, reason} ->
+            Logger.warning("[BeamLens] Judge failed: #{inspect(reason)}, returning analysis",
+              trace_id: trace_id
+            )
+
+            {:ok, analysis_with_all_events}
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp inject_feedback(opts, judge_event) do
+    feedback_context = """
+    [JUDGE FEEDBACK - Previous attempt rejected]
+    Issues: #{Enum.join(judge_event.issues, "; ")}
+    Guidance: #{judge_event.feedback}
+    Please address these concerns in your analysis.
+    """
+
+    Keyword.put(opts, :initial_context, feedback_context)
   end
 
   defp collect_tools(collectors) do

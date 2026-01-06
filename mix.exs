@@ -89,10 +89,12 @@ defmodule Beamlens.MixProject do
         Core: [
           Beamlens,
           Beamlens.Agent,
+          Beamlens.Judge,
           Beamlens.HealthAnalysis
         ],
         Events: [
           Beamlens.Events,
+          Beamlens.Events.JudgeCall,
           Beamlens.Events.LLMCall,
           Beamlens.Events.ToolCall
         ],

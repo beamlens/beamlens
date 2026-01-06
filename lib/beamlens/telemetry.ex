@@ -64,6 +64,21 @@ defmodule Beamlens.Telemetry do
     - Metadata: `%{trace_id: String.t(), iteration: integer, tool_name: String.t(),
                    kind: atom(), reason: term(), stacktrace: list()}`
 
+  ## Judge Events
+
+  * `[:beamlens, :judge, :start]` - Judge review starting
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), attempt: integer}`
+
+  * `[:beamlens, :judge, :stop]` - Judge review completed
+    - Measurements: `%{duration: integer}`
+    - Metadata: `%{trace_id: String.t(), attempt: integer, verdict: atom()}`
+
+  * `[:beamlens, :judge, :exception]` - Judge review failed
+    - Measurements: `%{duration: integer}`
+    - Metadata: `%{trace_id: String.t(), attempt: integer,
+                   kind: atom(), reason: term(), stacktrace: list()}`
+
   ## Schedule Events
 
   * `[:beamlens, :schedule, :triggered]` - Schedule triggered (timer or manual)
@@ -117,6 +132,9 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :tool, :start],
       [:beamlens, :tool, :stop],
       [:beamlens, :tool, :exception],
+      [:beamlens, :judge, :start],
+      [:beamlens, :judge, :stop],
+      [:beamlens, :judge, :exception],
       [:beamlens, :schedule, :triggered],
       [:beamlens, :schedule, :skipped],
       [:beamlens, :schedule, :completed],
@@ -212,6 +230,43 @@ defmodule Beamlens.Telemetry do
   def emit_tool_exception(metadata, error, start_time, kind \\ :error, stacktrace \\ []) do
     :telemetry.execute(
       [:beamlens, :tool, :exception],
+      %{duration: System.monotonic_time() - start_time},
+      Map.merge(metadata, %{kind: kind, reason: error, stacktrace: stacktrace})
+    )
+  end
+
+  @doc """
+  Emits a judge start event.
+  """
+  def emit_judge_start(metadata) do
+    :telemetry.execute(
+      [:beamlens, :judge, :start],
+      %{system_time: System.system_time()},
+      metadata
+    )
+  end
+
+  @doc """
+  Emits a judge stop event with the verdict and duration.
+
+  `start_time` should be captured via `System.monotonic_time()` before judge call.
+  """
+  def emit_judge_stop(metadata, judge_event, start_time) do
+    :telemetry.execute(
+      [:beamlens, :judge, :stop],
+      %{duration: System.monotonic_time() - start_time},
+      Map.put(metadata, :verdict, judge_event.verdict)
+    )
+  end
+
+  @doc """
+  Emits a judge exception event with duration and exception details.
+
+  `start_time` should be captured via `System.monotonic_time()` before judge call.
+  """
+  def emit_judge_exception(metadata, error, start_time, kind \\ :error, stacktrace \\ []) do
+    :telemetry.execute(
+      [:beamlens, :judge, :exception],
       %{duration: System.monotonic_time() - start_time},
       Map.merge(metadata, %{kind: kind, reason: error, stacktrace: stacktrace})
     )

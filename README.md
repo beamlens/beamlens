@@ -97,6 +97,19 @@ The `HealthAnalysis` struct contains:
 | `summary` | `String.t()` | Brief 1-2 sentence summary |
 | `concerns` | `[String.t()]` | List of identified concerns |
 | `recommendations` | `[String.t()]` | Actionable next steps |
+| `events` | `[Events.t()]` | Execution trace (LLM calls, tool calls, judge reviews) |
+
+### Quality Verification
+
+By default, a judge agent reviews each analysis to verify conclusions are supported by collected data. If the judge finds issues, the agent automatically retries with feedback.
+
+```elixir
+# Disable judge for faster development runs
+{:ok, analysis} = Beamlens.run(judge: false)
+
+# Increase max retries (default: 2)
+{:ok, analysis} = Beamlens.run(max_judge_retries: 3)
+```
 
 ### Bring Your Own Model (Coming Soon)
 
@@ -134,6 +147,8 @@ Opt-in protection against LLM provider failures:
 ## Documentation
 
 - `Beamlens` — Main module with full configuration options
+- `Beamlens.Agent` — AI agent implementation details
+- `Beamlens.Judge` — Quality verification agent
 - `Beamlens.Scheduler` — Cron scheduling details
 - `Beamlens.Telemetry` — Telemetry events for observability
 

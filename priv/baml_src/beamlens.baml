@@ -173,6 +173,124 @@ Select your next action:
 }
 
 // ============================================================================
+// JUDGE AGENT
+// ============================================================================
+
+class AnalysisInput {
+  status "healthy" | "warning" | "critical" @description(#"Health status determined by the analysis"#)
+  summary string @description(#"Summary of the analysis findings"#)
+  concerns string[] @description(#"List of concerns identified"#)
+  recommendations string[] @description(#"List of recommendations"#)
+}
+
+class JudgeFeedback {
+  @@description(#"The analysis being evaluated"#)
+
+  verdict "accept" | "retry" @description(#""accept" if analysis status and concerns correctly match calculated memory thresholds. "retry" ONLY if: (1) memory >= 60% but status is "healthy" with no memory concerns, OR (2) memory < 60% but status is "warning"/"critical", OR (3) data sufficiency not met. Do NOT retry for summary wording issues."#)
+  confidence "high" | "medium" | "low" @description(#"Confidence level in the verdict"#)
+  issues string[] @description(#"List of specific issues found. MUST be empty array [] if verdict is accept. Only include issues when verdict is retry."#)
+  feedback string @description(#"Detailed guidance for retry. MUST be empty string if verdict is accept."#)
+  @@assert(issues_match_verdict, {{
+    (this.verdict == "accept" and this.issues|length == 0) or
+    this.verdict == "retry"
+  }})
+  @@assert(feedback_when_retry, {{
+    (this.verdict == "retry" and this.feedback|length > 10) or
+    this.verdict == "accept"
+  }})
+}
+
+function JudgeAnalysis(
+  analysis: AnalysisInput,
+  event_trail: string,
+  attempt: int
+) -> JudgeFeedback {
+  client Default
+  prompt #"
+{{ _.role("system") }}
+You are a quality reviewer for BEAM VM health analyses. Your job is to verify that
+the analysis conclusions are supported by the collected data.
+
+## CRITICAL: Memory Threshold Calculation
+
+You MUST calculate memory utilization from the event trail data:
+memory_utilization = (processes_mb + system_mb) / total_mb × 100
+
+Thresholds:
+- Below 60% → "healthy" status with NO memory concerns
+- 60% to 84% → "warning" status with memory concern REQUIRED
+- 85%+ → "critical" status with memory concern REQUIRED
+
+## Decision Rules (Follow Strictly)
+
+### Rule 1: Data Sufficiency
+- Minimum required: system_info + 2 other metrics
+- If NOT met → verdict: "retry"
+
+### Rule 2: Memory-Status Match (MOST IMPORTANT)
+- Calculate: memory_utilization = (processes_mb + system_mb) / total_mb × 100
+- If memory >= 60% AND status is "healthy" with no memory concerns → verdict: "retry" (MISSED CONCERN)
+- If memory >= 60% AND status is "warning" or "critical" with memory concern → verdict: "accept"
+- If memory < 60% AND status is "healthy" with no concerns → verdict: "accept"
+
+### Rule 3: Status-Concern Consistency
+- "healthy" status MUST have empty concerns list
+- "warning" or "critical" MUST have at least one concern
+
+### Rule 4: Accept Valid Analyses (IMPORTANT - Be Lenient)
+- If status matches thresholds AND concerns match data → verdict: "accept"
+- Do NOT require perfect wording - focus ONLY on STATUS and CONCERNS correctness
+- Do NOT require scheduler metrics unless the analysis makes FALSE claims about scheduler data
+- If the summary mentions "scheduler metrics normal" but no scheduler data was collected, this is acceptable as long as no scheduler CONCERNS are raised
+- Minor imprecision or extra claims in summaries are acceptable if the STATUS and CONCERNS are correct
+- Focus on: Is the status correct for the memory threshold? Are concerns present/absent as required?
+
+{{ _.role("user") }}
+## Analysis Under Review
+Status: {{ analysis.status }}
+Summary: {{ analysis.summary }}
+Concerns: {{ analysis.concerns }}
+Recommendations: {{ analysis.recommendations }}
+
+## Data Collection Trail (Events)
+{{ event_trail }}
+
+## Your Evaluation Process
+
+**Step 1**: Extract memory values from event trail:
+- Find get_memory_stats result
+- processes_mb = ?
+- system_mb = ?
+- total_mb = ?
+
+**Step 2**: Calculate memory utilization:
+- memory_utilization = (processes_mb + system_mb) / total_mb × 100 = ?%
+
+**Step 3**: Determine required status based on memory:
+- If < 60% → should be "healthy" with no memory concerns
+- If 60-84% → should be "warning" with memory concern
+- If >= 85% → should be "critical" with memory concern
+
+**Step 4**: Compare analysis to requirements:
+- Does the analysis status match what the calculated threshold requires?
+- Does the analysis have appropriate concerns (or lack thereof) for the threshold?
+- IGNORE summary wording issues - only check status and concerns
+
+**Step 5**: Verdict:
+- "accept" if analysis status and concerns correctly match the memory threshold
+- "retry" if there is a mismatch between calculated threshold and analysis status/concerns
+
+## Attempt {{ attempt }} of 3
+
+{% if attempt > 1 %}
+This is a retry. Focus on whether prior feedback was addressed.
+{% endif %}
+
+{{ ctx.output_format }}
+"#
+}
+
+// ============================================================================
 // TESTS
 // ============================================================================
 
@@ -630,4 +748,106 @@ test SelectTool_Anomaly_TrulyHealthy {
   @@assert(healthy_if_done, {{
     this.intent != "done" or this.analysis.status == "healthy"
   }})
+}
+
+// ============================================================================
+// JUDGE AGENT TESTS
+// ============================================================================
+
+test JudgeAnalysis_AcceptHealthy {
+  functions [JudgeAnalysis]
+  args {
+    analysis {
+      status "healthy"
+      summary "All metrics nominal. Process count at 0.4% of limit, memory at 58%, run queue at 0."
+      concerns []
+      recommendations []
+    }
+    event_trail #"[LLM] iteration=0 selected=get_system_info
+[TOOL] get_system_info: {"node":"prod@host","schedulers_online":8}
+[LLM] iteration=1 selected=get_memory_stats
+[TOOL] get_memory_stats: {"total_mb":512,"processes_mb":100,"system_mb":200}
+[LLM] iteration=2 selected=get_process_stats
+[TOOL] get_process_stats: {"process_count":1000,"process_limit":262144}"#
+    attempt 1
+  }
+  @@assert(accepts, {{ this.verdict == "accept" }})
+  @@assert(no_issues, {{ this.issues|length == 0 }})
+}
+
+test JudgeAnalysis_AcceptWarning {
+  functions [JudgeAnalysis]
+  args {
+    analysis {
+      status "warning"
+      summary "Memory utilization elevated at 80%. Process and scheduler metrics normal."
+      concerns ["Memory utilization at 80% of capacity"]
+      recommendations ["Monitor memory usage", "Consider increasing memory allocation"]
+    }
+    event_trail #"[LLM] iteration=0 selected=get_system_info
+[TOOL] get_system_info: {"node":"prod@host","schedulers_online":8}
+[LLM] iteration=1 selected=get_memory_stats
+[TOOL] get_memory_stats: {"total_mb":10000,"processes_mb":6000,"system_mb":2000}
+[LLM] iteration=2 selected=get_process_stats
+[TOOL] get_process_stats: {"process_count":5000,"process_limit":262144}"#
+    attempt 1
+  }
+  @@assert(accepts, {{ this.verdict == "accept" }})
+}
+
+test JudgeAnalysis_RejectInsufficientData {
+  functions [JudgeAnalysis]
+  args {
+    analysis {
+      status "healthy"
+      summary "System appears healthy based on initial metrics."
+      concerns []
+      recommendations []
+    }
+    event_trail #"[LLM] iteration=0 selected=get_system_info
+[TOOL] get_system_info: {"node":"prod@host","schedulers_online":8}"#
+    attempt 1
+  }
+  @@assert(retries, {{ this.verdict == "retry" }})
+  @@assert(has_issues, {{ this.issues|length > 0 }})
+}
+
+test JudgeAnalysis_RejectPhantomConcern {
+  functions [JudgeAnalysis]
+  args {
+    analysis {
+      status "warning"
+      summary "Memory leak detected in binary heap."
+      concerns ["Binary memory leak causing memory pressure"]
+      recommendations ["Investigate binary memory usage"]
+    }
+    event_trail #"[LLM] iteration=0 selected=get_system_info
+[TOOL] get_system_info: {"node":"prod@host","schedulers_online":8}
+[LLM] iteration=1 selected=get_memory_stats
+[TOOL] get_memory_stats: {"total_mb":512,"processes_mb":100,"system_mb":200,"binary_mb":10}
+[LLM] iteration=2 selected=get_process_stats
+[TOOL] get_process_stats: {"process_count":1000,"process_limit":262144}"#
+    attempt 1
+  }
+  @@assert(retries, {{ this.verdict == "retry" }})
+}
+
+test JudgeAnalysis_RejectMissedConcern {
+  functions [JudgeAnalysis]
+  args {
+    analysis {
+      status "healthy"
+      summary "All systems operating normally."
+      concerns []
+      recommendations []
+    }
+    event_trail #"[LLM] iteration=0 selected=get_system_info
+[TOOL] get_system_info: {"node":"prod@host","schedulers_online":8}
+[LLM] iteration=1 selected=get_memory_stats
+[TOOL] get_memory_stats: {"total_mb":10000,"processes_mb":6000,"system_mb":2500}
+[LLM] iteration=2 selected=get_process_stats
+[TOOL] get_process_stats: {"process_count":5000,"process_limit":262144}"#
+    attempt 1
+  }
+  @@assert(retries, {{ this.verdict == "retry" }})
 }

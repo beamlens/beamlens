@@ -47,5 +47,29 @@ defmodule Beamlens.Integration.AgentTest do
       assert %DateTime{} = first_event.occurred_at
       assert is_integer(first_event.iteration)
     end
+
+    test "includes JudgeCall event when judge is enabled (default)" do
+      {:ok, analysis} = Beamlens.Agent.run(max_iterations: 10)
+
+      judge_calls = Enum.filter(analysis.events, &match?(%Beamlens.Events.JudgeCall{}, &1))
+
+      assert judge_calls != [], "Expected at least one JudgeCall event"
+
+      [judge_call | _] = judge_calls
+      assert judge_call.verdict in [:accept, :retry]
+      assert judge_call.confidence in [:high, :medium, :low]
+      assert is_list(judge_call.issues)
+      assert is_binary(judge_call.feedback)
+      assert is_integer(judge_call.attempt)
+      assert %DateTime{} = judge_call.occurred_at
+    end
+
+    test "excludes JudgeCall events when judge is disabled" do
+      {:ok, analysis} = Beamlens.Agent.run(max_iterations: 10, judge: false)
+
+      judge_calls = Enum.filter(analysis.events, &match?(%Beamlens.Events.JudgeCall{}, &1))
+
+      assert judge_calls == [], "Expected no JudgeCall events when judge: false"
+    end
   end
 end

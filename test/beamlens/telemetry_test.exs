@@ -21,10 +21,10 @@ defmodule Beamlens.TelemetryTest do
   end
 
   describe "event_names/0" do
-    test "returns all 15 event names" do
+    test "returns all 18 event names" do
       events = Telemetry.event_names()
 
-      assert length(events) == 15
+      assert length(events) == 18
     end
 
     test "all events start with :beamlens" do
@@ -35,7 +35,7 @@ defmodule Beamlens.TelemetryTest do
       end
     end
 
-    test "includes agent, llm, tool, schedule, and circuit breaker events" do
+    test "includes agent, llm, tool, judge, schedule, and circuit breaker events" do
       events = Telemetry.event_names()
 
       assert [:beamlens, :agent, :start] in events
@@ -47,6 +47,9 @@ defmodule Beamlens.TelemetryTest do
       assert [:beamlens, :tool, :start] in events
       assert [:beamlens, :tool, :stop] in events
       assert [:beamlens, :tool, :exception] in events
+      assert [:beamlens, :judge, :start] in events
+      assert [:beamlens, :judge, :stop] in events
+      assert [:beamlens, :judge, :exception] in events
       assert [:beamlens, :schedule, :triggered] in events
       assert [:beamlens, :schedule, :skipped] in events
       assert [:beamlens, :schedule, :completed] in events
@@ -240,6 +243,84 @@ defmodule Beamlens.TelemetryTest do
       assert stop_metadata.result.node == "test@host"
 
       :telemetry.detach("test-emit-tool-handler-#{inspect(ref)}")
+    end
+  end
+
+  describe "emit_judge_start/1 and emit_judge_stop/3" do
+    test "emits start and stop events with verdict and duration" do
+      ref = make_ref()
+      test_pid = self()
+
+      :telemetry.attach_many(
+        "test-emit-judge-handler-#{inspect(ref)}",
+        [
+          [:beamlens, :judge, :start],
+          [:beamlens, :judge, :stop]
+        ],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      metadata = %{
+        trace_id: "test-judge-trace",
+        attempt: 1
+      }
+
+      Telemetry.emit_judge_start(metadata)
+      start_time = System.monotonic_time()
+
+      judge_event = %{verdict: :accept}
+
+      Telemetry.emit_judge_stop(metadata, judge_event, start_time)
+
+      assert_receive {:telemetry, [:beamlens, :judge, :start], start_measurements, start_metadata}
+      assert is_integer(start_measurements.system_time)
+      assert start_metadata.trace_id == "test-judge-trace"
+      assert start_metadata.attempt == 1
+
+      assert_receive {:telemetry, [:beamlens, :judge, :stop], stop_measurements, stop_metadata}
+      assert is_integer(stop_measurements.duration)
+      assert stop_metadata.trace_id == "test-judge-trace"
+      assert stop_metadata.verdict == :accept
+
+      :telemetry.detach("test-emit-judge-handler-#{inspect(ref)}")
+    end
+  end
+
+  describe "emit_judge_exception/5" do
+    test "emits exception event with error details" do
+      ref = make_ref()
+      test_pid = self()
+
+      :telemetry.attach(
+        "test-emit-judge-exception-handler-#{inspect(ref)}",
+        [:beamlens, :judge, :exception],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      metadata = %{
+        trace_id: "test-judge-exception-trace",
+        attempt: 2
+      }
+
+      start_time = System.monotonic_time()
+      error = :timeout
+
+      Telemetry.emit_judge_exception(metadata, error, start_time)
+
+      assert_receive {:telemetry, [:beamlens, :judge, :exception], measurements, event_metadata}
+      assert is_integer(measurements.duration)
+      assert event_metadata.trace_id == "test-judge-exception-trace"
+      assert event_metadata.attempt == 2
+      assert event_metadata.kind == :error
+      assert event_metadata.reason == :timeout
+
+      :telemetry.detach("test-emit-judge-exception-handler-#{inspect(ref)}")
     end
   end
 
