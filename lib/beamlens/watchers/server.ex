@@ -13,9 +13,10 @@ defmodule Beamlens.Watchers.Server do
 
   ## Alert Cooldown
 
-  To prevent alert fatigue, detected anomalies are subject to a 5-minute cooldown
-  per metric category. After reporting a "memory_high" anomaly, subsequent memory
-  anomalies within 5 minutes are suppressed (emitting telemetry event
+  To prevent alert fatigue, detected anomalies are subject to a per-category cooldown.
+  The LLM determines the cooldown duration based on context (defaulting to 5 minutes).
+  After reporting a "memory_high" anomaly, subsequent memory anomalies within the
+  cooldown period are suppressed (emitting telemetry event
   `[:beamlens, :watcher, :baseline_anomaly_suppressed]`).
 
   Categories are derived from the anomaly type prefix (e.g., "memory_high" → :memory).
@@ -47,7 +48,6 @@ defmodule Beamlens.Watchers.Server do
 
   @default_window_size 60
   @default_min_observations 3
-  @default_cooldown_seconds 300
 
   defstruct [
     :name,
@@ -315,11 +315,17 @@ defmodule Beamlens.Watchers.Server do
 
       state.report_handler.(report)
 
+      cooldown_seconds = decision.cooldown_minutes * 60
+
       %{
         state
         | observation_history: ObservationHistory.new(window_size: window_size),
           baseline_context: Context.new(),
-          alert_cooldowns: Map.put(state.alert_cooldowns, category, DateTime.utc_now())
+          alert_cooldowns:
+            Map.put(state.alert_cooldowns, category, %{
+              reported_at: DateTime.utc_now(),
+              cooldown_seconds: cooldown_seconds
+            })
       }
     end
   end
@@ -395,7 +401,7 @@ defmodule Beamlens.Watchers.Server do
 
   defp cooldown_active?(nil), do: false
 
-  defp cooldown_active?(reported_at) do
-    DateTime.diff(DateTime.utc_now(), reported_at, :second) < @default_cooldown_seconds
+  defp cooldown_active?(%{reported_at: reported_at, cooldown_seconds: cooldown_seconds}) do
+    DateTime.diff(DateTime.utc_now(), reported_at, :second) < cooldown_seconds
   end
 end

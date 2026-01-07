@@ -3,7 +3,7 @@ defmodule Beamlens.ReportHandler do
   Handles watcher reports by triggering Agent investigation.
 
   A thin GenServer that subscribes to ReportQueue and calls
-  `Agent.investigate/2` when reports arrive.
+  `Beamlens.Agent.investigate/2` when reports arrive.
 
   ## Trigger Modes
 

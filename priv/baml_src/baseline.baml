@@ -17,6 +17,7 @@ class ReportAnomaly {
   summary string @description(#"Brief description of the anomaly"#)
   evidence string[] @description(#"Specific data points supporting the anomaly detection"#)
   confidence "medium" | "high" @description(#"Confidence in anomaly detection"#)
+  cooldown_minutes int @description(#"Minutes to suppress re-alerts for this category. Choose based on context."#)
 }
 
 // Decision: Report healthy status (baseline established, all normal)

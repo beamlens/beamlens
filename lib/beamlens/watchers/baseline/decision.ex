@@ -21,7 +21,15 @@ defmodule Beamlens.Watchers.Baseline.Decision do
 
   defmodule ReportAnomaly do
     @moduledoc false
-    defstruct [:intent, :anomaly_type, :severity, :summary, :evidence, :confidence]
+    defstruct [
+      :intent,
+      :anomaly_type,
+      :severity,
+      :summary,
+      :evidence,
+      :confidence,
+      :cooldown_minutes
+    ]
 
     @type t :: %__MODULE__{
             intent: String.t(),
@@ -29,7 +37,8 @@ defmodule Beamlens.Watchers.Baseline.Decision do
             severity: :info | :warning | :critical,
             summary: String.t(),
             evidence: [String.t()],
-            confidence: :medium | :high
+            confidence: :medium | :high,
+            cooldown_minutes: integer()
           }
   end
 
@@ -43,8 +52,6 @@ defmodule Beamlens.Watchers.Baseline.Decision do
             confidence: :medium | :high
           }
   end
-
-  @type t :: ContinueObserving.t() | ReportAnomaly.t() | ReportHealthy.t()
 
   @doc """
   Returns a ZOI union schema for parsing AnalyzeBaseline responses into structs.
@@ -75,7 +82,8 @@ defmodule Beamlens.Watchers.Baseline.Decision do
       severity: Zoi.enum(["info", "warning", "critical"]) |> Zoi.transform(&atomize_severity/1),
       summary: Zoi.string(),
       evidence: Zoi.array(Zoi.string()),
-      confidence: Zoi.enum(["medium", "high"]) |> Zoi.transform(&atomize_confidence/1)
+      confidence: Zoi.enum(["medium", "high"]) |> Zoi.transform(&atomize_confidence/1),
+      cooldown_minutes: Zoi.integer() |> Zoi.default(5)
     })
     |> Zoi.transform(fn data -> {:ok, struct!(ReportAnomaly, data)} end)
   end

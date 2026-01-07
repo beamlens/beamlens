@@ -113,6 +113,35 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
 
       assert {:error, _} = Zoi.parse(Decision.schema(), input)
     end
+
+    test "parses report_anomaly with explicit cooldown_minutes" do
+      input = %{
+        intent: "report_anomaly",
+        anomaly_type: "memory_spike",
+        severity: "warning",
+        summary: "Memory elevated",
+        evidence: ["Memory at 85%"],
+        confidence: "high",
+        cooldown_minutes: 15
+      }
+
+      assert {:ok, %ReportAnomaly{} = decision} = Zoi.parse(Decision.schema(), input)
+      assert decision.cooldown_minutes == 15
+    end
+
+    test "defaults cooldown_minutes to 5 when omitted" do
+      input = %{
+        intent: "report_anomaly",
+        anomaly_type: "memory_spike",
+        severity: "warning",
+        summary: "Memory elevated",
+        evidence: ["Memory at 85%"],
+        confidence: "high"
+      }
+
+      assert {:ok, %ReportAnomaly{} = decision} = Zoi.parse(Decision.schema(), input)
+      assert decision.cooldown_minutes == 5
+    end
   end
 
   describe "schema/0 parsing ReportHealthy" do

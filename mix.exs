@@ -51,7 +51,7 @@ defmodule Beamlens.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.35", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.35", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -62,7 +62,8 @@ defmodule Beamlens.MixProject do
         "test --warnings-as-errors",
         "format --check-formatted",
         "credo --strict",
-        "dialyzer"
+        "dialyzer",
+        "docs --warnings-as-errors"
       ]
     ]
   end
@@ -81,10 +82,36 @@ defmodule Beamlens.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      extras: ["README.md", "docs/architecture.md", "CHANGELOG.md", "LICENSE"],
       source_ref: "v#{@version}",
       formatters: ["html"],
       authors: ["Bradley Golden"],
+      before_closing_body_tag: fn
+        :html ->
+          """
+          <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+          <script>
+            document.addEventListener("DOMContentLoaded", function () {
+              mermaid.initialize({ startOnLoad: false, theme: "default" });
+              let id = 0;
+              for (const codeEl of document.querySelectorAll("pre code.mermaid")) {
+                const preEl = codeEl.parentElement;
+                const graphDefinition = codeEl.textContent;
+                const graphEl = document.createElement("div");
+                graphEl.classList.add("mermaid-graph");
+                const graphId = "mermaid-graph-" + id++;
+                mermaid.render(graphId, graphDefinition).then(({svg}) => {
+                  graphEl.innerHTML = svg;
+                  preEl.replaceWith(graphEl);
+                });
+              }
+            });
+          </script>
+          """
+
+        _ ->
+          ""
+      end,
       groups_for_modules: [
         Core: [
           Beamlens,

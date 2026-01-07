@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Report system (`Report`, `ReportQueue`, `ReportHandler`) for watcher communication
 - Telemetry events for watcher lifecycle: `[:beamlens, :watcher, :started | :triggered | :check_start | :check_stop]`
 - `:report_handler` config option with `:on_report` (auto) and `:manual` trigger modes
-- Alert cooldown — watchers wait 5 minutes before re-alerting on the same metric category
+- Alert cooldown — watchers suppress re-alerts on the same metric category for an LLM-determined duration
 - Telemetry event `[:beamlens, :watcher, :baseline_anomaly_suppressed]` when duplicate alerts are suppressed
 - `:snapshot` option for `Beamlens.Agent` to use pre-computed metrics instead of live data
 
