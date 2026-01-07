@@ -51,6 +51,7 @@ defmodule Beamlens.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.35", only: [:dev, :test], runtime: false}
     ]
   end
@@ -62,6 +63,7 @@ defmodule Beamlens.MixProject do
         "test --warnings-as-errors",
         "format --check-formatted",
         "credo --strict",
+        "sobelow --config",
         "dialyzer",
         "docs --warnings-as-errors"
       ]
@@ -75,7 +77,7 @@ defmodule Beamlens.MixProject do
         "GitHub" => @source_url,
         "Website" => "https://beamlens.dev"
       },
-      exclude_patterns: [~r/\.baml_optimize/]
+      exclude_patterns: [~r/\.baml_optimize/, ~r/\.gitignore$/]
     ]
   end
 
@@ -132,12 +134,13 @@ defmodule Beamlens.MixProject do
           Beamlens.Watchers.Baseline,
           Beamlens.Watchers.Baseline.Analyzer,
           Beamlens.Watchers.Baseline.Context,
-          Beamlens.Watchers.Baseline.Decision
+          Beamlens.Watchers.Baseline.Decision,
+          Beamlens.Watchers.Baseline.Investigator
         ],
-        Reports: [
-          Beamlens.Report,
-          Beamlens.ReportQueue,
-          Beamlens.ReportHandler
+        Alerts: [
+          Beamlens.Alert,
+          Beamlens.AlertQueue,
+          Beamlens.AlertHandler
         ],
         Events: [
           Beamlens.Events,

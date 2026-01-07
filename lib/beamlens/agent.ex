@@ -110,9 +110,9 @@ defmodule Beamlens.Agent do
   end
 
   @doc """
-  Investigate watcher reports using the agent loop.
+  Investigate watcher alerts using the agent loop.
 
-  Takes reports from watchers (via ReportQueue) and uses the tool-calling
+  Takes alerts from watchers (via AlertQueue) and uses the tool-calling
   loop to correlate findings and investigate deeper.
 
   ## Options
@@ -121,18 +121,18 @@ defmodule Beamlens.Agent do
 
   ## Examples
 
-      reports = ReportQueue.take_all()
-      {:ok, analysis} = Agent.investigate(reports)
+      alerts = AlertQueue.take_all()
+      {:ok, analysis} = Agent.investigate(alerts)
 
-      # Returns immediately if no reports
-      {:ok, :no_reports} = Agent.investigate([])
+      # Returns immediately if no alerts
+      {:ok, :no_alerts} = Agent.investigate([])
   """
-  def investigate(reports, opts \\ []) when is_list(reports) do
-    if reports == [] do
-      {:ok, :no_reports}
+  def investigate(alerts, opts \\ []) when is_list(alerts) do
+    if alerts == [] do
+      {:ok, :no_alerts}
     else
       opts = Keyword.put(opts, :mode, :investigate)
-      opts = Keyword.put(opts, :reports, reports)
+      opts = Keyword.put(opts, :alerts, alerts)
       run(opts)
     end
   end
@@ -208,27 +208,27 @@ defmodule Beamlens.Agent do
   end
 
   defp build_investigation_context(opts) do
-    reports = Keyword.fetch!(opts, :reports)
+    alerts = Keyword.fetch!(opts, :alerts)
     tools = collect_watcher_tools()
     initial_context = Keyword.get(opts, :initial_context)
 
-    reports_summary = build_reports_summary(reports)
+    alerts_summary = build_alerts_summary(alerts)
 
-    report_event = %ToolCall{
-      intent: "watcher_reports",
+    alert_event = %ToolCall{
+      intent: "watcher_alerts",
       occurred_at: DateTime.utc_now(),
-      result: %{reports: Enum.map(reports, &report_to_map/1)}
+      result: %{alerts: Enum.map(alerts, &alert_to_map/1)}
     }
 
     messages =
-      [Puck.Message.new(:user, reports_summary, %{watcher_reports: true})] ++
+      [Puck.Message.new(:user, alerts_summary, %{watcher_alerts: true})] ++
         if initial_context do
           [Puck.Message.new(:user, initial_context, %{judge_feedback: true})]
         else
           []
         end
 
-    {messages, [report_event], tools}
+    {messages, [alert_event], tools}
   end
 
   defp run_with_judge(opts, max_retries, attempt \\ 1, accumulated_events \\ []) do
@@ -496,33 +496,33 @@ defmodule Beamlens.Agent do
   defp get_watcher_module(:beam), do: {:ok, BeamWatcher}
   defp get_watcher_module(_), do: :error
 
-  defp build_reports_summary(reports) do
-    reports_json =
-      reports
-      |> Enum.map(&report_to_map/1)
+  defp build_alerts_summary(alerts) do
+    alerts_json =
+      alerts
+      |> Enum.map(&alert_to_map/1)
       |> Jason.encode!()
 
     """
-    [WATCHER REPORTS]
-    The following anomalies were detected by watchers. Each report includes
+    [WATCHER ALERTS]
+    The following anomalies were detected by watchers. Each alert includes
     a frozen snapshot taken at detection time.
 
-    #{reports_json}
+    #{alerts_json}
 
-    Analyze these reports, correlate findings, and investigate further if needed.
+    Analyze these alerts, correlate findings, and investigate further if needed.
     """
   end
 
-  defp report_to_map(report) do
+  defp alert_to_map(alert) do
     %{
-      id: report.id,
-      watcher: report.watcher,
-      anomaly_type: report.anomaly_type,
-      severity: report.severity,
-      summary: report.summary,
-      snapshot: report.snapshot,
-      detected_at: DateTime.to_iso8601(report.detected_at),
-      node: report.node
+      id: alert.id,
+      watcher: alert.watcher,
+      anomaly_type: alert.anomaly_type,
+      severity: alert.severity,
+      summary: alert.summary,
+      snapshot: alert.snapshot,
+      detected_at: DateTime.to_iso8601(alert.detected_at),
+      node: alert.node
     }
   end
 

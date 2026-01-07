@@ -151,6 +151,29 @@ defmodule Beamlens.Telemetry do
     - Metadata: `%{watcher: atom(), cron: String.t(), trace_id: String.t(),
                    confidence: atom(), summary: String.t()}`
 
+  ## Watcher Investigation Events
+
+  * `[:beamlens, :watcher, :investigation, :start]` - Investigation loop starting
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), alert_id: String.t()}`
+
+  * `[:beamlens, :watcher, :investigation, :complete]` - Investigation completed with findings
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), anomaly_type: String.t(),
+                   severity: atom(), confidence: atom()}`
+
+  * `[:beamlens, :watcher, :investigation, :tool_call]` - Investigation tool executed
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), tool: String.t(), iteration: integer}`
+
+  * `[:beamlens, :watcher, :investigation, :error]` - Investigation failed
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), reason: term()}`
+
+  * `[:beamlens, :watcher, :investigation, :timeout]` - Investigation timed out
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t()}`
+
   ## Example Handler
 
       :telemetry.attach(
@@ -205,6 +228,11 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :watcher, :baseline_anomaly_detected],
       [:beamlens, :watcher, :baseline_anomaly_suppressed],
       [:beamlens, :watcher, :baseline_healthy],
+      [:beamlens, :watcher, :investigation, :start],
+      [:beamlens, :watcher, :investigation, :complete],
+      [:beamlens, :watcher, :investigation, :tool_call],
+      [:beamlens, :watcher, :investigation, :error],
+      [:beamlens, :watcher, :investigation, :timeout],
       [:beamlens, :circuit_breaker, :state_change],
       [:beamlens, :circuit_breaker, :rejected]
     ]

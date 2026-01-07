@@ -1,31 +1,16 @@
 # Architecture
 
-BeamLens is a runtime AI agent that monitors BEAM application health and generates actionable analyses. It supports two operational modes: a simple scheduler mode for periodic health checks, and an orchestrator-workers mode with baseline learning and anomaly detection.
+BeamLens uses an **orchestrator-workers** architecture where specialized watchers autonomously monitor BEAM VM metrics, learn baseline behavior using LLMs, and detect anomalies. When issues are found, an AI agent investigates and correlates findings.
 
-## Operational Modes
+## Supervision Tree
 
-### Scheduler Mode (Default)
-
-The default application startup runs a minimal supervisor that executes `Agent.run` on cron schedules:
-
-```mermaid
-graph TD
-    S[Beamlens.Supervisor]
-    S --> TS[TaskSupervisor]
-    S --> SC[Scheduler]
-    SC -.-> |cron trigger| AG[Agent.run]
-```
-
-This mode runs direct health analyses without baseline learning. Configure schedules in your application:
+Add BeamLens to your application's supervision tree:
 
 ```elixir
-config :beamlens,
-  schedules: [default: [cron: "*/5 * * * *"]]
+{Beamlens, watchers: [{:beam, "*/5 * * * *"}]}
 ```
 
-### Orchestrator-Workers Mode
-
-For continuous monitoring with baseline learning, configure watchers to start the full supervision tree:
+This starts the following components:
 
 ```mermaid
 graph TD
@@ -33,25 +18,20 @@ graph TD
     S --> TS[TaskSupervisor]
     S --> CB[CircuitBreaker?]
     S --> WR[WatcherRegistry]
-    S --> RQ[ReportQueue]
+    S --> AQ[AlertQueue]
     S --> WS[Watchers.Supervisor]
-    S --> RH[ReportHandler]
+    S --> AH[AlertHandler]
 
     WS --> W1[Watcher.Server: beam]
     WS --> W2[Watcher.Server: custom]
 
     TS -.-> AG[Agent]
-    RH -.-> AG
+    AH -.-> AG
 ```
 
 Each watcher runs independently. If one crashes, others continue operating. CircuitBreaker is optional.
 
-```elixir
-config :beamlens,
-  watchers: [{:beam, "*/1 * * * *"}]
-```
-
-## Data Flow (Orchestrator-Workers Mode)
+## Data Flow
 
 Data flows through three stages: monitoring, orchestration, and investigation.
 
@@ -65,9 +45,9 @@ flowchart LR
 
     subgraph Orchestration
         BL --> |anomaly| CD{Cooldown?}
-        CD --> |no| Q[ReportQueue]
+        CD --> |no| Q[AlertQueue]
         CD --> |yes| X[Suppressed]
-        Q --> H[ReportHandler]
+        Q --> H[AlertHandler]
     end
 
     subgraph Investigation
@@ -85,7 +65,7 @@ flowchart LR
 
 ## Alert Cooldown
 
-To prevent alert fatigue, detected anomalies are subject to a per-category cooldown. The baseline LLM specifies the cooldown duration based on context (defaulting to 5 minutes). After reporting an anomaly, subsequent anomalies of the same category within the cooldown period are suppressed. Categories are derived from the anomaly type prefix (e.g., "memory_high" -> memory).
+To prevent alert fatigue, detected anomalies are subject to a per-category cooldown. The baseline LLM specifies the cooldown duration based on context (defaulting to 5 minutes). After reporting an anomaly, subsequent anomalies of the same category within the cooldown period are suppressed. Categories are derived from the anomaly type prefix (e.g., "memory_high" → memory).
 
 ## Agent Loop
 
@@ -108,22 +88,55 @@ Available tools include GetOverview, GetSystemInfo, GetMemoryStats, GetProcessSt
 
 | Component | Purpose |
 |-----------|---------|
-| Scheduler | Cron-based scheduler for direct Agent.run invocations (default mode) |
 | Watcher.Server | GenServer running individual watcher on cron schedule |
 | ObservationHistory | Sliding window buffer for baseline observations |
 | Baseline.Analyzer | Calls AnalyzeBaseline LLM to learn patterns and detect anomalies |
 | Baseline.Context | Tracks LLM notes and timing for baseline learning |
-| ReportQueue | Buffer anomaly reports from watchers |
-| ReportHandler | Trigger investigation when reports arrive |
+| Baseline.Investigator | Tool-calling loop for watcher anomaly investigation |
+| AlertQueue | Buffer anomaly alerts from watchers |
+| AlertHandler | Trigger investigation when alerts arrive |
 | Agent | Run tool-calling loop to gather metrics |
 | Judge | Review analysis quality, request retries if needed |
 | CircuitBreaker | Protect against LLM rate limits (optional) |
 | WatcherRegistry | Registry for looking up watcher processes by name |
 
+## Included Watchers
+
+### BEAM Watcher (`:beam`)
+
+Monitors BEAM VM runtime health using LLM-driven baseline learning.
+
+**Baseline Metrics** (tracked for pattern learning):
+- Memory utilization %
+- Process utilization %
+- Port utilization %
+- Atom utilization %
+- Scheduler run queue depth
+- Schedulers online
+
+**Investigation Tools** (available when anomaly detected):
+
+| Tool | Description |
+|------|-------------|
+| `get_overview` | Utilization percentages across all categories |
+| `get_system_info` | Node identity, OTP version, uptime, schedulers |
+| `get_memory_stats` | Memory breakdown: total, processes, system, binary, ETS, code |
+| `get_process_stats` | Process/port counts and limits |
+| `get_scheduler_stats` | Scheduler counts and run queue |
+| `get_atom_stats` | Atom table count, limit, memory |
+| `get_persistent_terms` | Persistent term count and memory |
+| `get_top_processes` | Top processes by memory, message queue, or reductions |
+
+**Configuration:**
+```elixir
+{:beam, "*/5 * * * *"}  # Run every 5 minutes
+```
+
 ## LLM Integration
 
-BeamLens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via the [Puck](https://github.com/bradleygolden/puck) framework. Three BAML functions handle different stages:
+BeamLens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via the [Puck](https://github.com/bradleygolden/puck) framework. Four BAML functions handle different stages:
 
-- **AnalyzeBaseline**: Observes metrics over time, decides whether to continue watching, report an anomaly, or report healthy (orchestrator-workers mode only)
+- **AnalyzeBaseline**: Observes metrics over time, decides whether to continue watching, alert on anomaly, or report healthy
+- **SelectInvestigationTool**: Watcher investigation loop, gathers detailed data after anomaly detection
 - **SelectTool**: Main agent loop, chooses which metric-gathering tool to execute next
 - **JudgeAnalysis**: Reviews the agent's analysis for quality, may request retries

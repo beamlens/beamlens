@@ -1,43 +1,43 @@
-defmodule Beamlens.ReportHandlerTest do
+defmodule Beamlens.AlertHandlerTest do
   @moduledoc false
 
   use ExUnit.Case
 
-  alias Beamlens.{Report, ReportHandler, ReportQueue}
+  alias Beamlens.{Alert, AlertHandler, AlertQueue}
 
   setup do
-    start_supervised!(ReportQueue)
-    {:ok, handler} = ReportHandler.start_link(name: nil, trigger: :manual)
+    start_supervised!(AlertQueue)
+    {:ok, handler} = AlertHandler.start_link(name: nil, trigger: :manual)
     {:ok, handler: handler}
   end
 
   describe "start_link/1" do
     test "starts with default options" do
-      {:ok, pid} = ReportHandler.start_link(name: nil)
+      {:ok, pid} = AlertHandler.start_link(name: nil)
       assert Process.alive?(pid)
     end
 
     test "starts with custom trigger mode" do
-      {:ok, pid} = ReportHandler.start_link(name: nil, trigger: :on_report)
+      {:ok, pid} = AlertHandler.start_link(name: nil, trigger: :on_alert)
       assert Process.alive?(pid)
     end
   end
 
   describe "pending?/1" do
-    test "returns false when no reports", %{handler: handler} do
-      refute ReportHandler.pending?(handler)
+    test "returns false when no alerts", %{handler: handler} do
+      refute AlertHandler.pending?(handler)
     end
 
-    test "returns true when reports pending", %{handler: handler} do
-      push_report()
-      assert ReportHandler.pending?(handler)
+    test "returns true when alerts pending", %{handler: handler} do
+      push_alert()
+      assert AlertHandler.pending?(handler)
     end
   end
 
   describe "investigate/2" do
-    test "returns :no_reports when queue empty", %{handler: handler} do
-      result = ReportHandler.investigate(handler)
-      assert {:ok, :no_reports} = result
+    test "returns :no_alerts when queue empty", %{handler: handler} do
+      result = AlertHandler.investigate(handler)
+      assert {:ok, :no_alerts} = result
     end
   end
 
@@ -48,14 +48,14 @@ defmodule Beamlens.ReportHandlerTest do
 
       :telemetry.attach(
         ref,
-        [:beamlens, :report_handler, :started],
+        [:beamlens, :alert_handler, :started],
         fn _event, _measurements, metadata, _ ->
           send(parent, {:telemetry, :started, metadata})
         end,
         nil
       )
 
-      {:ok, _pid} = ReportHandler.start_link(name: nil, trigger: :manual)
+      {:ok, _pid} = AlertHandler.start_link(name: nil, trigger: :manual)
 
       assert_receive {:telemetry, :started, %{trigger_mode: :manual}}
 
@@ -68,7 +68,7 @@ defmodule Beamlens.ReportHandlerTest do
 
       :telemetry.attach(
         ref,
-        [:beamlens, :report_handler, :investigation_completed],
+        [:beamlens, :alert_handler, :investigation_completed],
         fn event, measurements, metadata, _ ->
           send(parent, {:telemetry, event, measurements, metadata})
         end,
@@ -76,12 +76,12 @@ defmodule Beamlens.ReportHandlerTest do
       )
 
       :telemetry.execute(
-        [:beamlens, :report_handler, :investigation_completed],
+        [:beamlens, :alert_handler, :investigation_completed],
         %{system_time: System.system_time()},
         %{status: :healthy}
       )
 
-      assert_receive {:telemetry, [:beamlens, :report_handler, :investigation_completed],
+      assert_receive {:telemetry, [:beamlens, :alert_handler, :investigation_completed],
                       _measurements, metadata}
 
       assert metadata.status == :healthy
@@ -95,7 +95,7 @@ defmodule Beamlens.ReportHandlerTest do
 
       :telemetry.attach(
         ref,
-        [:beamlens, :report_handler, :investigation_failed],
+        [:beamlens, :alert_handler, :investigation_failed],
         fn event, measurements, metadata, _ ->
           send(parent, {:telemetry, event, measurements, metadata})
         end,
@@ -103,12 +103,12 @@ defmodule Beamlens.ReportHandlerTest do
       )
 
       :telemetry.execute(
-        [:beamlens, :report_handler, :investigation_failed],
+        [:beamlens, :alert_handler, :investigation_failed],
         %{system_time: System.system_time()},
         %{reason: :timeout}
       )
 
-      assert_receive {:telemetry, [:beamlens, :report_handler, :investigation_failed],
+      assert_receive {:telemetry, [:beamlens, :alert_handler, :investigation_failed],
                       _measurements, metadata}
 
       assert metadata.reason == :timeout
@@ -117,28 +117,28 @@ defmodule Beamlens.ReportHandlerTest do
     end
   end
 
-  describe "on_report trigger mode" do
-    test "subscribes to ReportQueue" do
-      {:ok, handler} = ReportHandler.start_link(name: nil, trigger: :on_report)
+  describe "on_alert trigger mode" do
+    test "subscribes to AlertQueue" do
+      {:ok, handler} = AlertHandler.start_link(name: nil, trigger: :on_alert)
       assert Process.alive?(handler)
     end
 
-    test "ignores report_available in manual mode", %{handler: handler} do
-      send(handler, {:report_available, %{}})
+    test "ignores alert_available in manual mode", %{handler: handler} do
+      send(handler, {:alert_available, %{}})
       assert Process.alive?(handler)
     end
   end
 
-  defp push_report do
-    report =
-      Report.new(%{
+  defp push_alert do
+    alert =
+      Alert.new(%{
         watcher: :beam,
         anomaly_type: :memory_elevated,
         severity: :warning,
-        summary: "Test report",
+        summary: "Test alert",
         snapshot: %{}
       })
 
-    ReportQueue.push(report)
+    AlertQueue.push(alert)
   end
 end

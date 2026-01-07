@@ -186,9 +186,9 @@ defmodule Beamlens.Collectors.Beam do
   ]
 
   defp top_processes(params) do
-    limit = min(Map.get(params, :limit, 10), 50)
-    offset = Map.get(params, :offset, 0)
-    sort_by = normalize_sort_by(Map.get(params, :sort_by, "memory"))
+    limit = min(Map.get(params, :limit) || 10, 50)
+    offset = Map.get(params, :offset) || 0
+    sort_by = normalize_sort_by(Map.get(params, :sort_by) || "memory")
 
     processes =
       Process.list()

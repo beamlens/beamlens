@@ -5,7 +5,7 @@ defmodule Beamlens.Watchers.Server do
   Each watcher server:
   1. Starts with a cron schedule
   2. On each tick: collects snapshot, detects anomaly
-  3. If anomaly: creates Report, sends to ReportQueue (unless in cooldown)
+  3. If anomaly: creates Alert, sends to AlertQueue (unless in cooldown)
   4. Emits telemetry events for lifecycle
 
   This is the runtime component of the **Orchestrator-Workers** pattern.
@@ -33,7 +33,7 @@ defmodule Beamlens.Watchers.Server do
 
   use GenServer
 
-  alias Beamlens.{Report, ReportQueue, Telemetry}
+  alias Beamlens.{Alert, AlertQueue, Telemetry}
   alias Beamlens.Scheduler.Schedule
 
   alias Beamlens.Watchers.{ObservationHistory, Status}
@@ -41,7 +41,8 @@ defmodule Beamlens.Watchers.Server do
   alias Beamlens.Watchers.Baseline.{
     Analyzer,
     Context,
-    Decision
+    Decision,
+    Investigator
   }
 
   alias Crontab.CronExpression.Parser
@@ -58,7 +59,7 @@ defmodule Beamlens.Watchers.Server do
     :timer_ref,
     :next_run_at,
     :last_run_at,
-    :report_handler,
+    :alert_handler,
     :baseline_config,
     :observation_history,
     :baseline_context,
@@ -78,7 +79,7 @@ defmodule Beamlens.Watchers.Server do
     * `:watcher_module` - (required) module implementing Watcher behaviour
     * `:cron` - (required) cron expression string
     * `:config` - (optional) config passed to watcher's init/1
-    * `:report_handler` - (optional) function to handle reports, defaults to ReportQueue.push/1
+    * `:alert_handler` - (optional) function to handle alerts, defaults to AlertQueue.push/1
   """
   def start_link(opts) do
     name = Keyword.get(opts, :name)
@@ -111,7 +112,7 @@ defmodule Beamlens.Watchers.Server do
     watcher_module = Keyword.fetch!(opts, :watcher_module)
     cron_string = Keyword.fetch!(opts, :cron)
     watcher_config = Keyword.get(opts, :config, [])
-    report_handler = Keyword.get(opts, :report_handler, &default_report_handler/1)
+    alert_handler = Keyword.get(opts, :alert_handler, &default_alert_handler/1)
     name = Keyword.get(opts, :name)
     llm_client = Keyword.get(opts, :llm_client)
     client_registry = Keyword.get(opts, :client_registry)
@@ -126,7 +127,7 @@ defmodule Beamlens.Watchers.Server do
         watcher_state: watcher_state,
         cron: cron,
         cron_string: cron_string,
-        report_handler: report_handler,
+        alert_handler: alert_handler,
         next_run_at: Schedule.compute_next_run(cron),
         baseline_config: baseline_config,
         observation_history: init_observation_history(baseline_config),
@@ -271,7 +272,7 @@ defmodule Beamlens.Watchers.Server do
 
   defp handle_baseline_decision(
          state,
-         %Decision.ReportAnomaly{} = decision,
+         %Decision.Alert{} = decision,
          snapshot,
          _history,
          _context,
@@ -296,10 +297,10 @@ defmodule Beamlens.Watchers.Server do
           baseline_context: Context.new()
       }
     else
-      report =
-        build_report(
+      alert =
+        build_alert(
           state,
-          String.to_atom(decision.anomaly_type),
+          decision.anomaly_type,
           decision.severity,
           decision.summary,
           snapshot
@@ -307,13 +308,15 @@ defmodule Beamlens.Watchers.Server do
 
       emit_telemetry(:baseline_anomaly_detected, state, %{
         trace_id: trace_id,
-        report_id: report.id,
+        alert_id: alert.id,
         severity: decision.severity,
         anomaly_type: decision.anomaly_type,
         confidence: decision.confidence
       })
 
-      state.report_handler.(report)
+      state.alert_handler.(alert)
+
+      run_investigation(state, alert, trace_id)
 
       cooldown_seconds = decision.cooldown_minutes * 60
 
@@ -332,7 +335,7 @@ defmodule Beamlens.Watchers.Server do
 
   defp handle_baseline_decision(
          state,
-         %Decision.ReportHealthy{} = decision,
+         %Decision.Healthy{} = decision,
          _snapshot,
          history,
          context,
@@ -349,14 +352,46 @@ defmodule Beamlens.Watchers.Server do
     %{state | observation_history: history, baseline_context: context}
   end
 
-  defp build_report(state, anomaly_type, severity, summary, snapshot) do
-    Report.new(%{
+  defp build_alert(state, anomaly_type, severity, summary, snapshot) do
+    Alert.new(%{
       watcher: state.watcher_module.domain(),
       anomaly_type: anomaly_type,
       severity: severity,
       summary: summary,
       snapshot: snapshot
     })
+  end
+
+  defp run_investigation(state, alert, trace_id) do
+    tools = state.watcher_module.tools()
+
+    opts = [
+      llm_client: state.llm_client,
+      client_registry: state.client_registry,
+      trace_id: trace_id
+    ]
+
+    case Investigator.investigate(alert, tools, opts) do
+      {:ok, findings} ->
+        emit_telemetry(:investigation_complete, state, %{
+          trace_id: trace_id,
+          alert_id: alert.id,
+          anomaly_type: findings.anomaly_type,
+          severity: findings.severity,
+          confidence: findings.confidence
+        })
+
+        :ok
+
+      {:error, reason} ->
+        emit_telemetry(:investigation_failed, state, %{
+          trace_id: trace_id,
+          alert_id: alert.id,
+          reason: reason
+        })
+
+        :ok
+    end
   end
 
   defp start_timer(state) do
@@ -372,8 +407,8 @@ defmodule Beamlens.Watchers.Server do
     start_timer(%{state | next_run_at: next})
   end
 
-  defp default_report_handler(report) do
-    ReportQueue.push(report)
+  defp default_alert_handler(alert) do
+    AlertQueue.push(alert)
   end
 
   defp emit_telemetry(event, state, extra \\ %{}) do
@@ -392,7 +427,7 @@ defmodule Beamlens.Watchers.Server do
 
   defp metric_category(anomaly_type) when is_binary(anomaly_type) do
     [prefix | _] = String.split(anomaly_type, "_")
-    String.to_atom(prefix)
+    prefix
   end
 
   defp in_cooldown?(cooldowns, category) do

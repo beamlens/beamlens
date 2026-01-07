@@ -7,9 +7,9 @@ defmodule Beamlens.Supervisor do
     * `Beamlens.TaskSupervisor` - For async tasks
     * `Beamlens.CircuitBreaker` - Rate limiting for LLM calls (optional)
     * `Beamlens.WatcherRegistry` - Registry for watcher processes
-    * `Beamlens.ReportQueue` - Queue for watcher reports
+    * `Beamlens.AlertQueue` - Queue for watcher alerts
     * `Beamlens.Watchers.Supervisor` - DynamicSupervisor for watchers
-    * `Beamlens.ReportHandler` - Handles reports and triggers investigation
+    * `Beamlens.AlertHandler` - Handles alerts and triggers investigation
 
   ## Configuration
 
@@ -17,8 +17,8 @@ defmodule Beamlens.Supervisor do
         watchers: [
           {:beam, "*/1 * * * *"}
         ],
-        report_handler: [
-          trigger: :on_report
+        alert_handler: [
+          trigger: :on_alert
         ],
         circuit_breaker: [
           enabled: true
@@ -27,7 +27,7 @@ defmodule Beamlens.Supervisor do
 
   use Supervisor
 
-  alias Beamlens.{ReportHandler, ReportQueue}
+  alias Beamlens.{AlertHandler, AlertQueue}
   alias Beamlens.Watchers.Supervisor, as: WatchersSupervisor
 
   def start_link(opts) do
@@ -37,7 +37,7 @@ defmodule Beamlens.Supervisor do
   @impl true
   def init(opts) do
     watchers = Keyword.get(opts, :watchers, Application.get_env(:beamlens, :watchers, []))
-    report_handler_opts = Keyword.get(opts, :report_handler, [])
+    alert_handler_opts = Keyword.get(opts, :alert_handler, [])
     circuit_breaker_opts = Keyword.get(opts, :circuit_breaker, [])
 
     children =
@@ -45,9 +45,9 @@ defmodule Beamlens.Supervisor do
         {Task.Supervisor, name: Beamlens.TaskSupervisor},
         maybe_circuit_breaker(circuit_breaker_opts),
         {Registry, keys: :unique, name: Beamlens.WatcherRegistry},
-        ReportQueue,
+        AlertQueue,
         {WatchersSupervisor, watchers: watchers},
-        {ReportHandler, report_handler_opts}
+        {AlertHandler, alert_handler_opts}
       ]
       |> Enum.reject(&is_nil/1)
 

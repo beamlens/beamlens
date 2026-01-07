@@ -57,8 +57,8 @@ class GetPersistentTerms {
 
 class GetTopProcesses {
   intent "get_top_processes" @description(#"Drill into top processes by resource usage"#)
-  limit int @description(#"Max processes to return (1-50, default 10)"#)
-  offset int @description(#"Skip first N processes (default 0)"#)
+  limit int? @description(#"Max processes to return (1-50, default 10)"#)
+  offset int? @description(#"Skip first N processes (default 0)"#)
   sort_by "memory" | "message_queue" | "reductions" @description(#"Sort by memory, message_queue, or reductions"#)
 }
 

@@ -1,20 +1,20 @@
-defmodule Beamlens.Report do
+defmodule Beamlens.Alert do
   @moduledoc """
-  Self-contained forensic package from a watcher.
+  Immediate notification from a watcher about detected anomaly.
 
-  Reports flow from watchers (workers) to the orchestrator. Each report contains
+  Alerts flow from watchers (workers) to the orchestrator. Each alert contains
   all evidence needed to investigate an anomaly, including the frozen snapshot
   at the time of detection.
 
   This follows the **Orchestrator-Workers** pattern from Anthropic's agent
-  architecture guidelines, where workers detect anomalies and report UP to
+  architecture guidelines, where workers detect anomalies and alert UP to
   the orchestrator for correlation and investigation.
 
   ## Fields
 
-    * `:id` - Unique report identifier
+    * `:id` - Unique alert identifier
     * `:watcher` - Domain atom identifying the watcher (e.g., :beam, :ecto)
-    * `:anomaly_type` - Classification of the anomaly detected
+    * `:anomaly_type` - Classification of the anomaly detected (string from LLM)
     * `:severity` - `:info`, `:warning`, or `:critical`
     * `:summary` - Brief description of the anomaly
     * `:snapshot` - Frozen metrics at time of detection
@@ -24,10 +24,10 @@ defmodule Beamlens.Report do
 
   ## Example
 
-      %Beamlens.Report{
+      %Beamlens.Alert{
         id: "a1b2c3d4",
         watcher: :beam,
-        anomaly_type: :memory_elevated,
+        anomaly_type: "memory_elevated",
         severity: :warning,
         summary: "Memory utilization at 72%, exceeding 60% warning threshold",
         snapshot: %{
@@ -45,7 +45,7 @@ defmodule Beamlens.Report do
   @type t :: %__MODULE__{
           id: String.t(),
           watcher: atom(),
-          anomaly_type: atom(),
+          anomaly_type: String.t(),
           severity: severity(),
           summary: String.t(),
           snapshot: map(),
@@ -79,7 +79,7 @@ defmodule Beamlens.Report do
   ]
 
   @doc """
-  Creates a new report with the given attributes.
+  Creates a new alert with the given attributes.
 
   ## Required Attributes
 
@@ -98,9 +98,9 @@ defmodule Beamlens.Report do
 
   ## Example
 
-      Report.new(%{
+      Alert.new(%{
         watcher: :beam,
-        anomaly_type: :memory_elevated,
+        anomaly_type: "memory_elevated",
         severity: :warning,
         summary: "Memory at 72%",
         snapshot: Beam.snapshot()
@@ -121,7 +121,7 @@ defmodule Beamlens.Report do
   end
 
   @doc """
-  Generates a unique report ID.
+  Generates a unique alert ID.
 
   Returns an 16-character lowercase hex string.
   """

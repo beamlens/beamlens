@@ -77,36 +77,6 @@ end
 
 The `:beam` watcher monitors BEAM VM metrics (memory, processes, schedulers). It learns baseline behavior automatically and reports anomalies when detected.
 
-## Manual Triggering
-
-Run the agent on-demand without scheduling—useful for debugging, one-off checks, or integrating with your own triggers:
-
-```elixir
-case Beamlens.run() do
-  {:ok, analysis} ->
-    IO.puts("Status: #{analysis.status}")
-    IO.puts("Summary: #{analysis.summary}")
-
-    if analysis.concerns != [] do
-      IO.puts("Concerns: #{Enum.join(analysis.concerns, ", ")}")
-    end
-
-  {:error, reason} ->
-    IO.puts("Analysis failed: #{inspect(reason)}")
-end
-```
-
-The `HealthAnalysis` struct contains:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `status` | `:healthy \| :warning \| :critical` | Overall health status |
-| `summary` | `String.t()` | Brief 1-2 sentence summary |
-| `concerns` | `[String.t()]` | List of identified concerns |
-| `recommendations` | `[String.t()]` | Actionable next steps |
-| `reasoning` | `String.t() \| nil` | Explanation of how the assessment was reached |
-| `events` | `[Events.t()]` | Execution trace (LLM calls, tool calls, judge reviews) |
-
 ## Watcher Management
 
 Monitor and control watchers at runtime:
@@ -122,26 +92,18 @@ Beamlens.trigger_watcher(:beam)
 # Get detailed status for a watcher
 Beamlens.watcher_status(:beam)
 
-# Check if reports are pending investigation
-Beamlens.pending_reports?()
+# Check if alerts are pending investigation
+Beamlens.pending_alerts?()
 
-# Investigate pending reports
+# Investigate pending alerts
 {:ok, analysis} = Beamlens.investigate()
 ```
 
 ## Quality Verification
 
-By default, a judge agent reviews each analysis to verify conclusions are supported by collected data. If the judge finds issues, the agent automatically retries with feedback.
+A judge agent reviews each analysis to verify conclusions are supported by collected data. If the judge finds issues, the agent automatically retries with feedback.
 
-```elixir
-# Disable judge for faster development runs
-{:ok, analysis} = Beamlens.run(judge: false)
-
-# Increase max retries (default: 2)
-{:ok, analysis} = Beamlens.run(max_judge_retries: 3)
-```
-
-### Bring Your Own Model (Coming Soon)
+## Bring Your Own Model (Coming Soon)
 
 Custom LLM provider configuration will be available in a future release. Currently, BeamLens uses Claude Haiku via Anthropic's API.
 
@@ -181,7 +143,7 @@ Opt-in protection against LLM provider failures:
 - `Beamlens.Judge` — Quality verification agent
 - `Beamlens.Watchers.Watcher` — Behaviour for implementing custom watchers
 - `Beamlens.Watchers.BeamWatcher` — Built-in BEAM VM watcher
-- `Beamlens.Report` — Watcher anomaly reports
+- `Beamlens.Alert` — Watcher anomaly alerts
 - `Beamlens.Telemetry` — Telemetry events for observability
 
 ## License

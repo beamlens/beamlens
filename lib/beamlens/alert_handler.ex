@@ -1,32 +1,32 @@
-defmodule Beamlens.ReportHandler do
+defmodule Beamlens.AlertHandler do
   @moduledoc """
-  Handles watcher reports by triggering Agent investigation.
+  Handles watcher alerts by triggering Agent investigation.
 
-  A thin GenServer that subscribes to ReportQueue and calls
-  `Beamlens.Agent.investigate/2` when reports arrive.
+  A thin GenServer that subscribes to AlertQueue and calls
+  `Beamlens.Agent.investigate/2` when alerts arrive.
 
   ## Trigger Modes
 
-    * `:on_report` - Automatically investigate when reports arrive (default)
+    * `:on_alert` - Automatically investigate when alerts arrive (default)
     * `:manual` - Only investigate via `investigate/1`
 
   ## Example
 
       # In supervision tree
-      {Beamlens.ReportHandler, trigger: :on_report}
+      {Beamlens.AlertHandler, trigger: :on_alert}
 
       # Manual investigation
-      Beamlens.ReportHandler.investigate()
+      Beamlens.AlertHandler.investigate()
   """
 
   use GenServer
 
-  alias Beamlens.{Agent, ReportQueue}
+  alias Beamlens.{Agent, AlertQueue}
 
   defstruct [:trigger_mode, :agent_opts]
 
   @doc """
-  Starts the ReportHandler GenServer.
+  Starts the AlertHandler GenServer.
   """
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -34,17 +34,17 @@ defmodule Beamlens.ReportHandler do
   end
 
   @doc """
-  Manually triggers investigation of pending reports.
+  Manually triggers investigation of pending alerts.
 
-  Returns `{:ok, analysis}` if reports were processed,
-  `{:ok, :no_reports}` if no reports were pending.
+  Returns `{:ok, analysis}` if alerts were processed,
+  `{:ok, :no_alerts}` if no alerts were pending.
   """
   def investigate(server \\ __MODULE__, opts \\ []) do
     GenServer.call(server, {:investigate, opts}, :timer.minutes(5))
   end
 
   @doc """
-  Checks if there are pending reports to investigate.
+  Checks if there are pending alerts to investigate.
   """
   def pending?(server \\ __MODULE__) do
     GenServer.call(server, :pending?)
@@ -52,11 +52,11 @@ defmodule Beamlens.ReportHandler do
 
   @impl true
   def init(opts) do
-    trigger_mode = Keyword.get(opts, :trigger, :on_report)
+    trigger_mode = Keyword.get(opts, :trigger, :on_alert)
     agent_opts = Keyword.get(opts, :agent_opts, [])
 
-    if trigger_mode == :on_report do
-      ReportQueue.subscribe()
+    if trigger_mode == :on_alert do
+      AlertQueue.subscribe()
     end
 
     emit_telemetry(:started, %{trigger_mode: trigger_mode})
@@ -67,21 +67,21 @@ defmodule Beamlens.ReportHandler do
   @impl true
   def handle_call({:investigate, opts}, _from, state) do
     merged_opts = Keyword.merge(state.agent_opts, opts)
-    reports = ReportQueue.take_all()
-    result = Agent.investigate(reports, merged_opts)
+    alerts = AlertQueue.take_all()
+    result = Agent.investigate(alerts, merged_opts)
     {:reply, result, state}
   end
 
   def handle_call(:pending?, _from, state) do
-    {:reply, ReportQueue.pending?(), state}
+    {:reply, AlertQueue.pending?(), state}
   end
 
   @impl true
-  def handle_info({:report_available, _report}, %{trigger_mode: :on_report} = state) do
-    reports = ReportQueue.take_all()
+  def handle_info({:alert_available, _alert}, %{trigger_mode: :on_alert} = state) do
+    alerts = AlertQueue.take_all()
 
-    case Agent.investigate(reports, state.agent_opts) do
-      {:ok, :no_reports} ->
+    case Agent.investigate(alerts, state.agent_opts) do
+      {:ok, :no_alerts} ->
         :ok
 
       {:ok, analysis} ->
@@ -94,13 +94,13 @@ defmodule Beamlens.ReportHandler do
     {:noreply, state}
   end
 
-  def handle_info({:report_available, _report}, state) do
+  def handle_info({:alert_available, _alert}, state) do
     {:noreply, state}
   end
 
   defp emit_telemetry(event, extra) do
     :telemetry.execute(
-      [:beamlens, :report_handler, event],
+      [:beamlens, :alert_handler, event],
       %{system_time: System.system_time()},
       extra
     )

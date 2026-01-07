@@ -24,15 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Watcher system — background monitors that run on schedules and report problems
 - AI-based baseline learning — watchers learn what "normal" looks like, no manual thresholds
 - Built-in BEAM watcher for VM metrics (memory, processes, schedulers)
-- `Beamlens.investigate/1` — analyze pending watcher reports using AI
+- `Beamlens.investigate/1` — analyze pending watcher alerts using AI
 - `Beamlens.list_watchers/0` — list all running watchers with status
 - `Beamlens.trigger_watcher/1` — manually trigger a specific watcher
 - `Beamlens.watcher_status/1` — get details about a specific watcher
-- `Beamlens.pending_reports?/0` — check if reports are waiting for investigation
+- `Beamlens.pending_alerts?/0` — check if alerts are waiting for investigation
 - `Watcher` behaviour for implementing custom monitors
-- Report system (`Report`, `ReportQueue`, `ReportHandler`) for watcher communication
+- Alert system (`Alert`, `AlertQueue`, `AlertHandler`) for watcher communication
+- Watcher investigation loop — after detecting anomalies, watchers investigate deeper using tools
+- `WatcherFindings` struct with root cause analysis and recommendations
 - Telemetry events for watcher lifecycle: `[:beamlens, :watcher, :started | :triggered | :check_start | :check_stop]`
-- `:report_handler` config option with `:on_report` (auto) and `:manual` trigger modes
+- Telemetry events for investigation: `[:beamlens, :watcher, :investigation, :start | :complete | :tool_call | :error | :timeout]`
+- `:alert_handler` config option with `:on_alert` (auto) and `:manual` trigger modes
 - Alert cooldown — watchers suppress re-alerts on the same metric category for an LLM-determined duration
 - Telemetry event `[:beamlens, :watcher, :baseline_anomaly_suppressed]` when duplicate alerts are suppressed
 - `:snapshot` option for `Beamlens.Agent` to use pre-computed metrics instead of live data

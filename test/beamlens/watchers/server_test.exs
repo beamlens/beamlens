@@ -3,7 +3,7 @@ defmodule Beamlens.Watchers.ServerTest do
 
   use ExUnit.Case, async: true
 
-  alias Beamlens.ReportQueue
+  alias Beamlens.AlertQueue
   alias Beamlens.Watchers.Server
 
   defmodule TestObservation do
@@ -42,7 +42,7 @@ defmodule Beamlens.Watchers.ServerTest do
   end
 
   setup do
-    {:ok, queue} = ReportQueue.start_link(name: nil)
+    {:ok, queue} = AlertQueue.start_link(name: nil)
     {:ok, queue: queue}
   end
 
@@ -53,7 +53,7 @@ defmodule Beamlens.Watchers.ServerTest do
           watcher_module: TestWatcher,
           cron: "*/1 * * * *",
           config: [],
-          report_handler: &ReportQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue)
         )
 
       assert Process.alive?(pid)
@@ -80,7 +80,7 @@ defmodule Beamlens.Watchers.ServerTest do
           watcher_module: TestWatcher,
           cron: "*/1 * * * *",
           config: [],
-          report_handler: &ReportQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue)
         )
 
       status = Server.status(pid)
@@ -110,7 +110,7 @@ defmodule Beamlens.Watchers.ServerTest do
           watcher_module: TestWatcher,
           cron: "0 0 1 1 *",
           config: [],
-          report_handler: &ReportQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue)
         )
 
       Server.trigger(pid)
@@ -138,7 +138,7 @@ defmodule Beamlens.Watchers.ServerTest do
           watcher_module: TestWatcher,
           cron: "0 0 1 1 *",
           config: [],
-          report_handler: &ReportQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue)
         )
 
       Server.trigger(pid)
@@ -174,7 +174,7 @@ defmodule Beamlens.Watchers.ServerTest do
           watcher_module: TestWatcher,
           cron: "*/1 * * * *",
           config: [],
-          report_handler: &ReportQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue)
         )
 
       assert_receive {:telemetry, :started, %{watcher: :test}}
@@ -205,7 +205,7 @@ defmodule Beamlens.Watchers.ServerTest do
           watcher_module: TestWatcher,
           cron: "0 0 1 1 *",
           config: [],
-          report_handler: &ReportQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue)
         )
 
       Server.trigger(pid)
@@ -234,7 +234,7 @@ defmodule Beamlens.Watchers.ServerTest do
           watcher_module: TestWatcher,
           cron: "0 0 1 1 *",
           config: [],
-          report_handler: &ReportQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue)
         )
 
       Server.trigger(pid)
@@ -253,7 +253,7 @@ defmodule Beamlens.Watchers.ServerTest do
           watcher_module: TestWatcher,
           cron: "0 0 1 1 *",
           config: [],
-          report_handler: &ReportQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue)
         )
 
       state = :sys.get_state(pid)
@@ -268,6 +268,79 @@ defmodule Beamlens.Watchers.ServerTest do
     test "baseline_anomaly_detected telemetry event is registered" do
       event_names = Beamlens.Telemetry.event_names()
       assert [:beamlens, :watcher, :baseline_anomaly_detected] in event_names
+    end
+
+    test "cooldown is active within cooldown_seconds", %{queue: queue} do
+      {:ok, pid} =
+        Server.start_link(
+          watcher_module: TestWatcher,
+          cron: "0 0 1 1 *",
+          config: [],
+          alert_handler: &AlertQueue.push(&1, queue)
+        )
+
+      cooldown_data = %{
+        reported_at: DateTime.utc_now(),
+        cooldown_seconds: 600
+      }
+
+      :sys.replace_state(pid, fn state ->
+        %{state | alert_cooldowns: %{"memory" => cooldown_data}}
+      end)
+
+      state = :sys.get_state(pid)
+      assert state.alert_cooldowns["memory"].cooldown_seconds == 600
+      assert state.alert_cooldowns["memory"].reported_at != nil
+    end
+
+    test "cooldown expires after cooldown_seconds", %{queue: queue} do
+      {:ok, pid} =
+        Server.start_link(
+          watcher_module: TestWatcher,
+          cron: "0 0 1 1 *",
+          config: [],
+          alert_handler: &AlertQueue.push(&1, queue)
+        )
+
+      past_time = DateTime.add(DateTime.utc_now(), -700, :second)
+
+      cooldown_data = %{
+        reported_at: past_time,
+        cooldown_seconds: 600
+      }
+
+      :sys.replace_state(pid, fn state ->
+        %{state | alert_cooldowns: %{"memory" => cooldown_data}}
+      end)
+
+      state = :sys.get_state(pid)
+
+      diff =
+        DateTime.diff(DateTime.utc_now(), state.alert_cooldowns["memory"].reported_at, :second)
+
+      assert diff > state.alert_cooldowns["memory"].cooldown_seconds
+    end
+
+    test "cooldown stores LLM-provided duration in seconds", %{queue: queue} do
+      {:ok, pid} =
+        Server.start_link(
+          watcher_module: TestWatcher,
+          cron: "0 0 1 1 *",
+          config: [],
+          alert_handler: &AlertQueue.push(&1, queue)
+        )
+
+      cooldown_15_min = %{
+        reported_at: DateTime.utc_now(),
+        cooldown_seconds: 15 * 60
+      }
+
+      :sys.replace_state(pid, fn state ->
+        %{state | alert_cooldowns: %{"scheduler" => cooldown_15_min}}
+      end)
+
+      state = :sys.get_state(pid)
+      assert state.alert_cooldowns["scheduler"].cooldown_seconds == 900
     end
   end
 end

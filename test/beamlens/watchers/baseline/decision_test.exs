@@ -2,7 +2,16 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
   use ExUnit.Case, async: true
 
   alias Beamlens.Watchers.Baseline.Decision
-  alias Beamlens.Watchers.Baseline.Decision.{ContinueObserving, ReportAnomaly, ReportHealthy}
+
+  alias Beamlens.Watchers.Baseline.Decision.{
+    Alert,
+    ContinueObserving,
+    Healthy,
+    InvestigationComplete,
+    WatcherFindings
+  }
+
+  alias Beamlens.Tools.{GetMemoryStats, GetOverview, GetProcessStats, GetSchedulerStats}
 
   describe "schema/0 parsing ContinueObserving" do
     test "parses valid continue_observing with low confidence" do
@@ -40,7 +49,7 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
     end
   end
 
-  describe "schema/0 parsing ReportAnomaly" do
+  describe "schema/0 parsing Alert" do
     test "parses valid report_anomaly with all fields" do
       input = %{
         intent: "report_anomaly",
@@ -51,7 +60,7 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
         confidence: "high"
       }
 
-      assert {:ok, %ReportAnomaly{} = decision} = Zoi.parse(Decision.schema(), input)
+      assert {:ok, %Alert{} = decision} = Zoi.parse(Decision.schema(), input)
       assert decision.intent == "report_anomaly"
       assert decision.anomaly_type == "memory_spike"
       assert decision.severity == :warning
@@ -70,7 +79,7 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
         confidence: "medium"
       }
 
-      assert {:ok, %ReportAnomaly{} = decision} = Zoi.parse(Decision.schema(), input)
+      assert {:ok, %Alert{} = decision} = Zoi.parse(Decision.schema(), input)
       assert decision.severity == :info
     end
 
@@ -84,7 +93,7 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
         confidence: "high"
       }
 
-      assert {:ok, %ReportAnomaly{} = decision} = Zoi.parse(Decision.schema(), input)
+      assert {:ok, %Alert{} = decision} = Zoi.parse(Decision.schema(), input)
       assert decision.severity == :critical
     end
 
@@ -125,7 +134,7 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
         cooldown_minutes: 15
       }
 
-      assert {:ok, %ReportAnomaly{} = decision} = Zoi.parse(Decision.schema(), input)
+      assert {:ok, %Alert{} = decision} = Zoi.parse(Decision.schema(), input)
       assert decision.cooldown_minutes == 15
     end
 
@@ -139,12 +148,12 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
         confidence: "high"
       }
 
-      assert {:ok, %ReportAnomaly{} = decision} = Zoi.parse(Decision.schema(), input)
+      assert {:ok, %Alert{} = decision} = Zoi.parse(Decision.schema(), input)
       assert decision.cooldown_minutes == 5
     end
   end
 
-  describe "schema/0 parsing ReportHealthy" do
+  describe "schema/0 parsing Healthy" do
     test "parses valid report_healthy with medium confidence" do
       input = %{
         intent: "report_healthy",
@@ -152,7 +161,7 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
         confidence: "medium"
       }
 
-      assert {:ok, %ReportHealthy{} = decision} = Zoi.parse(Decision.schema(), input)
+      assert {:ok, %Healthy{} = decision} = Zoi.parse(Decision.schema(), input)
       assert decision.intent == "report_healthy"
       assert decision.summary == "System operating within normal parameters"
       assert decision.confidence == :medium
@@ -165,7 +174,7 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
         confidence: "high"
       }
 
-      assert {:ok, %ReportHealthy{} = decision} = Zoi.parse(Decision.schema(), input)
+      assert {:ok, %Healthy{} = decision} = Zoi.parse(Decision.schema(), input)
       assert decision.confidence == :high
     end
 
@@ -216,6 +225,108 @@ defmodule Beamlens.Watchers.Baseline.DecisionTest do
       }
 
       assert {:error, _} = Zoi.parse(Decision.schema(), input)
+    end
+  end
+
+  describe "investigation_schema/0 parsing InvestigationComplete" do
+    test "parses valid investigation_complete with findings" do
+      input = %{
+        intent: "investigation_complete",
+        findings: %{
+          anomaly_type: "memory_leak",
+          severity: "warning",
+          root_cause: "GenServer accumulating state without cleanup",
+          evidence: ["Memory grew 50% over 1 hour", "Process heap: 500MB"],
+          recommendations: ["Add periodic cleanup", "Consider ETS for large data"],
+          confidence: "high"
+        }
+      }
+
+      assert {:ok, %InvestigationComplete{} = result} =
+               Zoi.parse(Decision.investigation_schema(), input)
+
+      assert result.intent == "investigation_complete"
+      assert %WatcherFindings{} = result.findings
+      assert result.findings.anomaly_type == "memory_leak"
+      assert result.findings.severity == :warning
+      assert result.findings.root_cause == "GenServer accumulating state without cleanup"
+      assert result.findings.evidence == ["Memory grew 50% over 1 hour", "Process heap: 500MB"]
+
+      assert result.findings.recommendations == [
+               "Add periodic cleanup",
+               "Consider ETS for large data"
+             ]
+
+      assert result.findings.confidence == :high
+    end
+
+    test "parses investigation_complete with critical severity" do
+      input = %{
+        intent: "investigation_complete",
+        findings: %{
+          anomaly_type: "scheduler_deadlock",
+          severity: "critical",
+          root_cause: "Blocking call in scheduler",
+          evidence: ["Run queue: 500"],
+          recommendations: ["Move blocking work to Task"],
+          confidence: "medium"
+        }
+      }
+
+      assert {:ok, %InvestigationComplete{findings: findings}} =
+               Zoi.parse(Decision.investigation_schema(), input)
+
+      assert findings.severity == :critical
+      assert findings.confidence == :medium
+    end
+
+    test "parses investigation_complete with low confidence" do
+      input = %{
+        intent: "investigation_complete",
+        findings: %{
+          anomaly_type: "unknown_spike",
+          severity: "info",
+          root_cause: "Unable to determine root cause",
+          evidence: ["Transient spike observed"],
+          recommendations: ["Continue monitoring"],
+          confidence: "low"
+        }
+      }
+
+      assert {:ok, %InvestigationComplete{findings: findings}} =
+               Zoi.parse(Decision.investigation_schema(), input)
+
+      assert findings.confidence == :low
+    end
+  end
+
+  describe "investigation_schema/0 parsing tool selection" do
+    test "parses get_memory_stats into struct" do
+      input = %{intent: "get_memory_stats"}
+
+      assert {:ok, %GetMemoryStats{intent: "get_memory_stats"}} =
+               Zoi.parse(Decision.investigation_schema(), input)
+    end
+
+    test "parses get_overview into struct" do
+      input = %{intent: "get_overview"}
+
+      assert {:ok, %GetOverview{intent: "get_overview"}} =
+               Zoi.parse(Decision.investigation_schema(), input)
+    end
+
+    test "parses get_process_stats into struct" do
+      input = %{intent: "get_process_stats"}
+
+      assert {:ok, %GetProcessStats{intent: "get_process_stats"}} =
+               Zoi.parse(Decision.investigation_schema(), input)
+    end
+
+    test "parses get_scheduler_stats into struct" do
+      input = %{intent: "get_scheduler_stats"}
+
+      assert {:ok, %GetSchedulerStats{intent: "get_scheduler_stats"}} =
+               Zoi.parse(Decision.investigation_schema(), input)
     end
   end
 end

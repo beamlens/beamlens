@@ -2,25 +2,27 @@ defmodule Beamlens do
   @moduledoc """
   BeamLens - AI-powered BEAM VM health monitoring.
 
-  An orchestrator-workers architecture where specialized **watchers** monitor
-  BEAM VM metrics on cron schedules and report anomalies to an **orchestrator**
-  that correlates findings and conducts deeper investigations using AI.
+  An orchestrator-workers architecture where specialized **watchers** autonomously
+  monitor BEAM VM metrics on cron schedules, detect anomalies using LLM-based
+  baseline learning, and investigate deeper when issues are found.
 
   ## Architecture
 
   ```
-  ┌─────────────────┐     ┌─────────────────┐
-  │  BEAM Watcher   │     │  Custom Watcher │
-  │    (worker)     │     │    (worker)     │
-  └────────┬────────┘     └────────┬────────┘
-           │ report (only if anomaly)       │
-           └───────────────┬───────────────┘
-                           ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │                      Watcher (Autonomous)                   │
+  │  1. Collect snapshot on cron schedule                       │
+  │  2. AnalyzeBaseline → ContinueObserving | Alert | Healthy   │
+  │  3. If Alert: push to AlertQueue, run InvestigateAnomaly    │
+  │  4. Produce WatcherFindings with root cause & recommendations│
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
               ┌────────────────────────┐
-              │    ReportHandler       │
-              │   - receives reports   │
-              │   - triggers Agent     │
-              │   - correlates & AI    │
+              │      AlertHandler      │
+              │  - receives alerts     │
+              │  - correlates findings │
+              │  - orchestrates AI     │
               └────────────────────────┘
   ```
 
@@ -51,8 +53,8 @@ defmodule Beamlens do
   Options passed to `Beamlens`:
 
     * `:watchers` - List of watcher configurations (see below)
-    * `:report_handler` - Report handler options:
-      * `:trigger` - `:on_report` (auto-run) or `:manual` (default: `:on_report`)
+    * `:alert_handler` - Alert handler options:
+      * `:trigger` - `:on_alert` (auto-run) or `:manual` (default: `:on_alert`)
     * `:circuit_breaker` - Circuit breaker options (see below)
 
   ### Watcher Configuration
@@ -74,8 +76,8 @@ defmodule Beamlens do
           [name: :postgres, watcher_module: MyApp.Watchers.Postgres,
            cron: "*/5 * * * *", config: [repo: MyApp.Repo]]
         ],
-        report_handler: [
-          trigger: :on_report
+        alert_handler: [
+          trigger: :on_alert
         ],
         circuit_breaker: [
           enabled: true
@@ -83,24 +85,19 @@ defmodule Beamlens do
 
   ## Manual Usage
 
-  You can run analyses manually:
-
-      # Run the original agent directly (snapshot + tool loop)
-      {:ok, analysis} = Beamlens.run()
-
-      # Investigate pending watcher reports
-      {:ok, analysis} = Beamlens.investigate()
-
       # Trigger a specific watcher manually
       :ok = Beamlens.trigger_watcher(:beam)
+
+      # Investigate pending alerts (correlate findings across watchers)
+      {:ok, analysis} = Beamlens.investigate()
 
   ## Runtime API
 
       # List all running watchers
       Beamlens.list_watchers()
 
-      # Check for pending reports
-      Beamlens.pending_reports?()
+      # Check for pending alerts
+      Beamlens.pending_alerts?()
 
       # Trigger specific watcher
       Beamlens.trigger_watcher(:beam)
@@ -126,42 +123,20 @@ defmodule Beamlens do
   end
 
   @doc """
-  Manually trigger a health analysis using the direct agent loop.
+  Investigates pending watcher alerts using the agent's tool-calling loop.
 
-  This bypasses watchers and runs a complete analysis immediately,
-  collecting a snapshot and using the AI to investigate.
-
-  Returns `{:ok, analysis}` on success, or `{:error, reason}` on failure.
-
-  ## Options
-
-  See `Beamlens.Agent.run/1` for available options.
-
-  ## Possible Errors
-
-    * `{:error, :max_iterations_exceeded}` - Agent did not complete within iteration limit
-    * `{:error, :timeout}` - LLM call timed out
-    * `{:error, :circuit_open}` - Circuit breaker is open due to consecutive failures
-    * `{:error, {:unknown_tool, tool}}` - LLM returned unrecognized tool
-    * `{:error, {:encoding_failed, tool_name, reason}}` - Tool result could not be JSON-encoded
-  """
-  defdelegate run(opts \\ []), to: Beamlens.Agent
-
-  @doc """
-  Investigates pending watcher reports using the agent's tool-calling loop.
-
-  Takes all reports from the queue and runs an investigation to correlate
+  Takes all alerts from the queue and runs an investigation to correlate
   findings and analyze deeper.
 
-  Returns `{:ok, analysis}` if reports were processed,
-  `{:ok, :no_reports}` if no reports were pending.
+  Returns `{:ok, analysis}` if alerts were processed,
+  `{:ok, :no_alerts}` if no alerts were pending.
 
   ## Options
 
     * `:trace_id` - Correlation ID for telemetry (auto-generated if not provided)
   """
   def investigate(opts \\ []) do
-    Beamlens.ReportHandler.investigate(Beamlens.ReportHandler, opts)
+    Beamlens.AlertHandler.investigate(Beamlens.AlertHandler, opts)
   end
 
   @doc """
@@ -194,9 +169,9 @@ defmodule Beamlens do
   defdelegate watcher_status(name), to: Beamlens.Watchers.Supervisor
 
   @doc """
-  Checks if there are pending reports to investigate.
+  Checks if there are pending alerts to investigate.
   """
-  defdelegate pending_reports?(), to: Beamlens.ReportQueue, as: :pending?
+  defdelegate pending_alerts?(), to: Beamlens.AlertQueue, as: :pending?
 
   @doc """
   Returns the current circuit breaker state.

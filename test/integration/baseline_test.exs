@@ -12,7 +12,7 @@ defmodule Beamlens.Integration.BaselineTest do
 
   @moduletag :integration
 
-  alias Beamlens.ReportQueue
+  alias Beamlens.AlertQueue
   alias Beamlens.Watchers.Server
 
   defmodule TestObservation do
@@ -126,7 +126,7 @@ defmodule Beamlens.Integration.BaselineTest do
     @describetag timeout: 180_000
 
     setup do
-      {:ok, queue} = start_supervised(ReportQueue)
+      {:ok, queue} = start_supervised(AlertQueue)
       {:ok, queue: queue}
     end
 
@@ -153,7 +153,7 @@ defmodule Beamlens.Integration.BaselineTest do
           watcher_module: TestWatcher,
           cron: "0 0 1 1 *",
           config: [],
-          report_handler: &ReportQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue)
         )
 
       Server.trigger(server)
@@ -192,7 +192,7 @@ defmodule Beamlens.Integration.BaselineTest do
           watcher_module: TestWatcher,
           cron: "0 0 1 1 *",
           config: [],
-          report_handler: &ReportQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue)
         )
 
       for _ <- 1..3 do
