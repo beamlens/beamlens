@@ -40,7 +40,7 @@ defmodule Beamlens.MixProject do
 
   defp deps do
     [
-      {:puck, "~> 0.2.0"},
+      {:puck, "~> 0.2.2"},
       {:jason, "~> 1.4"},
       {:zoi, "~> 0.12"},
       {:baml_elixir, "~> 1.0.0-pre"},

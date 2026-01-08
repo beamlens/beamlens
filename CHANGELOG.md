@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Upgraded Puck from 0.1.0 to 0.2.0 (adds context compaction support)
+- Upgraded Puck from 0.1.0 to 0.2.2 (adds context compaction support)
 - Standardized telemetry events to follow Phoenix/Oban conventions
 - All exception events now include `kind`, `reason`, and `stacktrace` metadata
 - All stop events now include `duration` measurement and result data
