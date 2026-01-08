@@ -2,7 +2,7 @@ defmodule Beamlens.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/bradleygolden/beamlens"
+  @source_url "https://github.com/beamlens/beamlens"
 
   def project do
     [
@@ -13,12 +13,11 @@ defmodule Beamlens.MixProject do
       deps: deps(),
       aliases: aliases(),
       dialyzer: dialyzer(),
-      description: "Your BEAM Expert, Always On — an AI agent for runtime analysis",
+      description: "An AI agent that continuously monitors your application",
       package: package(),
       docs: docs(),
       name: "BeamLens",
-      source_url: @source_url,
-      homepage_url: "https://beamlens.dev"
+      source_url: @source_url
     ]
   end
 

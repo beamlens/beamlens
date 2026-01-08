@@ -30,7 +30,7 @@ defmodule Beamlens do
 
   Add to your dependencies:
 
-      {:beamlens, github: "bradleygolden/beamlens"}
+      {:beamlens, "~> 0.1.0"}
 
   ## Supervision Tree Setup
 

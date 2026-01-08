@@ -57,5 +57,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 First release!
 
-[Unreleased]: https://github.com/bradleygolden/beamlens/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/bradleygolden/beamlens/releases/tag/v0.1.0
+[Unreleased]: https://github.com/beamlens/beamlens/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/beamlens/beamlens/releases/tag/v0.1.0

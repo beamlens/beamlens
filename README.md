@@ -1,8 +1,6 @@
 # BeamLens
 
-**You sleep. Your app doesn't. Neither does BeamLens.**
-
-Your application runs around the clock. You can't watch it around the clock. BeamLens bridges that gap—an AI agent that continuously monitors your application's health, surfacing issues whether you're in a meeting, asleep, or on vacation.
+An AI agent that continuously monitors your application.
 
 ## The Problem
 
