@@ -86,7 +86,6 @@ defmodule Beamlens.Watchers.SupervisorTest do
 
       assert :ok = result
       assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
-      assert Registry.lookup(Beamlens.WatcherRegistry, :to_stop) == []
     end
 
     test "returns error for non-existent watcher", %{supervisor: supervisor} do

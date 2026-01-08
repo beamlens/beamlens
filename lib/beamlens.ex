@@ -53,9 +53,31 @@ defmodule Beamlens do
   Options passed to `Beamlens`:
 
     * `:watchers` - List of watcher configurations (see below)
+    * `:client_registry` - LLM provider configuration (see below)
     * `:alert_handler` - Alert handler options:
       * `:trigger` - `:on_alert` (auto-run) or `:manual` (default: `:on_alert`)
     * `:circuit_breaker` - Circuit breaker options (see below)
+
+  ### LLM Provider Configuration
+
+  By default, BeamLens uses Anthropic (requires `ANTHROPIC_API_KEY` env var).
+  Configure a custom provider via `:client_registry`:
+
+      {Beamlens,
+        watchers: [{:beam, "*/5 * * * *"}],
+        client_registry: %{
+          primary: "Ollama",
+          clients: [
+            %{
+              name: "Ollama",
+              provider: "openai-generic",
+              options: %{base_url: "http://localhost:11434/v1", model: "qwen3:4b"}
+            }
+          ]
+        }}
+
+  Supported providers include: `anthropic`, `openai`, `openai-generic` (Ollama),
+  `aws-bedrock`, `google-ai`, `azure-openai`, and more.
 
   ### Watcher Configuration
 

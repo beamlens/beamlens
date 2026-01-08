@@ -8,9 +8,7 @@ defmodule Beamlens.Integration.BaselineTest do
   3. Receive decisions: continue_observing, report_anomaly, or report_healthy
   """
 
-  use ExUnit.Case, async: false
-
-  @moduletag :integration
+  use Beamlens.IntegrationCase, async: false
 
   alias Beamlens.AlertQueue
   alias Beamlens.Watchers.Server
@@ -66,21 +64,29 @@ defmodule Beamlens.Integration.BaselineTest do
     alias Beamlens.Watchers.Baseline.{Analyzer, Context}
     alias Beamlens.Watchers.ObservationHistory
 
-    test "returns a valid decision with required fields" do
+    test "returns a valid decision with required fields", %{client_registry: client_registry} do
       history = build_observation_history(5)
       context = build_context(5)
 
-      {:ok, decision} = Analyzer.analyze(:test, history, context, TestWatcher)
+      {:ok, decision} =
+        Analyzer.analyze(:test, history, context, TestWatcher,
+          client_registry: client_registry,
+          timeout: :timer.seconds(60)
+        )
 
       assert decision.intent != nil
       assert decision.confidence != nil
     end
 
-    test "does not report anomaly for stable metrics" do
+    test "does not report anomaly for stable metrics", %{client_registry: client_registry} do
       history = build_stable_history(5)
       context = build_context(5)
 
-      {:ok, decision} = Analyzer.analyze(:test, history, context, TestWatcher)
+      {:ok, decision} =
+        Analyzer.analyze(:test, history, context, TestWatcher,
+          client_registry: client_registry,
+          timeout: :timer.seconds(60)
+        )
 
       refute decision.intent == "report_anomaly"
     end
@@ -125,12 +131,15 @@ defmodule Beamlens.Integration.BaselineTest do
   describe "Watcher Server baseline flow with real LLM" do
     @describetag timeout: 180_000
 
-    setup do
+    setup %{client_registry: client_registry} do
       {:ok, queue} = start_supervised(AlertQueue)
-      {:ok, queue: queue}
+      {:ok, queue: queue, client_registry: client_registry}
     end
 
-    test "triggers baseline analysis after min_observations", %{queue: queue} do
+    test "triggers baseline analysis after min_observations", %{
+      queue: queue,
+      client_registry: client_registry
+    } do
       ref = make_ref()
       parent = self()
 
@@ -153,7 +162,8 @@ defmodule Beamlens.Integration.BaselineTest do
           watcher_module: TestWatcher,
           cron: "0 0 1 1 *",
           config: [],
-          alert_handler: &AlertQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue),
+          client_registry: client_registry
         )
 
       Server.trigger(server)
@@ -169,7 +179,10 @@ defmodule Beamlens.Integration.BaselineTest do
       :telemetry.detach(ref)
     end
 
-    test "completes baseline analysis after min_observations", %{queue: queue} do
+    test "completes baseline analysis after min_observations", %{
+      queue: queue,
+      client_registry: client_registry
+    } do
       ref = make_ref()
       parent = self()
 
@@ -192,7 +205,8 @@ defmodule Beamlens.Integration.BaselineTest do
           watcher_module: TestWatcher,
           cron: "0 0 1 1 *",
           config: [],
-          alert_handler: &AlertQueue.push(&1, queue)
+          alert_handler: &AlertQueue.push(&1, queue),
+          client_registry: client_registry
         )
 
       for _ <- 1..3 do

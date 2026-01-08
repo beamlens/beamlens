@@ -37,11 +37,12 @@ defmodule Beamlens.Watchers.Supervisor do
   @impl true
   def init(opts) do
     watchers = Keyword.get(opts, :watchers, [])
+    client_registry = Keyword.get(opts, :client_registry)
 
     if watchers != [] do
       spawn_link(fn ->
         Process.sleep(50)
-        Enum.each(watchers, &start_watcher/1)
+        Enum.each(watchers, &start_watcher(__MODULE__, &1, client_registry))
       end)
     end
 
@@ -64,28 +65,44 @@ defmodule Beamlens.Watchers.Supervisor do
   @doc """
   Starts a single watcher under the supervisor.
   """
-  def start_watcher(supervisor \\ __MODULE__, spec)
+  def start_watcher(supervisor \\ __MODULE__, spec, client_registry \\ nil)
 
-  def start_watcher(supervisor, {domain, cron}) when is_atom(domain) and is_binary(cron) do
+  def start_watcher(supervisor, {domain, cron}, client_registry)
+      when is_atom(domain) and is_binary(cron) do
     case Map.fetch(@builtin_watchers, domain) do
       {:ok, module} ->
-        start_watcher(supervisor, name: domain, watcher_module: module, cron: cron, config: [])
+        start_watcher(
+          supervisor,
+          [name: domain, watcher_module: module, cron: cron, config: []],
+          client_registry
+        )
 
       :error ->
         {:error, {:unknown_builtin_watcher, domain}}
     end
   end
 
-  def start_watcher(supervisor, opts) when is_list(opts) do
+  def start_watcher(supervisor, opts, client_registry) when is_list(opts) do
     name = Keyword.fetch!(opts, :name)
     watcher_module = Keyword.fetch!(opts, :watcher_module)
     cron = Keyword.fetch!(opts, :cron)
     config = Keyword.get(opts, :config, [])
 
-    child_spec = {
-      Server,
-      name: via_registry(name), watcher_module: watcher_module, cron: cron, config: config
-    }
+    server_opts = [
+      name: via_registry(name),
+      watcher_module: watcher_module,
+      cron: cron,
+      config: config
+    ]
+
+    server_opts =
+      if client_registry do
+        Keyword.put(server_opts, :client_registry, client_registry)
+      else
+        server_opts
+      end
+
+    child_spec = {Server, server_opts}
 
     DynamicSupervisor.start_child(supervisor, child_spec)
   end

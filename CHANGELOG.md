@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `:client_registry` option to configure custom LLM providers (OpenAI, Ollama, AWS Bedrock, Google Gemini, etc.)
 - Judge agent that double-checks AI conclusions against raw data
 - Automatic retry when the judge finds issues with an analysis
 - `:judge` option to enable/disable quality checks (enabled by default)

@@ -9,18 +9,23 @@ defmodule Beamlens.Integration.WatcherFlowTest do
   4. HealthAnalysis is produced
   """
 
-  use ExUnit.Case, async: false
-
-  @moduletag :integration
+  use Beamlens.IntegrationCase, async: false
 
   alias Beamlens.{Alert, AlertHandler, AlertQueue}
 
   describe "AlertHandler.investigate/1 with real LLM" do
     @describetag timeout: 120_000
 
-    setup do
+    setup %{client_registry: client_registry} do
       {:ok, queue} = start_supervised(AlertQueue)
-      {:ok, handler} = start_supervised({AlertHandler, trigger: :manual})
+
+      {:ok, handler} =
+        start_supervised(
+          {AlertHandler,
+           trigger: :manual,
+           agent_opts: [client_registry: client_registry, timeout: :timer.seconds(60)]}
+        )
+
       {:ok, queue: queue, handler: handler}
     end
 
@@ -73,11 +78,14 @@ defmodule Beamlens.Integration.WatcherFlowTest do
   describe "Full supervision tree flow" do
     @describetag timeout: 120_000
 
-    test "Beamlens.investigate/0 processes pending alerts" do
+    test "Beamlens.investigate/0 processes pending alerts", %{client_registry: client_registry} do
       {:ok, _supervisor} =
         start_supervised(
           {Beamlens,
-           watchers: [], alert_handler: [trigger: :manual], circuit_breaker: [enabled: false]}
+           watchers: [],
+           alert_handler: [trigger: :manual, agent_opts: [timeout: :timer.seconds(60)]],
+           circuit_breaker: [enabled: false],
+           client_registry: client_registry}
         )
 
       alert = build_alert(:warning, "Test anomaly from watcher")
@@ -89,11 +97,14 @@ defmodule Beamlens.Integration.WatcherFlowTest do
       assert analysis.status in [:healthy, :warning, :critical]
     end
 
-    test "Beamlens.pending_alerts?/0 reflects queue state" do
+    test "Beamlens.pending_alerts?/0 reflects queue state", %{client_registry: client_registry} do
       {:ok, _supervisor} =
         start_supervised(
           {Beamlens,
-           watchers: [], alert_handler: [trigger: :manual], circuit_breaker: [enabled: false]}
+           watchers: [],
+           alert_handler: [trigger: :manual, agent_opts: [timeout: :timer.seconds(60)]],
+           circuit_breaker: [enabled: false],
+           client_registry: client_registry}
         )
 
       refute Beamlens.pending_alerts?()

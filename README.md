@@ -1,6 +1,6 @@
 # BeamLens
 
-An AI agent that continuously monitors your application.
+An AI agent that continuously monitors your Elixir application.
 
 ## The Problem
 
@@ -32,7 +32,7 @@ Investigate ETS table growth, potentially from cache or session storage."
 
 - **Supplements Your Stack** — Works alongside Prometheus, Datadog, AppSignal, Sentry—whatever you're already using.
 
-- **Bring Your Own Model** (Coming Soon) — Anthropic (available now), with OpenAI, AWS Bedrock, Google Gemini, Azure OpenAI, Ollama, and more coming in future releases.
+- **Bring Your Own Model** — Anthropic, OpenAI, Google Gemini, AWS Bedrock, and more via BAML's provider support.
 
 ## How It Works
 
@@ -101,17 +101,48 @@ Beamlens.pending_alerts?()
 
 A judge agent reviews each analysis to verify conclusions are supported by collected data. If the judge finds issues, the agent automatically retries with feedback.
 
-## Bring Your Own Model (Coming Soon)
+## Bring Your Own Model
 
-Custom LLM provider configuration will be available in a future release. Currently, BeamLens uses Claude Haiku via Anthropic's API.
+BeamLens supports multiple LLM providers:
 
-Planned support includes:
-- Ollama (run completely offline)
-- AWS Bedrock
+- Anthropic (default)
 - OpenAI
 - Google Gemini
+- AWS Bedrock
 - Azure OpenAI
+- Ollama (run completely offline)
 - OpenRouter, Together AI, and more
+
+### Default: Anthropic
+
+Set your API key and you're ready:
+
+```bash
+export ANTHROPIC_API_KEY="your-api-key"
+```
+
+### Custom Provider
+
+Configure a custom provider globally via `client_registry`:
+
+```elixir
+{Beamlens,
+  watchers: [{:beam, "*/5 * * * *"}],
+  client_registry: %{
+    primary: "Ollama",
+    clients: [
+      %{
+        name: "Ollama",
+        provider: "openai-generic",
+        options: %{base_url: "http://localhost:11434/v1", model: "qwen3:4b"}
+      }
+    ]
+  }}
+```
+
+This applies to all LLM calls: watcher baseline analysis, anomaly investigation, and the judge agent.
+
+See the [BAML documentation](https://docs.boundaryml.com/) for all supported providers and options.
 
 ## What It Observes
 

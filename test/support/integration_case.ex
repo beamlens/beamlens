@@ -10,26 +10,85 @@ defmodule Beamlens.IntegrationCase do
   end
 
   setup do
-    case check_ollama_available() do
-      :ok ->
-        {:ok, client_registry: ollama_client_registry()}
+    provider = System.get_env("BEAMLENS_TEST_PROVIDER", "anthropic")
+
+    case build_client_registry(provider) do
+      {:ok, registry} ->
+        {:ok, client_registry: registry}
 
       {:error, reason} ->
-        flunk("Ollama is not available: #{reason}. Start Ollama with: ollama serve")
+        flunk(reason)
     end
   end
 
-  defp ollama_client_registry do
-    %{
-      primary: "Ollama",
-      clients: [
-        %{
-          name: "Ollama",
-          provider: "openai-generic",
-          options: %{base_url: "http://localhost:11434/v1", model: "qwen3:4b"}
-        }
-      ]
-    }
+  defp build_client_registry("anthropic") do
+    case System.get_env("ANTHROPIC_API_KEY") do
+      nil ->
+        {:error, "ANTHROPIC_API_KEY not set. Set it or use BEAMLENS_TEST_PROVIDER=ollama"}
+
+      _key ->
+        model = System.get_env("BEAMLENS_TEST_MODEL", "claude-haiku-4-5")
+
+        {:ok,
+         %{
+           primary: "Anthropic",
+           clients: [
+             %{
+               name: "Anthropic",
+               provider: "anthropic",
+               options: %{model: model}
+             }
+           ]
+         }}
+    end
+  end
+
+  defp build_client_registry("openai") do
+    case System.get_env("OPENAI_API_KEY") do
+      nil ->
+        {:error, "OPENAI_API_KEY not set"}
+
+      _key ->
+        model = System.get_env("BEAMLENS_TEST_MODEL", "gpt-5.2-mini")
+
+        {:ok,
+         %{
+           primary: "OpenAI",
+           clients: [
+             %{
+               name: "OpenAI",
+               provider: "openai",
+               options: %{model: model}
+             }
+           ]
+         }}
+    end
+  end
+
+  defp build_client_registry("ollama") do
+    case check_ollama_available() do
+      :ok ->
+        model = System.get_env("BEAMLENS_TEST_MODEL", "qwen3:4b")
+
+        {:ok,
+         %{
+           primary: "Ollama",
+           clients: [
+             %{
+               name: "Ollama",
+               provider: "openai-generic",
+               options: %{base_url: "http://localhost:11434/v1", model: model}
+             }
+           ]
+         }}
+
+      {:error, reason} ->
+        {:error, "Ollama not available: #{reason}. Start with: ollama serve"}
+    end
+  end
+
+  defp build_client_registry(provider) do
+    {:error, "Unknown provider: #{provider}. Use anthropic, openai, or ollama"}
   end
 
   defp check_ollama_available do

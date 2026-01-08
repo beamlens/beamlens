@@ -17,6 +17,13 @@ defmodule Beamlens.Supervisor do
         watchers: [
           {:beam, "*/1 * * * *"}
         ],
+        client_registry: %{
+          primary: "Ollama",
+          clients: [
+            %{name: "Ollama", provider: "openai-generic",
+              options: %{base_url: "http://localhost:11434/v1", model: "qwen3:4b"}}
+          ]
+        },
         alert_handler: [
           trigger: :on_alert
         ],
@@ -39,6 +46,10 @@ defmodule Beamlens.Supervisor do
     watchers = Keyword.get(opts, :watchers, Application.get_env(:beamlens, :watchers, []))
     alert_handler_opts = Keyword.get(opts, :alert_handler, [])
     circuit_breaker_opts = Keyword.get(opts, :circuit_breaker, [])
+    client_registry = Keyword.get(opts, :client_registry)
+
+    watcher_opts = [watchers: watchers, client_registry: client_registry]
+    alert_handler_opts = merge_client_registry(alert_handler_opts, client_registry)
 
     children =
       [
@@ -46,12 +57,20 @@ defmodule Beamlens.Supervisor do
         maybe_circuit_breaker(circuit_breaker_opts),
         {Registry, keys: :unique, name: Beamlens.WatcherRegistry},
         AlertQueue,
-        {WatchersSupervisor, watchers: watchers},
+        {WatchersSupervisor, watcher_opts},
         {AlertHandler, alert_handler_opts}
       ]
       |> Enum.reject(&is_nil/1)
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp merge_client_registry(alert_handler_opts, nil), do: alert_handler_opts
+
+  defp merge_client_registry(alert_handler_opts, client_registry) do
+    agent_opts = Keyword.get(alert_handler_opts, :agent_opts, [])
+    agent_opts = Keyword.put_new(agent_opts, :client_registry, client_registry)
+    Keyword.put(alert_handler_opts, :agent_opts, agent_opts)
   end
 
   defp maybe_circuit_breaker(opts) do
