@@ -138,7 +138,7 @@ defmodule Beamlens.Telemetry do
 
   * `[:beamlens, :watcher, :baseline_anomaly_detected]` - Anomaly detected and reported
     - Measurements: `%{system_time: integer}`
-    - Metadata: `%{watcher: atom(), cron: String.t(), trace_id: String.t(), report_id: String.t(),
+    - Metadata: `%{watcher: atom(), cron: String.t(), trace_id: String.t(), alert_id: String.t(),
                    severity: atom(), anomaly_type: String.t(), confidence: atom()}`
 
   * `[:beamlens, :watcher, :baseline_anomaly_suppressed]` - Anomaly detected but suppressed (cooldown)
@@ -173,6 +173,20 @@ defmodule Beamlens.Telemetry do
   * `[:beamlens, :watcher, :investigation, :timeout]` - Investigation timed out
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{trace_id: String.t()}`
+
+  ## Alert Handler Events
+
+  * `[:beamlens, :alert_handler, :started]` - AlertHandler server started
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trigger_mode: :on_alert | :manual}`
+
+  * `[:beamlens, :alert_handler, :investigation, :complete]` - Investigation finished
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{status: atom()}`
+
+  * `[:beamlens, :alert_handler, :investigation, :error]` - Investigation failed
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{reason: term()}`
 
   ## Example Handler
 
@@ -233,6 +247,9 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :watcher, :investigation, :tool_call],
       [:beamlens, :watcher, :investigation, :error],
       [:beamlens, :watcher, :investigation, :timeout],
+      [:beamlens, :alert_handler, :started],
+      [:beamlens, :alert_handler, :investigation, :complete],
+      [:beamlens, :alert_handler, :investigation, :error],
       [:beamlens, :circuit_breaker, :state_change],
       [:beamlens, :circuit_breaker, :rejected]
     ]

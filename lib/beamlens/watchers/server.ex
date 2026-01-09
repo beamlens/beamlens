@@ -80,6 +80,8 @@ defmodule Beamlens.Watchers.Server do
     * `:cron` - (required) cron expression string
     * `:config` - (optional) config passed to watcher's init/1
     * `:alert_handler` - (optional) function to handle alerts, defaults to AlertQueue.push/1
+    * `:llm_client` - (optional) custom LLM client module
+    * `:client_registry` - (optional) custom LLM provider registry
   """
   def start_link(opts) do
     name = Keyword.get(opts, :name)
@@ -372,25 +374,8 @@ defmodule Beamlens.Watchers.Server do
     ]
 
     case Investigator.investigate(alert, tools, opts) do
-      {:ok, findings} ->
-        emit_telemetry(:investigation_complete, state, %{
-          trace_id: trace_id,
-          alert_id: alert.id,
-          anomaly_type: findings.anomaly_type,
-          severity: findings.severity,
-          confidence: findings.confidence
-        })
-
-        :ok
-
-      {:error, reason} ->
-        emit_telemetry(:investigation_failed, state, %{
-          trace_id: trace_id,
-          alert_id: alert.id,
-          reason: reason
-        })
-
-        :ok
+      {:ok, _findings} -> :ok
+      {:error, _reason} -> :ok
     end
   end
 

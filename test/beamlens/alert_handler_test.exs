@@ -62,13 +62,13 @@ defmodule Beamlens.AlertHandlerTest do
       :telemetry.detach(ref)
     end
 
-    test "investigation_completed event structure" do
+    test "investigation complete event structure" do
       ref = make_ref()
       parent = self()
 
       :telemetry.attach(
         ref,
-        [:beamlens, :alert_handler, :investigation_completed],
+        [:beamlens, :alert_handler, :investigation, :complete],
         fn event, measurements, metadata, _ ->
           send(parent, {:telemetry, event, measurements, metadata})
         end,
@@ -76,12 +76,12 @@ defmodule Beamlens.AlertHandlerTest do
       )
 
       :telemetry.execute(
-        [:beamlens, :alert_handler, :investigation_completed],
+        [:beamlens, :alert_handler, :investigation, :complete],
         %{system_time: System.system_time()},
         %{status: :healthy}
       )
 
-      assert_receive {:telemetry, [:beamlens, :alert_handler, :investigation_completed],
+      assert_receive {:telemetry, [:beamlens, :alert_handler, :investigation, :complete],
                       _measurements, metadata}
 
       assert metadata.status == :healthy
@@ -89,13 +89,13 @@ defmodule Beamlens.AlertHandlerTest do
       :telemetry.detach(ref)
     end
 
-    test "investigation_failed event structure" do
+    test "investigation error event structure" do
       ref = make_ref()
       parent = self()
 
       :telemetry.attach(
         ref,
-        [:beamlens, :alert_handler, :investigation_failed],
+        [:beamlens, :alert_handler, :investigation, :error],
         fn event, measurements, metadata, _ ->
           send(parent, {:telemetry, event, measurements, metadata})
         end,
@@ -103,12 +103,12 @@ defmodule Beamlens.AlertHandlerTest do
       )
 
       :telemetry.execute(
-        [:beamlens, :alert_handler, :investigation_failed],
+        [:beamlens, :alert_handler, :investigation, :error],
         %{system_time: System.system_time()},
         %{reason: :timeout}
       )
 
-      assert_receive {:telemetry, [:beamlens, :alert_handler, :investigation_failed],
+      assert_receive {:telemetry, [:beamlens, :alert_handler, :investigation, :error],
                       _measurements, metadata}
 
       assert metadata.reason == :timeout

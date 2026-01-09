@@ -85,10 +85,10 @@ defmodule Beamlens.AlertHandler do
         :ok
 
       {:ok, analysis} ->
-        emit_telemetry(:investigation_completed, %{status: analysis.status})
+        emit_investigation_telemetry(:complete, %{status: analysis.status})
 
       {:error, reason} ->
-        emit_telemetry(:investigation_failed, %{reason: reason})
+        emit_investigation_telemetry(:error, %{reason: reason})
     end
 
     {:noreply, state}
@@ -101,6 +101,14 @@ defmodule Beamlens.AlertHandler do
   defp emit_telemetry(event, extra) do
     :telemetry.execute(
       [:beamlens, :alert_handler, event],
+      %{system_time: System.system_time()},
+      extra
+    )
+  end
+
+  defp emit_investigation_telemetry(event, extra) do
+    :telemetry.execute(
+      [:beamlens, :alert_handler, :investigation, event],
       %{system_time: System.system_time()},
       extra
     )
