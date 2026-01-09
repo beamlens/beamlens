@@ -173,4 +173,20 @@ defmodule Beamlens.Watchers.SupervisorTest do
       assert {:error, :not_found} = WatchersSupervisor.watcher_status(:nonexistent)
     end
   end
+
+  describe "start_watcher/3 with client_registry" do
+    test "passes client_registry to Server", %{supervisor: supervisor} do
+      client_registry = %{primary: "Test", clients: []}
+
+      {:ok, pid} =
+        WatchersSupervisor.start_watcher(
+          supervisor,
+          {:beam, "0 0 1 1 *"},
+          client_registry
+        )
+
+      state = :sys.get_state(pid)
+      assert state.client_registry == client_registry
+    end
+  end
 end

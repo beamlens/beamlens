@@ -71,6 +71,22 @@ defmodule Beamlens.Watchers.ServerTest do
 
       assert {:error, _} = result
     end
+
+    test "stores client_registry in state", %{queue: queue} do
+      client_registry = %{primary: "Test", clients: []}
+
+      {:ok, pid} =
+        Server.start_link(
+          watcher_module: TestWatcher,
+          cron: "0 0 1 1 *",
+          config: [],
+          alert_handler: &AlertQueue.push(&1, queue),
+          client_registry: client_registry
+        )
+
+      state = :sys.get_state(pid)
+      assert state.client_registry == client_registry
+    end
   end
 
   describe "status/1" do
