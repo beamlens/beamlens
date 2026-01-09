@@ -40,13 +40,15 @@ defmodule Beamlens.Watchers.Supervisor do
     client_registry = Keyword.get(opts, :client_registry)
 
     if watchers != [] do
-      spawn_link(fn ->
-        Process.sleep(50)
-        Enum.each(watchers, &start_watcher(__MODULE__, &1, client_registry))
-      end)
+      send(self(), {:start_watchers, watchers, client_registry})
     end
 
     DynamicSupervisor.init(strategy: :one_for_one)
+  end
+
+  def handle_info({:start_watchers, watchers, client_registry}, state) do
+    Enum.each(watchers, &start_watcher(__MODULE__, &1, client_registry))
+    {:noreply, state}
   end
 
   @doc """
