@@ -8,6 +8,8 @@ defmodule Beamlens.Domain.Ecto.Adapters.Postgres do
   to prevent PII exposure.
   """
 
+  @compile {:no_warn_undefined, EctoPSQLExtras}
+
   @locks_excluded_columns ~w(query_snippet)
   @long_running_excluded_columns ~w(query)
 
