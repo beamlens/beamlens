@@ -47,11 +47,12 @@ defmodule Beamlens.MixProject do
 
   defp deps do
     [
-      {:puck, "~> 0.2.5"},
+      {:puck, "~> 0.2.6"},
       {:jason, "~> 1.4"},
       {:zoi, "~> 0.12"},
       {:baml_elixir, "~> 1.0.0-pre"},
       {:rustler, "~> 0.36", optional: true},
+      {:lua, "~> 0.4"},
       {:telemetry, "~> 1.2"},
       {:ecto_psql_extras, "~> 0.8", optional: true},
       {:tower, "~> 0.8.6", optional: true},

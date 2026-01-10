@@ -1,4 +1,4 @@
-defmodule Beamlens.Evals.WatcherEvalTest do
+defmodule Beamlens.Evals.WatcherTest do
   use ExUnit.Case, async: false
 
   alias Beamlens.Watcher
