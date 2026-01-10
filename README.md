@@ -86,6 +86,7 @@ end
 | `:logger` | Application log monitoring (error rates, patterns, module analysis) |
 | `:ports` | Port monitoring (file descriptors, sockets) |
 | `:sup` | Supervisor tree monitoring |
+| `:system` | OS-level metrics (CPU load, memory, disk usage via os_mon) |
 | `:ecto` | Database monitoring (requires custom domain module, see below) |
 
 Start multiple watchers:

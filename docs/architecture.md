@@ -200,6 +200,7 @@ See [providers.md](providers.md) for configuration examples.
 | `:logger` | `Beamlens.Domain.Logger` | Application log monitoring |
 | `:ports` | `Beamlens.Domain.Ports` | Port monitoring (file descriptors, sockets) |
 | `:sup` | `Beamlens.Domain.Sup` | Supervisor tree monitoring |
+| `:system` | `Beamlens.Domain.System` | OS-level metrics (CPU, memory, disk via os_mon) |
 | `:ecto` | `Beamlens.Domain.Ecto` | Database monitoring (requires custom domain module) |
 
 ### BEAM Domain (`:beam`)
@@ -314,6 +315,26 @@ Monitors supervisor tree structure.
 | `sup_list()` | All supervisors: name, pid, child_count, active_children |
 | `sup_children(supervisor_name)` | Direct children: id, pid, type |
 | `sup_tree(supervisor_name)` | Full supervision tree (recursive, depth-limited) |
+
+### System Domain (`:system`)
+
+Monitors OS-level system health via Erlang's os_mon application.
+
+> **Requirement:** Add `:os_mon` to your application's `extra_applications`.
+> **Platform Notes:** `cpu_sup` metrics are only available on Unix.
+
+**Snapshot Metrics:**
+- CPU load (1m, 5m, 15m averages)
+- Memory used %
+- Disk max used %
+
+**Lua Callbacks:**
+
+| Callback | Description |
+|----------|-------------|
+| `system_get_cpu()` | CPU load averages and process count |
+| `system_get_memory()` | System memory stats |
+| `system_get_disks()` | Disk usage per mount point |
 
 ### Ecto Domain (`:ecto`)
 

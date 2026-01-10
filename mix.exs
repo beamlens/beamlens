@@ -29,7 +29,14 @@ defmodule Beamlens.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   def application do
-    [extra_applications: [:logger]]
+    extra_apps =
+      if Mix.env() in [:dev, :test] do
+        [:logger, :os_mon]
+      else
+        [:logger]
+      end
+
+    [extra_applications: extra_apps]
   end
 
   defp dialyzer do
@@ -149,7 +156,8 @@ defmodule Beamlens.MixProject do
           Beamlens.Domain.Logger,
           Beamlens.Domain.Logger.LogStore,
           Beamlens.Domain.Ports,
-          Beamlens.Domain.Sup
+          Beamlens.Domain.Sup,
+          Beamlens.Domain.System
         ],
         Telemetry: [
           Beamlens.Telemetry,
