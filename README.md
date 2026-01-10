@@ -85,6 +85,7 @@ end
 | `:gc` | Garbage collection statistics |
 | `:ports` | Port monitoring (file descriptors, sockets) |
 | `:sup` | Supervisor tree monitoring |
+| `:ecto` | Database monitoring (requires custom domain module, see below) |
 
 Start multiple watchers:
 
@@ -93,6 +94,31 @@ Start multiple watchers:
 ```
 
 Each watcher runs independently with its own LLM context, monitoring its specific domain.
+
+### Ecto Domain
+
+The Ecto domain requires a custom module configured with your Repo:
+
+```elixir
+defmodule MyApp.EctoDomain do
+  use Beamlens.Domain.Ecto, repo: MyApp.Repo
+end
+```
+
+Then configure as a watcher:
+
+```elixir
+{Beamlens, watchers: [
+  :beam,
+  [name: :ecto, domain_module: MyApp.EctoDomain]
+]}
+```
+
+For PostgreSQL, add the optional dependency for deeper database insights:
+
+```elixir
+{:ecto_psql_extras, "~> 0.8"}
+```
 
 Subscribe to alerts via telemetry:
 

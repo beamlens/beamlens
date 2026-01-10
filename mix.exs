@@ -46,6 +46,7 @@ defmodule Beamlens.MixProject do
       {:baml_elixir, "~> 1.0.0-pre"},
       {:rustler, "~> 0.36", optional: true},
       {:telemetry, "~> 1.2"},
+      {:ecto_psql_extras, "~> 0.8", optional: true},
       {:crontab, "~> 1.1"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
@@ -138,7 +139,15 @@ defmodule Beamlens.MixProject do
         ],
         Domain: [
           Beamlens.Domain,
-          Beamlens.Domain.Beam
+          Beamlens.Domain.Beam,
+          Beamlens.Domain.Ets,
+          Beamlens.Domain.Gc,
+          Beamlens.Domain.Ports,
+          Beamlens.Domain.Sup,
+          Beamlens.Domain.Ecto,
+          Beamlens.Domain.Ecto.TelemetryStore,
+          Beamlens.Domain.Ecto.Adapters.Postgres,
+          Beamlens.Domain.Ecto.Adapters.Generic
         ],
         Telemetry: [
           Beamlens.Telemetry,

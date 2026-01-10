@@ -195,6 +195,7 @@ See [providers.md](providers.md) for configuration examples.
 | `:gc` | `Beamlens.Domain.Gc` | Garbage collection statistics |
 | `:ports` | `Beamlens.Domain.Ports` | Port monitoring (file descriptors, sockets) |
 | `:sup` | `Beamlens.Domain.Sup` | Supervisor tree monitoring |
+| `:ecto` | `Beamlens.Domain.Ecto` | Database monitoring (requires custom domain module) |
 
 ### BEAM Domain (`:beam`)
 
@@ -282,9 +283,50 @@ Monitors supervisor tree structure.
 
 | Callback | Description |
 |----------|-------------|
-| `sup_list()` | All supervisors: name, pid, child_count |
+| `sup_list()` | All supervisors: name, pid, child_count, active_children |
 | `sup_children(supervisor_name)` | Direct children: id, pid, type |
 | `sup_tree(supervisor_name)` | Full supervision tree (recursive, depth-limited) |
+
+### Ecto Domain (`:ecto`)
+
+Monitors Ecto database health. Requires a custom domain module configured with your Repo:
+
+```elixir
+defmodule MyApp.EctoDomain do
+  use Beamlens.Domain.Ecto, repo: MyApp.Repo
+end
+
+{Beamlens, watchers: [
+  [name: :ecto, domain_module: MyApp.EctoDomain]
+]}
+```
+
+**Snapshot Metrics:**
+- Query count (1 minute window)
+- Average query time (ms)
+- Max query time (ms)
+- P95 query time (ms)
+- Slow query count
+- Error count
+
+**Lua Callbacks:**
+
+| Callback | Description |
+|----------|-------------|
+| `ecto_query_stats()` | Query statistics from telemetry |
+| `ecto_slow_queries(limit)` | Recent slow queries from telemetry |
+| `ecto_pool_stats()` | Connection pool health |
+| `ecto_db_slow_queries(limit)` | Slow queries from pg_stat_statements (PostgreSQL) |
+| `ecto_index_usage()` | Index scan statistics (PostgreSQL) |
+| `ecto_unused_indexes()` | Indexes with zero scans (PostgreSQL) |
+| `ecto_table_sizes(limit)` | Table sizes (PostgreSQL) |
+| `ecto_cache_hit()` | Buffer cache hit ratios (PostgreSQL) |
+| `ecto_locks()` | Active database locks (PostgreSQL) |
+| `ecto_long_running()` | Long-running queries (PostgreSQL) |
+| `ecto_bloat(limit)` | Table/index bloat (PostgreSQL) |
+| `ecto_connections()` | Database connections (PostgreSQL) |
+
+PostgreSQL-specific callbacks require `{:ecto_psql_extras, "~> 0.8"}` as an optional dependency.
 
 ## Custom Domains
 

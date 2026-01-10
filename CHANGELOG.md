@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Built-in GC domain for garbage collection statistics
 - Built-in Ports domain for port/socket monitoring
 - Built-in Sup domain for supervisor tree monitoring
+- Built-in Ecto domain for database monitoring (query stats, slow queries, connection pool health)
+- PostgreSQL extras via optional `ecto_psql_extras` dependency (index usage, cache hit ratios, locks, bloat)
 - `Beamlens.Domain` behaviour for implementing custom monitoring domains
 - `callback_docs/0` callback in Domain behaviour for dynamic LLM documentation
 - `Beamlens.list_watchers/0` — list all running watchers with status
