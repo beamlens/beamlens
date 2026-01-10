@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Think telemetry events now include `thought` in metadata
 - Watchers and coordinator no longer have iteration limits (can run indefinitely with compaction)
 - BEAM domain callbacks now prefixed: `get_memory` → `beam_get_memory`, etc.
 - Domain behaviour now requires `callback_docs/0` callback
