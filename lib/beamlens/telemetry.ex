@@ -114,6 +114,44 @@ defmodule Beamlens.Telemetry do
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{watcher: atom(), message: String.t()}`
 
+  ## Coordinator Events
+
+  * `[:beamlens, :coordinator, :started]` - Coordinator server started
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{running: boolean, alert_count: integer}`
+
+  * `[:beamlens, :coordinator, :alert_received]` - Alert queued for correlation
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{alert_id: String.t(), watcher: atom()}`
+
+  * `[:beamlens, :coordinator, :iteration_start]` - Coordinator analysis iteration starting
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), iteration: integer}`
+
+  * `[:beamlens, :coordinator, :get_alerts]` - Coordinator retrieved alerts
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), status: atom(), count: integer}`
+
+  * `[:beamlens, :coordinator, :update_alert_statuses]` - Coordinator updated alert statuses
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), alert_ids: list(String.t()), status: atom()}`
+
+  * `[:beamlens, :coordinator, :insight_produced]` - Coordinator created an insight
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), insight: Insight.t()}`
+
+  * `[:beamlens, :coordinator, :done]` - Coordinator analysis loop completed
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), has_unread: boolean}`
+
+  * `[:beamlens, :coordinator, :loop_stopped]` - Coordinator loop stopped
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{reason: atom()}`
+
+  * `[:beamlens, :coordinator, :llm_error]` - Coordinator LLM call failed
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), reason: term()}`
+
   ## Example Handler
 
       :telemetry.attach(
@@ -160,7 +198,16 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :watcher, :execute_error],
       [:beamlens, :watcher, :wait],
       [:beamlens, :watcher, :llm_error],
-      [:beamlens, :watcher, :loop_stopped]
+      [:beamlens, :watcher, :loop_stopped],
+      [:beamlens, :coordinator, :started],
+      [:beamlens, :coordinator, :alert_received],
+      [:beamlens, :coordinator, :iteration_start],
+      [:beamlens, :coordinator, :get_alerts],
+      [:beamlens, :coordinator, :update_alert_statuses],
+      [:beamlens, :coordinator, :insight_produced],
+      [:beamlens, :coordinator, :done],
+      [:beamlens, :coordinator, :loop_stopped],
+      [:beamlens, :coordinator, :llm_error]
     ]
   end
 

@@ -131,6 +131,11 @@ defmodule Beamlens.MixProject do
           Beamlens.Watcher.Snapshot,
           Beamlens.Watcher.Tools
         ],
+        Coordinator: [
+          Beamlens.Coordinator,
+          Beamlens.Coordinator.Insight,
+          Beamlens.Coordinator.Tools
+        ],
         Domain: [
           Beamlens.Domain,
           Beamlens.Domain.Beam

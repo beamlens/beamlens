@@ -18,12 +18,13 @@ graph TD
     S --> TS[TaskSupervisor]
     S --> WR[WatcherRegistry]
     S --> WS[Watcher.Supervisor]
+    S --> CO[Coordinator]
 
     WS --> W1[Watcher: beam]
     WS --> W2[Watcher: custom]
 ```
 
-Each watcher runs independently. If one crashes, others continue operating.
+Each watcher runs independently. If one crashes, others continue operating. The Coordinator receives alerts from all watchers and correlates them into insights.
 
 ## Watcher Loop
 
@@ -61,6 +62,46 @@ Watchers maintain one of four states reflecting current assessment:
 
 State transitions are driven by the LLM via the `set_state` tool.
 
+## Coordinator
+
+The Coordinator is a GenServer that receives alerts from all watchers and correlates them into unified insights. When watchers fire alerts via telemetry, the Coordinator queues them and runs an LLM-driven analysis loop.
+
+### Alert States
+
+| State | Description |
+|-------|-------------|
+| `unread` | New alert, not yet processed |
+| `acknowledged` | Currently being analyzed |
+| `resolved` | Processed (correlated into insight or dismissed) |
+
+### Coordinator Tools
+
+| Tool | Description |
+|------|-------------|
+| `get_alerts` | Query alerts, optionally filtered by status |
+| `update_alert_statuses` | Set status on multiple alerts |
+| `produce_insight` | Create insight correlating alerts (auto-resolves them) |
+| `done` | End processing, wait for next alert |
+
+### Correlation Types
+
+When producing insights, the Coordinator classifies how alerts are related:
+
+| Type | Description |
+|------|-------------|
+| `temporal` | Alerts occurred close in time, possibly related |
+| `causal` | One alert directly caused another (A → B) |
+| `symptomatic` | Alerts share a common hidden cause (A ← X → B) |
+
+### Subscribe to Insights
+
+```elixir
+:telemetry.attach("my-insights", [:beamlens, :coordinator, :insight_produced], fn
+  _event, _measurements, %{insight: insight}, _config ->
+    Logger.info("Insight: #{insight.summary}")
+end, nil)
+```
+
 ## Available Tools
 
 | Tool | Description |
@@ -90,7 +131,7 @@ See the domain sections below for available callbacks per domain.
 
 ## Telemetry Events
 
-Watchers emit telemetry events for observability. Key events:
+Watchers and the Coordinator emit telemetry events for observability. Key events:
 
 | Event | Description |
 |-------|-------------|
@@ -98,6 +139,11 @@ Watchers emit telemetry events for observability. Key events:
 | `[:beamlens, :watcher, :state_change]` | State transitioned |
 | `[:beamlens, :watcher, :alert_fired]` | Alert created |
 | `[:beamlens, :watcher, :iteration_start]` | Loop iteration began |
+| `[:beamlens, :coordinator, :started]` | Coordinator initialized |
+| `[:beamlens, :coordinator, :alert_received]` | Alert queued for correlation |
+| `[:beamlens, :coordinator, :iteration_start]` | Analysis loop iteration began |
+| `[:beamlens, :coordinator, :insight_produced]` | Insight created from correlated alerts |
+| `[:beamlens, :coordinator, :done]` | Analysis loop completed |
 | `[:beamlens, :llm, :start]` | LLM call started |
 | `[:beamlens, :llm, :stop]` | LLM call completed |
 
@@ -114,9 +160,10 @@ See `Beamlens.Telemetry` for the complete event list.
 
 ## LLM Integration
 
-BeamLens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via [Puck](https://github.com/bradleygolden/puck). One BAML function handles the watcher loop:
+BeamLens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via [Puck](https://github.com/bradleygolden/puck). Two BAML functions handle the agent loops:
 
 - **WatcherLoop**: Continuous agent loop that observes metrics and selects tools
+- **CoordinatorLoop**: Alert correlation agent that identifies patterns across watchers
 
 Default LLM: Anthropic Claude Haiku (`claude-haiku-4-5-20251001`)
 

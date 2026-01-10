@@ -32,6 +32,7 @@ defmodule Beamlens.Watcher do
 
   use GenServer
 
+  alias Beamlens.LLM.Utils
   alias Beamlens.Telemetry
   alias Beamlens.Watcher.{Alert, Snapshot, Tools}
 
@@ -251,7 +252,7 @@ defmodule Beamlens.Watcher do
       {:error, reason} ->
         emit_telemetry(:alert_failed, state, %{trace_id: trace_id, reason: reason})
 
-        new_context = add_result(state.context, %{error: reason})
+        new_context = Utils.add_result(state.context, %{error: reason})
 
         new_state = %{
           state
@@ -272,7 +273,7 @@ defmodule Beamlens.Watcher do
       count: length(alerts)
     })
 
-    new_context = add_result(state.context, alerts)
+    new_context = Utils.add_result(state.context, alerts)
 
     new_state = %{
       state
@@ -290,7 +291,7 @@ defmodule Beamlens.Watcher do
 
     emit_telemetry(:take_snapshot, state, %{trace_id: trace_id, snapshot_id: snapshot.id})
 
-    new_context = add_result(state.context, snapshot)
+    new_context = Utils.add_result(state.context, snapshot)
 
     new_state = %{
       state
@@ -312,7 +313,7 @@ defmodule Beamlens.Watcher do
         snapshot -> snapshot
       end
 
-    new_context = add_result(state.context, result)
+    new_context = Utils.add_result(state.context, result)
 
     new_state = %{
       state
@@ -337,7 +338,7 @@ defmodule Beamlens.Watcher do
 
     emit_telemetry(:get_snapshots, state, %{trace_id: trace_id, count: length(snapshots)})
 
-    new_context = add_result(state.context, snapshots)
+    new_context = Utils.add_result(state.context, snapshots)
 
     new_state = %{
       state
@@ -363,7 +364,7 @@ defmodule Beamlens.Watcher do
           %{error: inspect(reason)}
       end
 
-    new_context = add_result(state.context, result)
+    new_context = Utils.add_result(state.context, result)
 
     new_state = %{
       state
@@ -424,19 +425,6 @@ defmodule Beamlens.Watcher do
     end
   end
 
-  defp add_result(context, result) do
-    case Jason.encode(result) do
-      {:ok, encoded} ->
-        message = Puck.Message.new(:user, encoded, %{tool_result: true})
-        %{context | messages: context.messages ++ [message]}
-
-      {:error, reason} ->
-        error_msg = "Failed to encode tool result: #{inspect(reason)}"
-        message = Puck.Message.new(:user, error_msg, %{tool_result: true})
-        %{context | messages: context.messages ++ [message]}
-    end
-  end
-
   defp build_puck_client(domain_module, client_registry) do
     callback_docs = domain_module.callback_docs()
 
@@ -446,44 +434,18 @@ defmodule Beamlens.Watcher do
         args_format: :auto,
         args: fn messages ->
           %{
-            messages: format_messages_for_baml(messages),
+            messages: Utils.format_messages_for_baml(messages),
             callback_docs: callback_docs
           }
         end,
         path: Application.app_dir(:beamlens, "priv/baml_src")
       }
-      |> maybe_add_client_registry(client_registry)
+      |> Utils.maybe_add_client_registry(client_registry)
 
     Puck.Client.new(
       {Puck.Backends.Baml, backend_config},
       hooks: Beamlens.Telemetry.Hooks
     )
-  end
-
-  defp format_messages_for_baml(messages) do
-    Enum.map(messages, fn %Puck.Message{role: role, content: content} ->
-      %{
-        role: to_string(role),
-        content: extract_text_content(content)
-      }
-    end)
-  end
-
-  defp extract_text_content(content) when is_binary(content), do: content
-
-  defp extract_text_content(content) when is_list(content) do
-    Enum.map_join(content, "\n", fn
-      %{type: "text", text: text} -> text
-      _ -> ""
-    end)
-  end
-
-  defp extract_text_content(_), do: ""
-
-  defp maybe_add_client_registry(config, nil), do: config
-
-  defp maybe_add_client_registry(config, client_registry) when is_map(client_registry) do
-    Map.put(config, :client_registry, client_registry)
   end
 
   defp emit_telemetry(event, state, extra \\ %{}) do

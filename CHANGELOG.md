@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Coordinator agent that correlates alerts across watchers into unified insights
+- `Beamlens.Coordinator.status/1` — get coordinator running state and alert counts
+- Telemetry events for coordinator (`[:beamlens, :coordinator, *]`)
 - Autonomous watcher system — LLM-driven loops that monitor domains and fire alerts
 - Built-in BEAM domain for VM metrics (memory, processes, schedulers, atoms, ports)
 - Built-in ETS domain for table monitoring (counts, memory, top tables)

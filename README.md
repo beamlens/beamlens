@@ -103,6 +103,24 @@ Subscribe to alerts via telemetry:
 end, nil)
 ```
 
+## Alert Correlation
+
+The Coordinator receives alerts from all watchers and correlates them into unified insights. When multiple alerts occur together, the Coordinator identifies patterns and produces insights explaining how they're related.
+
+Correlation types:
+- **temporal** — Alerts occurred close in time, possibly related
+- **causal** — One alert directly caused another
+- **symptomatic** — Alerts share a common hidden cause
+
+Subscribe to insights:
+
+```elixir
+:telemetry.attach("my-insights", [:beamlens, :coordinator, :insight_produced], fn
+  _event, _measurements, %{insight: insight}, _config ->
+    Logger.info("Insight: #{insight.summary}")
+end, nil)
+```
+
 ## License
 
 Apache-2.0
