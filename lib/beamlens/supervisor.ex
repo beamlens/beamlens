@@ -6,6 +6,8 @@ defmodule Beamlens.Supervisor do
 
     * `Beamlens.TaskSupervisor` - For async tasks
     * `Beamlens.WatcherRegistry` - Registry for watcher processes
+    * `Beamlens.Domain.Logger.LogStore` - Log buffer (when `:logger` watcher enabled)
+    * `Beamlens.Domain.Exception.ExceptionStore` - Exception buffer (when `:exception` watcher enabled)
     * `Beamlens.Watcher.Supervisor` - DynamicSupervisor for watchers
     * `Beamlens.Coordinator` - Alert correlation and insight generation
 
@@ -27,6 +29,7 @@ defmodule Beamlens.Supervisor do
   use Supervisor
 
   alias Beamlens.Coordinator
+  alias Beamlens.Domain.Exception.ExceptionStore
   alias Beamlens.Domain.Logger.LogStore
   alias Beamlens.Watcher.Supervisor, as: WatcherSupervisor
 
@@ -51,6 +54,7 @@ defmodule Beamlens.Supervisor do
         {Registry, keys: :unique, name: Beamlens.WatcherRegistry}
       ] ++
         logger_children(watchers) ++
+        exception_children(watchers) ++
         [
           {WatcherSupervisor, watcher_opts},
           {Coordinator, coordinator_opts}
@@ -67,10 +71,26 @@ defmodule Beamlens.Supervisor do
     end
   end
 
+  defp exception_children(watchers) do
+    if has_exception_watcher?(watchers) do
+      [{ExceptionStore, []}]
+    else
+      []
+    end
+  end
+
   defp has_logger_watcher?(watchers) do
     Enum.any?(watchers, fn
       :logger -> true
       opts when is_list(opts) -> Keyword.get(opts, :name) == :logger
+      _ -> false
+    end)
+  end
+
+  defp has_exception_watcher?(watchers) do
+    Enum.any?(watchers, fn
+      :exception -> true
+      opts when is_list(opts) -> Keyword.get(opts, :name) == :exception
       _ -> false
     end)
   end

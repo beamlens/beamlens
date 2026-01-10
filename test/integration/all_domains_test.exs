@@ -12,8 +12,14 @@ defmodule Beamlens.Integration.AllDomainsTest do
     {:ets, Beamlens.Domain.Ets},
     {:gc, Beamlens.Domain.Gc},
     {:ports, Beamlens.Domain.Ports},
-    {:sup, Beamlens.Domain.Sup}
+    {:sup, Beamlens.Domain.Sup},
+    {:exception, Beamlens.Domain.Exception}
   ]
+
+  setup do
+    start_supervised!(Beamlens.Domain.Exception.ExceptionStore)
+    :ok
+  end
 
   describe "built-in domains" do
     for {domain_name, domain_module} <- @domains do

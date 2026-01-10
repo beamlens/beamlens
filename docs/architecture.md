@@ -18,6 +18,7 @@ graph TD
     S --> TS[TaskSupervisor]
     S --> WR[WatcherRegistry]
     S -.-> LS[LogStore]
+    S -.-> ES[ExceptionStore]
     S --> WS[Watcher.Supervisor]
     S --> CO[Coordinator]
 
@@ -28,7 +29,7 @@ graph TD
 
 Each watcher runs independently. If one crashes, others continue operating. The Coordinator receives alerts from all watchers and correlates them into insights.
 
-> **Note:** LogStore (shown with dashed line) is only started when the `:logger` watcher is configured. It captures application logs via an Erlang `:logger` handler.
+> **Note:** LogStore and ExceptionStore (shown with dashed lines) are only started when their respective watchers (`:logger`, `:exception`) are configured. LogStore captures application logs via an Erlang `:logger` handler. ExceptionStore captures exceptions via Tower's reporter system.
 
 ## Watcher Loop
 
@@ -204,6 +205,7 @@ See [providers.md](providers.md) for configuration examples.
 | `:sup` | `Beamlens.Domain.Sup` | Supervisor tree monitoring |
 | `:system` | `Beamlens.Domain.System` | OS-level metrics (CPU, memory, disk via os_mon) |
 | `:ecto` | `Beamlens.Domain.Ecto` | Database monitoring (requires custom domain module) |
+| `:exception` | `Beamlens.Domain.Exception` | Exception monitoring via Tower |
 
 ### BEAM Domain (`:beam`)
 
@@ -391,6 +393,40 @@ children = [
 | `ecto_connections()` | Database connections (PostgreSQL) |
 
 PostgreSQL-specific callbacks require `{:ecto_psql_extras, "~> 0.8"}` as an optional dependency.
+
+### Exception Domain (`:exception`)
+
+Monitors application exceptions via Tower's reporter system.
+
+> **Important:** The Exception domain captures exception messages and stacktraces which may contain sensitive data (file paths, variable values). Ensure your exception handling does not expose PII before enabling this watcher.
+
+> **Requirement:** Requires Tower to be installed and configured:
+>
+> ```elixir
+> # In mix.exs deps
+> {:tower, "~> 0.8.6"}
+>
+> # In config/config.exs
+> config :tower,
+>   reporters: [Beamlens.Domain.Exception.ExceptionStore]
+> ```
+
+**Snapshot Metrics:**
+- Total exceptions (5 minute window)
+- Counts by kind (error, exit, throw)
+- Counts by level
+- Top exception types
+- Unique exception type count
+
+**Lua Callbacks:**
+
+| Callback | Description |
+|----------|-------------|
+| `exception_stats()` | Exception statistics: total_count, by_kind, by_level, top_types |
+| `exception_recent(limit, kind)` | Recent exceptions, optionally filtered by kind |
+| `exception_by_type(exception_type, limit)` | Exceptions matching type name (e.g., "ArgumentError") |
+| `exception_search(pattern, limit)` | Search exception messages by regex pattern |
+| `exception_stacktrace(exception_id)` | Get full stacktrace for specific exception by ID |
 
 ## Custom Domains
 

@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PostgreSQL extras via optional `ecto_psql_extras` dependency (index usage, cache hit ratios, locks, bloat)
 - Built-in Logger domain for application log monitoring (error rates, log patterns, module-specific analysis)
 - Built-in System domain for OS-level monitoring (CPU load, memory usage, disk space via os_mon)
+- Built-in Exception domain for exception monitoring via optional `tower` dependency
 - `Beamlens.Domain` behaviour for implementing custom monitoring domains
 - `callback_docs/0` callback in Domain behaviour for dynamic LLM documentation
 - `Beamlens.list_watchers/0` — list all running watchers with status

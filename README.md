@@ -88,6 +88,7 @@ end
 | `:sup` | Supervisor tree monitoring |
 | `:system` | OS-level metrics (CPU load, memory, disk usage via os_mon) |
 | `:ecto` | Database monitoring (requires custom domain module, see below) |
+| `:exception` | Exception tracking via Tower (error patterns, stacktraces) |
 
 Start multiple watchers:
 
@@ -134,6 +135,32 @@ For PostgreSQL, add the optional dependency for deeper database insights:
 ```elixir
 {:ecto_psql_extras, "~> 0.8"}
 ```
+
+### Exception Domain
+
+The Exception domain captures application exceptions via [Tower](https://github.com/mimiquate/tower).
+
+**Step 1:** Add Tower to your dependencies:
+
+```elixir
+{:tower, "~> 0.8.6"}
+```
+
+**Step 2:** Configure Tower with the ExceptionStore reporter:
+
+```elixir
+# config/config.exs
+config :tower,
+  reporters: [Beamlens.Domain.Exception.ExceptionStore]
+```
+
+**Step 3:** Add the exception watcher:
+
+```elixir
+{Beamlens, watchers: [:beam, :exception]}
+```
+
+> **Note:** Exception messages and stacktraces may contain sensitive data (file paths, variable values). Ensure your exception handling does not expose PII before enabling this watcher.
 
 Subscribe to alerts via telemetry:
 
