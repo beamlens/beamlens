@@ -58,8 +58,8 @@ defmodule Beamlens.Domain.SupTest do
         [sup | _] = result
         assert Map.has_key?(sup, :name)
         assert Map.has_key?(sup, :pid)
-        assert Map.has_key?(sup, :strategy)
         assert Map.has_key?(sup, :child_count)
+        assert Map.has_key?(sup, :active_children)
       end
     end
   end

@@ -17,14 +17,18 @@ graph TD
     S[Beamlens.Supervisor]
     S --> TS[TaskSupervisor]
     S --> WR[WatcherRegistry]
+    S -.-> LS[LogStore]
     S --> WS[Watcher.Supervisor]
     S --> CO[Coordinator]
 
     WS --> W1[Watcher: beam]
-    WS --> W2[Watcher: custom]
+    WS --> W2[Watcher: logger]
+    WS --> W3[Watcher: custom]
 ```
 
 Each watcher runs independently. If one crashes, others continue operating. The Coordinator receives alerts from all watchers and correlates them into insights.
+
+> **Note:** LogStore (shown with dashed line) is only started when the `:logger` watcher is configured. It captures application logs via an Erlang `:logger` handler.
 
 ## Watcher Loop
 
@@ -193,6 +197,7 @@ See [providers.md](providers.md) for configuration examples.
 | `:beam` | `Beamlens.Domain.Beam` | BEAM VM metrics (memory, processes, schedulers, atoms) |
 | `:ets` | `Beamlens.Domain.Ets` | ETS table monitoring |
 | `:gc` | `Beamlens.Domain.Gc` | Garbage collection statistics |
+| `:logger` | `Beamlens.Domain.Logger` | Application log monitoring |
 | `:ports` | `Beamlens.Domain.Ports` | Port monitoring (file descriptors, sockets) |
 | `:sup` | `Beamlens.Domain.Sup` | Supervisor tree monitoring |
 | `:ecto` | `Beamlens.Domain.Ecto` | Database monitoring (requires custom domain module) |
@@ -254,6 +259,29 @@ Monitors garbage collection activity.
 | `gc_stats()` | Global GC statistics |
 | `gc_top_processes(limit)` | Processes with largest heaps |
 
+### Logger Domain (`:logger`)
+
+Monitors application logs via Erlang's `:logger` handler system.
+
+> **Important:** The Logger domain captures application log messages and makes them available for LLM analysis. Ensure your application logs do not contain sensitive data (PII, secrets, tokens) before enabling this watcher. Review your logging configuration to verify log messages are safe for analysis.
+
+**Snapshot Metrics:**
+- Total log count (1 minute window)
+- Error count (1 minute window)
+- Warning count (1 minute window)
+- Error rate %
+- Unique error modules
+
+**Lua Callbacks:**
+
+| Callback | Description |
+|----------|-------------|
+| `logger_stats()` | Log statistics: counts by level, error rate |
+| `logger_recent(limit, level)` | Recent logs, optionally filtered by level |
+| `logger_errors(limit)` | Recent error-level logs |
+| `logger_search(pattern, limit)` | Search logs by regex pattern |
+| `logger_by_module(module_name, limit)` | Logs from modules matching name |
+
 ### Ports Domain (`:ports`)
 
 Monitors BEAM ports (file descriptors, sockets).
@@ -289,16 +317,29 @@ Monitors supervisor tree structure.
 
 ### Ecto Domain (`:ecto`)
 
-Monitors Ecto database health. Requires a custom domain module configured with your Repo:
+Monitors Ecto database health. Requires a custom domain module and supporting infrastructure.
+
+**Step 1:** Create a domain module:
 
 ```elixir
 defmodule MyApp.EctoDomain do
   use Beamlens.Domain.Ecto, repo: MyApp.Repo
 end
+```
 
-{Beamlens, watchers: [
-  [name: :ecto, domain_module: MyApp.EctoDomain]
-]}
+**Step 2:** Add the required components to your supervision tree:
+
+```elixir
+children = [
+  # Ecto domain infrastructure (must start before Beamlens)
+  {Registry, keys: :unique, name: Beamlens.Domain.Ecto.Registry},
+  {Beamlens.Domain.Ecto.TelemetryStore, repo: MyApp.Repo},
+
+  # Beamlens with Ecto watcher
+  {Beamlens, watchers: [
+    [name: :ecto, domain_module: MyApp.EctoDomain]
+  ]}
+]
 ```
 
 **Snapshot Metrics:**

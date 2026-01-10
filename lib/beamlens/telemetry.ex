@@ -152,6 +152,10 @@ defmodule Beamlens.Telemetry do
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{trace_id: String.t(), reason: term()}`
 
+  * `[:beamlens, :coordinator, :unexpected_message]` - GenServer received unexpected message
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{running: boolean, alert_count: integer, message: String.t()}`
+
   ## Example Handler
 
       :telemetry.attach(
@@ -199,6 +203,7 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :watcher, :wait],
       [:beamlens, :watcher, :llm_error],
       [:beamlens, :watcher, :loop_stopped],
+      [:beamlens, :watcher, :unexpected_message],
       [:beamlens, :coordinator, :started],
       [:beamlens, :coordinator, :alert_received],
       [:beamlens, :coordinator, :iteration_start],
@@ -207,7 +212,8 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :coordinator, :insight_produced],
       [:beamlens, :coordinator, :done],
       [:beamlens, :coordinator, :loop_stopped],
-      [:beamlens, :coordinator, :llm_error]
+      [:beamlens, :coordinator, :llm_error],
+      [:beamlens, :coordinator, :unexpected_message]
     ]
   end
 

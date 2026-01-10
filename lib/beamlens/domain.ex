@@ -10,6 +10,7 @@ defmodule Beamlens.Domain do
   - `domain/0` - Returns the domain name atom (e.g., `:beam`)
   - `snapshot/0` - Returns high-level metrics for quick health assessment
   - `callbacks/0` - Returns the Lua sandbox callback map for investigation
+  - `callback_docs/0` - Returns markdown documentation for callbacks
 
   ## Example
 
@@ -34,6 +35,17 @@ defmodule Beamlens.Domain do
             "get_pool_stats" => &pool_stats/0,
             "get_slow_queries" => &slow_queries/0
           }
+        end
+
+        @impl true
+        def callback_docs do
+          \"\"\"
+          ### get_pool_stats()
+          Connection pool statistics: size, available, in_use
+
+          ### get_slow_queries()
+          Queries exceeding 100ms threshold
+          \"\"\"
         end
       end
   """

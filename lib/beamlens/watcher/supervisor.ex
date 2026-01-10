@@ -23,13 +23,14 @@ defmodule Beamlens.Watcher.Supervisor do
 
   use DynamicSupervisor
 
-  alias Beamlens.Domain.{Beam, Ets, Gc, Ports, Sup}
+  alias Beamlens.Domain.{Beam, Ets, Gc, Logger, Ports, Sup}
   alias Beamlens.Watcher
 
   @builtin_domains %{
     beam: Beam,
     ets: Ets,
     gc: Gc,
+    logger: Logger,
     ports: Ports,
     sup: Sup
   }

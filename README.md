@@ -83,6 +83,7 @@ end
 | `:beam` | BEAM VM metrics (memory, processes, schedulers, atoms) |
 | `:ets` | ETS table monitoring (counts, memory, largest tables) |
 | `:gc` | Garbage collection statistics |
+| `:logger` | Application log monitoring (error rates, patterns, module analysis) |
 | `:ports` | Port monitoring (file descriptors, sockets) |
 | `:sup` | Supervisor tree monitoring |
 | `:ecto` | Database monitoring (requires custom domain module, see below) |
@@ -97,7 +98,9 @@ Each watcher runs independently with its own LLM context, monitoring its specifi
 
 ### Ecto Domain
 
-The Ecto domain requires a custom module configured with your Repo:
+The Ecto domain requires a custom module and supporting infrastructure.
+
+**Step 1:** Create a domain module configured with your Repo:
 
 ```elixir
 defmodule MyApp.EctoDomain do
@@ -105,13 +108,24 @@ defmodule MyApp.EctoDomain do
 end
 ```
 
-Then configure as a watcher:
+**Step 2:** Add the required components to your supervision tree:
 
 ```elixir
-{Beamlens, watchers: [
-  :beam,
-  [name: :ecto, domain_module: MyApp.EctoDomain]
-]}
+def start(_type, _args) do
+  children = [
+    # Ecto domain infrastructure (must be started before Beamlens)
+    {Registry, keys: :unique, name: Beamlens.Domain.Ecto.Registry},
+    {Beamlens.Domain.Ecto.TelemetryStore, repo: MyApp.Repo},
+
+    # Beamlens with Ecto watcher
+    {Beamlens, watchers: [
+      :beam,
+      [name: :ecto, domain_module: MyApp.EctoDomain]
+    ]}
+  ]
+
+  Supervisor.start_link(children, strategy: :one_for_one)
+end
 ```
 
 For PostgreSQL, add the optional dependency for deeper database insights:

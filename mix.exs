@@ -140,14 +140,16 @@ defmodule Beamlens.MixProject do
         Domain: [
           Beamlens.Domain,
           Beamlens.Domain.Beam,
-          Beamlens.Domain.Ets,
-          Beamlens.Domain.Gc,
-          Beamlens.Domain.Ports,
-          Beamlens.Domain.Sup,
           Beamlens.Domain.Ecto,
           Beamlens.Domain.Ecto.TelemetryStore,
           Beamlens.Domain.Ecto.Adapters.Postgres,
-          Beamlens.Domain.Ecto.Adapters.Generic
+          Beamlens.Domain.Ecto.Adapters.Generic,
+          Beamlens.Domain.Ets,
+          Beamlens.Domain.Gc,
+          Beamlens.Domain.Logger,
+          Beamlens.Domain.Logger.LogStore,
+          Beamlens.Domain.Ports,
+          Beamlens.Domain.Sup
         ],
         Telemetry: [
           Beamlens.Telemetry,

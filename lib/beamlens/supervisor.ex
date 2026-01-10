@@ -27,6 +27,7 @@ defmodule Beamlens.Supervisor do
   use Supervisor
 
   alias Beamlens.Coordinator
+  alias Beamlens.Domain.Logger.LogStore
   alias Beamlens.Watcher.Supervisor, as: WatcherSupervisor
 
   def start_link(opts) do
@@ -44,13 +45,33 @@ defmodule Beamlens.Supervisor do
     coordinator_opts =
       Keyword.put_new(coordinator_opts, :client_registry, client_registry)
 
-    children = [
-      {Task.Supervisor, name: Beamlens.TaskSupervisor},
-      {Registry, keys: :unique, name: Beamlens.WatcherRegistry},
-      {WatcherSupervisor, watcher_opts},
-      {Coordinator, coordinator_opts}
-    ]
+    children =
+      [
+        {Task.Supervisor, name: Beamlens.TaskSupervisor},
+        {Registry, keys: :unique, name: Beamlens.WatcherRegistry}
+      ] ++
+        logger_children(watchers) ++
+        [
+          {WatcherSupervisor, watcher_opts},
+          {Coordinator, coordinator_opts}
+        ]
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp logger_children(watchers) do
+    if has_logger_watcher?(watchers) do
+      [{LogStore, []}]
+    else
+      []
+    end
+  end
+
+  defp has_logger_watcher?(watchers) do
+    Enum.any?(watchers, fn
+      :logger -> true
+      opts when is_list(opts) -> Keyword.get(opts, :name) == :logger
+      _ -> false
+    end)
   end
 end
