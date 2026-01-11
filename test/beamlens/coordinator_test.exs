@@ -6,7 +6,7 @@ defmodule Beamlens.CoordinatorTest do
   alias Beamlens.Coordinator
   alias Beamlens.Coordinator.Insight
   alias Beamlens.Coordinator.Tools.{Done, GetAlerts, ProduceInsight, UpdateAlertStatuses}
-  alias Beamlens.Watcher.Alert
+  alias Beamlens.Operator.Alert
 
   defp mock_client do
     Puck.Client.new({Puck.Backends.Mock, error: :test_stop})
@@ -34,7 +34,7 @@ defmodule Beamlens.CoordinatorTest do
     Alert.new(
       Map.merge(
         %{
-          watcher: :test,
+          operator: :test,
           anomaly_type: "test_anomaly",
           severity: :info,
           summary: "Test alert",
@@ -615,7 +615,7 @@ defmodule Beamlens.CoordinatorTest do
       alert = build_test_alert()
       simulate_alert(pid, alert)
 
-      assert_receive {:telemetry, :alert_received, %{alert_id: _, watcher: :test}}, 1000
+      assert_receive {:telemetry, :alert_received, %{alert_id: _, operator: :test}}, 1000
 
       stop_coordinator(pid)
       :telemetry.detach({ref, :alert_received})

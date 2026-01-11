@@ -1,7 +1,7 @@
-defmodule Beamlens.Watcher.SnapshotTest do
+defmodule Beamlens.Operator.SnapshotTest do
   use ExUnit.Case, async: true
 
-  alias Beamlens.Watcher.Snapshot
+  alias Beamlens.Operator.Snapshot
 
   describe "new/1" do
     test "creates snapshot with data" do

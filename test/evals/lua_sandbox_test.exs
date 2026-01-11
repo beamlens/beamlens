@@ -1,8 +1,8 @@
 defmodule Beamlens.Evals.LuaSandboxTest do
   use ExUnit.Case, async: false
 
-  alias Beamlens.Watcher
-  alias Beamlens.Watcher.Tools.{Execute, FireAlert, TakeSnapshot}
+  alias Beamlens.Operator
+  alias Beamlens.Operator.Tools.{Execute, FireAlert, TakeSnapshot}
   alias Puck.Eval.Graders
 
   @moduletag :eval
@@ -102,7 +102,7 @@ defmodule Beamlens.Evals.LuaSandboxTest do
       {_output, trajectory} =
         Puck.Eval.collect(
           fn ->
-            {:ok, pid} = Watcher.start_link(domain_module: InvestigationDomain)
+            {:ok, pid} = Operator.start_link(domain_module: InvestigationDomain)
             wait_for_execute_and_stop(pid)
             :ok
           end,
@@ -128,8 +128,8 @@ defmodule Beamlens.Evals.LuaSandboxTest do
     :telemetry.attach_many(
       ref,
       [
-        [:beamlens, :watcher, :execute_complete],
-        [:beamlens, :watcher, :execute_error]
+        [:beamlens, :operator, :execute_complete],
+        [:beamlens, :operator, :execute_error]
       ],
       fn _event, _measurements, _metadata, _ ->
         send(parent, {:execute_done, ref})
@@ -139,9 +139,9 @@ defmodule Beamlens.Evals.LuaSandboxTest do
 
     receive do
       {:execute_done, ^ref} ->
-        Watcher.stop(pid)
+        Operator.stop(pid)
     after
-      60_000 -> raise "Watcher did not reach Execute within timeout"
+      60_000 -> raise "Operator did not reach Execute within timeout"
     end
 
     :telemetry.detach(ref)

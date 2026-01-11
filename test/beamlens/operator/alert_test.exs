@@ -1,12 +1,12 @@
-defmodule Beamlens.Watcher.AlertTest do
+defmodule Beamlens.Operator.AlertTest do
   use ExUnit.Case, async: true
 
-  alias Beamlens.Watcher.Alert
+  alias Beamlens.Operator.Alert
 
   describe "new/1" do
     test "creates alert with required fields" do
       attrs = %{
-        watcher: :beam,
+        operator: :beam,
         anomaly_type: "memory_elevated",
         severity: :warning,
         summary: "Memory at 85%",
@@ -15,7 +15,7 @@ defmodule Beamlens.Watcher.AlertTest do
 
       alert = Alert.new(attrs)
 
-      assert alert.watcher == :beam
+      assert alert.operator == :beam
       assert alert.anomaly_type == "memory_elevated"
       assert alert.severity == :warning
       assert alert.summary == "Memory at 85%"
@@ -24,7 +24,7 @@ defmodule Beamlens.Watcher.AlertTest do
 
     test "generates unique id if not provided" do
       attrs = %{
-        watcher: :beam,
+        operator: :beam,
         anomaly_type: "test",
         severity: :info,
         summary: "test",
@@ -40,7 +40,7 @@ defmodule Beamlens.Watcher.AlertTest do
     test "uses provided id if given" do
       attrs = %{
         id: "custom-id",
-        watcher: :beam,
+        operator: :beam,
         anomaly_type: "test",
         severity: :info,
         summary: "test",
@@ -54,7 +54,7 @@ defmodule Beamlens.Watcher.AlertTest do
 
     test "sets detected_at to current time if not provided" do
       attrs = %{
-        watcher: :beam,
+        operator: :beam,
         anomaly_type: "test",
         severity: :info,
         summary: "test",
@@ -71,7 +71,7 @@ defmodule Beamlens.Watcher.AlertTest do
 
     test "sets node to current node if not provided" do
       attrs = %{
-        watcher: :beam,
+        operator: :beam,
         anomaly_type: "test",
         severity: :info,
         summary: "test",
@@ -85,7 +85,7 @@ defmodule Beamlens.Watcher.AlertTest do
 
     test "generates trace_id if not provided" do
       attrs = %{
-        watcher: :beam,
+        operator: :beam,
         anomaly_type: "test",
         severity: :info,
         summary: "test",
@@ -100,7 +100,7 @@ defmodule Beamlens.Watcher.AlertTest do
 
     test "raises on missing required field" do
       assert_raise KeyError, fn ->
-        Alert.new(%{watcher: :beam})
+        Alert.new(%{operator: :beam})
       end
     end
   end
@@ -126,7 +126,7 @@ defmodule Beamlens.Watcher.AlertTest do
     test "encodes alert to JSON" do
       alert =
         Alert.new(%{
-          watcher: :beam,
+          operator: :beam,
           anomaly_type: "test",
           severity: :info,
           summary: "test",

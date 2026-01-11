@@ -4,7 +4,7 @@ defmodule Beamlens.Integration.CoordinatorTest do
   use Beamlens.IntegrationCase, async: false
 
   alias Beamlens.Coordinator
-  alias Beamlens.Watcher.Alert
+  alias Beamlens.Operator.Alert
 
   defp start_coordinator(context, opts \\ []) do
     name = :"coordinator_#{:erlang.unique_integer([:positive])}"
@@ -21,7 +21,7 @@ defmodule Beamlens.Integration.CoordinatorTest do
     Alert.new(
       Map.merge(
         %{
-          watcher: :integration_test,
+          operator: :integration_test,
           anomaly_type: "test_anomaly",
           severity: :warning,
           summary: "Test alert for integration testing",
@@ -176,7 +176,7 @@ defmodule Beamlens.Integration.CoordinatorTest do
 
       alert1 =
         build_test_alert(%{
-          watcher: :beam,
+          operator: :beam,
           anomaly_type: "memory_elevated",
           severity: :warning,
           summary: "Memory at 78% - elevated usage detected"
@@ -184,7 +184,7 @@ defmodule Beamlens.Integration.CoordinatorTest do
 
       alert2 =
         build_test_alert(%{
-          watcher: :beam,
+          operator: :beam,
           anomaly_type: "scheduler_contention",
           severity: :warning,
           summary: "Run queue at 45 - scheduler pressure detected"

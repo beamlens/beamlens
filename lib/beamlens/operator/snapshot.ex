@@ -1,8 +1,8 @@
-defmodule Beamlens.Watcher.Snapshot do
+defmodule Beamlens.Operator.Snapshot do
   @moduledoc """
   Wrapper struct for snapshots with unique ID and timestamp.
 
-  Snapshots are captured via `take_snapshot` and stored in the watcher's
+  Snapshots are captured via `take_snapshot` and stored in the operator's
   GenServer state. When firing alerts, the LLM references snapshots by ID
   to include relevant evidence.
   """

@@ -2,7 +2,7 @@ defmodule Beamlens.Integration.AllDomainsTest do
   @moduledoc """
   Tests that all built-in domains work correctly in integration.
 
-  Verifies each domain can start a watcher and take a snapshot.
+  Verifies each domain can start an operator and take a snapshot.
   """
 
   use Beamlens.IntegrationCase, async: false
@@ -33,14 +33,14 @@ defmodule Beamlens.Integration.AllDomainsTest do
 
         :telemetry.attach(
           handler_id,
-          [:beamlens, :watcher, :take_snapshot],
-          fn _event, _measurements, %{watcher: w, snapshot_id: id}, _ ->
-            if w == domain_name, do: send(parent, {:snapshot, id})
+          [:beamlens, :operator, :take_snapshot],
+          fn _event, _measurements, %{operator: o, snapshot_id: id}, _ ->
+            if o == domain_name, do: send(parent, {:snapshot, id})
           end,
           nil
         )
 
-        {:ok, _pid} = start_watcher(context, domain_module: domain_module)
+        {:ok, _pid} = start_operator(context, domain_module: domain_module)
 
         assert_receive {:snapshot, snapshot_id}, 25_000
         assert is_binary(snapshot_id)

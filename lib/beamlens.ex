@@ -2,14 +2,14 @@ defmodule Beamlens do
   @moduledoc """
   BeamLens - AI-powered BEAM VM health monitoring.
 
-  Specialized **watchers** autonomously monitor BEAM VM metrics using LLM-driven
+  Specialized **operators** autonomously monitor BEAM VM metrics using LLM-driven
   loops, detect anomalies, and fire alerts via telemetry when issues are found.
 
   ## Architecture
 
   ```
   ┌─────────────────────────────────────────────────────────────┐
-  │                      Watcher (Autonomous)                   │
+  │                      Operator (Autonomous)                  │
   │  1. LLM controls timing via wait tool                       │
   │  2. Collects snapshots, analyzes patterns                   │
   │  3. Fires alerts via telemetry when anomalies detected      │
@@ -19,7 +19,7 @@ defmodule Beamlens do
                               ▼
               ┌────────────────────────────┐
               │     Telemetry Events       │
-              │  [:beamlens, :watcher, *]  │
+              │  [:beamlens, :operator, *] │
               │  - alert_fired             │
               │  - state_change            │
               │  - iteration_start         │
@@ -41,7 +41,7 @@ defmodule Beamlens do
 
         def start(_type, _args) do
           children = [
-            {Beamlens, watchers: [:beam]}
+            {Beamlens, operators: [:beam]}
           ]
 
           Supervisor.start_link(children, strategy: :one_for_one)
@@ -52,7 +52,7 @@ defmodule Beamlens do
 
   Options passed to `Beamlens`:
 
-    * `:watchers` - List of watcher configurations (see below)
+    * `:operators` - List of operator configurations (see below)
     * `:client_registry` - LLM provider configuration (see below)
 
   ### LLM Provider Configuration
@@ -61,7 +61,7 @@ defmodule Beamlens do
   Configure a custom provider via `:client_registry`:
 
       {Beamlens,
-        watchers: [:beam],
+        operators: [:beam],
         client_registry: %{
           primary: "Ollama",
           clients: [
@@ -76,11 +76,11 @@ defmodule Beamlens do
   Supported providers include: `anthropic`, `openai`, `openai-generic` (Ollama),
   `aws-bedrock`, `google-ai`, `azure-openai`, and more.
 
-  ### Watcher Configuration
+  ### Operator Configuration
 
-  Watchers can be specified as atoms or keyword lists:
+  Operators can be specified as atoms or keyword lists:
 
-      # Built-in BEAM watcher
+      # Built-in BEAM operator
       :beam
 
       # Custom domain module
@@ -88,11 +88,11 @@ defmodule Beamlens do
 
   ## Runtime API
 
-      # List all running watchers
-      Beamlens.list_watchers()
+      # List all running operators
+      Beamlens.list_operators()
 
-      # Get status of a specific watcher
-      Beamlens.watcher_status(:beam)
+      # Get status of a specific operator
+      Beamlens.operator_status(:beam)
 
   ## Telemetry Events
 
@@ -101,7 +101,7 @@ defmodule Beamlens do
 
   Subscribe to alert events:
 
-      :telemetry.attach("beamlens-alerts", [:beamlens, :watcher, :alert_fired], fn
+      :telemetry.attach("beamlens-alerts", [:beamlens, :operator, :alert_fired], fn
         _event, _measurements, metadata, _config ->
           IO.inspect(metadata, label: "Alert fired")
       end, nil)
@@ -122,20 +122,20 @@ defmodule Beamlens do
   end
 
   @doc """
-  Lists all running watchers with their status.
+  Lists all running operators with their status.
 
-  Returns a list of maps with watcher information including:
-    * `:name` - Watcher name
-    * `:watcher` - Domain being monitored
-    * `:state` - Current watcher state (healthy, observing, warning, critical)
-    * `:running` - Whether the watcher loop is running
+  Returns a list of maps with operator information including:
+    * `:name` - Operator name
+    * `:operator` - Domain being monitored
+    * `:state` - Current operator state (healthy, observing, warning, critical)
+    * `:running` - Whether the operator loop is running
   """
-  defdelegate list_watchers(), to: Beamlens.Watcher.Supervisor
+  defdelegate list_operators(), to: Beamlens.Operator.Supervisor
 
   @doc """
-  Gets the status of a specific watcher.
+  Gets the status of a specific operator.
 
-  Returns `{:ok, status}` on success, `{:error, :not_found}` if watcher doesn't exist.
+  Returns `{:ok, status}` on success, `{:error, :not_found}` if operator doesn't exist.
   """
-  defdelegate watcher_status(name), to: Beamlens.Watcher.Supervisor
+  defdelegate operator_status(name), to: Beamlens.Operator.Supervisor
 end

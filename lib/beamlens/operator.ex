@@ -1,6 +1,6 @@
-defmodule Beamlens.Watcher do
+defmodule Beamlens.Operator do
   @moduledoc """
-  GenServer that runs a watcher in a continuous LLM-driven loop.
+  GenServer that runs an operator in a continuous LLM-driven loop.
 
   The LLM has full control over timing via the `wait` tool. The loop runs:
 
@@ -16,7 +16,7 @@ defmodule Beamlens.Watcher do
 
   ## State Model
 
-  The watcher maintains one of four states:
+  The operator maintains one of four states:
   - `:healthy` - Everything is normal
   - `:observing` - Something looks off, gathering more data
   - `:warning` - Elevated concern, but not critical
@@ -24,7 +24,7 @@ defmodule Beamlens.Watcher do
 
   ## Example
 
-      {:ok, pid} = Beamlens.Watcher.start_link(
+      {:ok, pid} = Beamlens.Operator.start_link(
         name: {:via, Registry, {MyRegistry, :beam}},
         domain_module: Beamlens.Domain.Beam
       )
@@ -33,10 +33,10 @@ defmodule Beamlens.Watcher do
   use GenServer
 
   alias Beamlens.LLM.Utils
+  alias Beamlens.Operator.{Alert, Snapshot, Tools}
   alias Beamlens.Telemetry
-  alias Beamlens.Watcher.{Alert, Snapshot, Tools}
 
-  alias Beamlens.Watcher.Tools.{
+  alias Beamlens.Operator.Tools.{
     Execute,
     FireAlert,
     GetAlerts,
@@ -67,7 +67,7 @@ defmodule Beamlens.Watcher do
   ]
 
   @doc """
-  Starts a watcher process.
+  Starts an operator process.
 
   ## Options
 
@@ -90,10 +90,10 @@ defmodule Beamlens.Watcher do
   end
 
   @doc """
-  Returns the current watcher status.
+  Returns the current operator status.
 
   Returns a map with:
-    * `:watcher` - Domain atom (e.g., `:beam`)
+    * `:operator` - Domain atom (e.g., `:beam`)
     * `:state` - Current state (`:healthy`, `:observing`, `:warning`, `:critical`)
     * `:running` - Boolean indicating if the loop is active
 
@@ -103,7 +103,7 @@ defmodule Beamlens.Watcher do
   end
 
   @doc """
-  Stops the watcher process.
+  Stops the operator process.
   """
   def stop(server) do
     GenServer.stop(server)
@@ -144,7 +144,7 @@ defmodule Beamlens.Watcher do
     emit_telemetry(:iteration_start, state, %{
       trace_id: trace_id,
       iteration: state.iteration,
-      watcher_state: state.state
+      operator_state: state.state
     })
 
     input = build_input(state.state)
@@ -194,7 +194,7 @@ defmodule Beamlens.Watcher do
   @impl true
   def handle_call(:status, _from, state) do
     status = %{
-      watcher: state.domain_module.domain(),
+      operator: state.domain_module.domain(),
       state: state.state,
       running: state.running
     }
@@ -408,13 +408,13 @@ defmodule Beamlens.Watcher do
     state.domain_module.snapshot()
   end
 
-  defp build_input(watcher_state) do
-    "Current state: #{watcher_state}"
+  defp build_input(operator_state) do
+    "Current state: #{operator_state}"
   end
 
   defp build_alert(state, type, summary, severity, snapshots) do
     Alert.new(%{
-      watcher: state.domain_module.domain(),
+      operator: state.domain_module.domain(),
       anomaly_type: type,
       severity: severity,
       summary: summary,
@@ -442,7 +442,7 @@ defmodule Beamlens.Watcher do
 
     backend_config =
       %{
-        function: "WatcherLoop",
+        function: "OperatorLoop",
         args_format: :auto,
         args: fn messages ->
           %{
@@ -466,10 +466,10 @@ defmodule Beamlens.Watcher do
     keep_last = Keyword.get(opts, :compaction_keep_last, 5)
 
     {:summarize,
-     max_tokens: max_tokens, keep_last: keep_last, prompt: watcher_compaction_prompt()}
+     max_tokens: max_tokens, keep_last: keep_last, prompt: operator_compaction_prompt()}
   end
 
-  defp watcher_compaction_prompt do
+  defp operator_compaction_prompt do
     """
     Summarize this monitoring session, preserving:
     - What anomalies or concerns were detected
@@ -484,10 +484,10 @@ defmodule Beamlens.Watcher do
 
   defp emit_telemetry(event, state, extra \\ %{}) do
     :telemetry.execute(
-      [:beamlens, :watcher, event],
+      [:beamlens, :operator, event],
       %{system_time: System.system_time()},
       Map.merge(
-        %{watcher: state.domain_module.domain()},
+        %{operator: state.domain_module.domain()},
         extra
       )
     )

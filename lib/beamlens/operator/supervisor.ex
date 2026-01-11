@@ -1,28 +1,28 @@
-defmodule Beamlens.Watcher.Supervisor do
+defmodule Beamlens.Operator.Supervisor do
   @moduledoc """
-  DynamicSupervisor for watcher processes.
+  DynamicSupervisor for operator processes.
 
-  Starts and supervises watcher processes based on configuration.
-  Each watcher runs a continuous LLM-driven loop.
+  Starts and supervises operator processes based on configuration.
+  Each operator runs a continuous LLM-driven loop.
 
   ## Configuration
 
       config :beamlens,
-        watchers: [
+        operators: [
           :beam,
           [name: :custom, domain_module: MyApp.Domain.Custom]
         ]
 
-  ## Watcher Specifications
+  ## Operator Specifications
 
-  Watchers can be specified in two forms:
+  Operators can be specified in two forms:
 
     * `:domain` - Uses built-in domain module (e.g., `:beam` → `Beamlens.Domain.Beam`)
     * `[name: atom, domain_module: module, ...]` - Custom domain module with options
 
-  ## Watcher Options
+  ## Operator Options
 
-    * `:name` - Required. Atom identifier for the watcher
+    * `:name` - Required. Atom identifier for the operator
     * `:domain_module` - Required. Module implementing `Beamlens.Domain`
     * `:compaction_max_tokens` - Token threshold before compaction (default: 50,000)
     * `:compaction_keep_last` - Messages to keep after compaction (default: 5)
@@ -30,7 +30,7 @@ defmodule Beamlens.Watcher.Supervisor do
   ## Example with Compaction
 
       config :beamlens,
-        watchers: [
+        operators: [
           :beam,
           [name: :ets, domain_module: Beamlens.Domain.Ets,
            compaction_max_tokens: 100_000,
@@ -41,7 +41,7 @@ defmodule Beamlens.Watcher.Supervisor do
   use DynamicSupervisor
 
   alias Beamlens.Domain.{Beam, Ets, Gc, Logger, Ports, Sup}
-  alias Beamlens.Watcher
+  alias Beamlens.Operator
 
   @builtin_domains %{
     beam: Beam,
@@ -63,36 +63,36 @@ defmodule Beamlens.Watcher.Supervisor do
   end
 
   @doc """
-  Starts all configured watchers with the given options.
+  Starts all configured operators with the given options.
 
-  Called by the parent supervisor after WatcherSupervisor is started.
+  Called by the parent supervisor after OperatorSupervisor is started.
   """
-  def start_watchers_with_opts(supervisor \\ __MODULE__, watchers, client_registry) do
-    Enum.each(watchers, &start_watcher(supervisor, &1, client_registry))
+  def start_operators_with_opts(supervisor \\ __MODULE__, operators, client_registry) do
+    Enum.each(operators, &start_operator(supervisor, &1, client_registry))
   end
 
   @doc """
-  Starts all configured watchers.
+  Starts all configured operators.
 
-  Called after the supervisor is started to spawn watcher processes.
+  Called after the supervisor is started to spawn operator processes.
   """
-  def start_watchers(supervisor \\ __MODULE__) do
-    watchers = Application.get_env(:beamlens, :watchers, [])
+  def start_operators(supervisor \\ __MODULE__) do
+    operators = Application.get_env(:beamlens, :operators, [])
 
-    Enum.map(watchers, fn spec ->
-      start_watcher(supervisor, spec)
+    Enum.map(operators, fn spec ->
+      start_operator(supervisor, spec)
     end)
   end
 
   @doc """
-  Starts a single watcher under the supervisor.
+  Starts a single operator under the supervisor.
   """
-  def start_watcher(supervisor \\ __MODULE__, spec, client_registry \\ nil)
+  def start_operator(supervisor \\ __MODULE__, spec, client_registry \\ nil)
 
-  def start_watcher(supervisor, domain, client_registry) when is_atom(domain) do
+  def start_operator(supervisor, domain, client_registry) when is_atom(domain) do
     case Map.fetch(@builtin_domains, domain) do
       {:ok, module} ->
-        start_watcher(
+        start_operator(
           supervisor,
           [name: domain, domain_module: module],
           client_registry
@@ -103,11 +103,11 @@ defmodule Beamlens.Watcher.Supervisor do
     end
   end
 
-  def start_watcher(supervisor, opts, client_registry) when is_list(opts) do
+  def start_operator(supervisor, opts, client_registry) when is_list(opts) do
     name = Keyword.fetch!(opts, :name)
     domain_module = Keyword.fetch!(opts, :domain_module)
 
-    watcher_opts =
+    operator_opts =
       opts
       |> Keyword.drop([:name, :domain_module])
       |> Keyword.merge(
@@ -115,21 +115,21 @@ defmodule Beamlens.Watcher.Supervisor do
         domain_module: domain_module
       )
 
-    watcher_opts =
+    operator_opts =
       if client_registry do
-        Keyword.put(watcher_opts, :client_registry, client_registry)
+        Keyword.put(operator_opts, :client_registry, client_registry)
       else
-        watcher_opts
+        operator_opts
       end
 
-    DynamicSupervisor.start_child(supervisor, {Watcher, watcher_opts})
+    DynamicSupervisor.start_child(supervisor, {Operator, operator_opts})
   end
 
   @doc """
-  Stops a watcher by name.
+  Stops an operator by name.
   """
-  def stop_watcher(supervisor \\ __MODULE__, name) do
-    case Registry.lookup(Beamlens.WatcherRegistry, name) do
+  def stop_operator(supervisor \\ __MODULE__, name) do
+    case Registry.lookup(Beamlens.OperatorRegistry, name) do
       [{pid, _}] ->
         DynamicSupervisor.terminate_child(supervisor, pid)
 
@@ -139,30 +139,37 @@ defmodule Beamlens.Watcher.Supervisor do
   end
 
   @doc """
-  Lists all running watchers with their status.
+  Lists all running operators with their status.
   """
-  def list_watchers do
-    Registry.select(Beamlens.WatcherRegistry, [{{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}])
+  def list_operators do
+    Registry.select(Beamlens.OperatorRegistry, [{{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}])
     |> Enum.map(fn {name, pid} ->
-      status = Watcher.status(pid)
+      status = Operator.status(pid)
       Map.put(status, :name, name)
     end)
   end
 
   @doc """
-  Gets the status of a specific watcher.
+  Gets the status of a specific operator.
   """
-  def watcher_status(name) do
-    case Registry.lookup(Beamlens.WatcherRegistry, name) do
+  def operator_status(name) do
+    case Registry.lookup(Beamlens.OperatorRegistry, name) do
       [{pid, _}] ->
-        {:ok, Watcher.status(pid)}
+        {:ok, Operator.status(pid)}
 
       [] ->
         {:error, :not_found}
     end
   end
 
+  @doc """
+  Returns the list of builtin domain names.
+  """
+  def builtin_domains do
+    Map.keys(@builtin_domains)
+  end
+
   defp via_registry(name) do
-    {:via, Registry, {Beamlens.WatcherRegistry, name}}
+    {:via, Registry, {Beamlens.OperatorRegistry, name}}
   end
 end

@@ -1,8 +1,8 @@
 defmodule Beamlens.Coordinator do
   @moduledoc """
-  GenServer that correlates alerts from watchers into insights.
+  GenServer that correlates alerts from operators into insights.
 
-  Subscribes to `[:beamlens, :watcher, :alert_fired]` telemetry events and
+  Subscribes to `[:beamlens, :operator, :alert_fired]` telemetry events and
   manages an alert inbox with status tracking. Runs an LLM tool-calling loop
   to identify patterns across alerts and emit insights.
 
@@ -24,8 +24,8 @@ defmodule Beamlens.Coordinator do
   alias Beamlens.Coordinator.{Insight, Tools}
   alias Beamlens.Coordinator.Tools.{Done, GetAlerts, ProduceInsight, Think, UpdateAlertStatuses}
   alias Beamlens.LLM.Utils
+  alias Beamlens.Operator.Alert
   alias Beamlens.Telemetry
-  alias Beamlens.Watcher.Alert
   alias Puck.Context
 
   @telemetry_handler_id "beamlens-coordinator-alerts"
@@ -70,7 +70,7 @@ defmodule Beamlens.Coordinator do
 
     :telemetry.attach(
       @telemetry_handler_id,
-      [:beamlens, :watcher, :alert_fired],
+      [:beamlens, :operator, :alert_fired],
       &__MODULE__.handle_telemetry_event/4,
       %{coordinator: self()}
     )
@@ -101,7 +101,7 @@ defmodule Beamlens.Coordinator do
     new_alerts = Map.put(state.alerts, alert.id, %{alert: alert, status: :unread})
     new_state = %{state | alerts: new_alerts}
 
-    emit_telemetry(:alert_received, new_state, %{alert_id: alert.id, watcher: alert.watcher})
+    emit_telemetry(:alert_received, new_state, %{alert_id: alert.id, operator: alert.operator})
 
     if state.running do
       {:noreply, new_state}
@@ -187,7 +187,7 @@ defmodule Beamlens.Coordinator do
         %{
           id: id,
           status: s,
-          watcher: alert.watcher,
+          operator: alert.operator,
           anomaly_type: alert.anomaly_type,
           severity: alert.severity,
           summary: alert.summary,

@@ -1,8 +1,8 @@
-defmodule Beamlens.Evals.WatcherTest do
+defmodule Beamlens.Evals.OperatorTest do
   use ExUnit.Case, async: false
 
-  alias Beamlens.Watcher
-  alias Beamlens.Watcher.Tools.{FireAlert, TakeSnapshot, Wait}
+  alias Beamlens.Operator
+  alias Beamlens.Operator.Tools.{FireAlert, TakeSnapshot, Wait}
   alias Puck.Eval.Graders
 
   @moduletag :eval
@@ -34,12 +34,12 @@ defmodule Beamlens.Evals.WatcherTest do
     end
   end
 
-  describe "watcher happy path eval" do
+  describe "operator happy path eval" do
     test "healthy metrics lead to TakeSnapshot and eventually Wait (no alerts)" do
       {_output, trajectory} =
         Puck.Eval.collect(
           fn ->
-            {:ok, pid} = Watcher.start_link(domain_module: HealthyDomain)
+            {:ok, pid} = Operator.start_link(domain_module: HealthyDomain)
             wait_for_wait_and_stop(pid)
             :ok
           end,
@@ -64,7 +64,7 @@ defmodule Beamlens.Evals.WatcherTest do
 
     :telemetry.attach(
       ref,
-      [:beamlens, :watcher, :wait],
+      [:beamlens, :operator, :wait],
       fn _event, _measurements, _metadata, _ ->
         send(parent, {:wait_fired, ref})
       end,
@@ -73,9 +73,9 @@ defmodule Beamlens.Evals.WatcherTest do
 
     receive do
       {:wait_fired, ^ref} ->
-        Watcher.stop(pid)
+        Operator.stop(pid)
     after
-      60_000 -> raise "Watcher did not reach Wait action within timeout"
+      60_000 -> raise "Operator did not reach Wait action within timeout"
     end
 
     :telemetry.detach(ref)

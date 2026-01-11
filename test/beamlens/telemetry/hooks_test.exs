@@ -1,8 +1,8 @@
 defmodule Beamlens.Telemetry.HooksTest do
   use ExUnit.Case
 
+  alias Beamlens.Operator.Tools
   alias Beamlens.Telemetry.Hooks
-  alias Beamlens.Watcher.Tools
 
   describe "on_call_start/3" do
     test "emits llm call_start event with metadata" do

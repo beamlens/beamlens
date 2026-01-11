@@ -1,9 +1,9 @@
-defmodule Beamlens.Watcher.ToolsTest do
+defmodule Beamlens.Operator.ToolsTest do
   use ExUnit.Case, async: true
 
-  alias Beamlens.Watcher.Tools
+  alias Beamlens.Operator.Tools
 
-  alias Beamlens.Watcher.Tools.{
+  alias Beamlens.Operator.Tools.{
     Execute,
     FireAlert,
     GetAlerts,

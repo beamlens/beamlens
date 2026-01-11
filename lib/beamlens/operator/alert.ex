@@ -1,15 +1,15 @@
-defmodule Beamlens.Watcher.Alert do
+defmodule Beamlens.Operator.Alert do
   @moduledoc """
-  Immediate notification from a watcher about detected anomaly.
+  Immediate notification from an operator about detected anomaly.
 
-  Alerts are emitted via telemetry events when a watcher detects an anomaly.
+  Alerts are emitted via telemetry events when an operator detects an anomaly.
   Each alert contains all evidence needed to investigate, including referenced
   snapshots that were captured during investigation.
 
   ## Fields
 
     * `:id` - Unique alert identifier
-    * `:watcher` - Domain atom identifying the watcher (e.g., :beam, :ecto)
+    * `:operator` - Domain atom identifying the operator (e.g., :beam, :ecto)
     * `:anomaly_type` - Classification of the anomaly detected (string from LLM)
     * `:severity` - `:info`, `:warning`, or `:critical`
     * `:summary` - Brief description of the anomaly
@@ -20,9 +20,9 @@ defmodule Beamlens.Watcher.Alert do
 
   ## Example
 
-      %Beamlens.Watcher.Alert{
+      %Beamlens.Operator.Alert{
         id: "a1b2c3d4",
-        watcher: :beam,
+        operator: :beam,
         anomaly_type: "memory_elevated",
         severity: :warning,
         summary: "Memory utilization at 72%, exceeding 60% warning threshold",
@@ -40,7 +40,7 @@ defmodule Beamlens.Watcher.Alert do
 
   @type t :: %__MODULE__{
           id: String.t(),
-          watcher: atom(),
+          operator: atom(),
           anomaly_type: String.t(),
           severity: severity(),
           summary: String.t(),
@@ -53,7 +53,7 @@ defmodule Beamlens.Watcher.Alert do
   @derive Jason.Encoder
   @enforce_keys [
     :id,
-    :watcher,
+    :operator,
     :anomaly_type,
     :severity,
     :summary,
@@ -64,7 +64,7 @@ defmodule Beamlens.Watcher.Alert do
   ]
   defstruct [
     :id,
-    :watcher,
+    :operator,
     :anomaly_type,
     :severity,
     :summary,
@@ -79,7 +79,7 @@ defmodule Beamlens.Watcher.Alert do
 
   ## Required Attributes
 
-    * `:watcher` - Domain atom (e.g., :beam, :ecto)
+    * `:operator` - Domain atom (e.g., :beam, :ecto)
     * `:anomaly_type` - Classification string (e.g., "memory_elevated")
     * `:severity` - One of :info, :warning, :critical
     * `:summary` - Brief description string
@@ -95,7 +95,7 @@ defmodule Beamlens.Watcher.Alert do
   ## Example
 
       Alert.new(%{
-        watcher: :beam,
+        operator: :beam,
         anomaly_type: "memory_elevated",
         severity: :warning,
         summary: "Memory at 72%",
@@ -105,7 +105,7 @@ defmodule Beamlens.Watcher.Alert do
   def new(attrs) when is_map(attrs) do
     %__MODULE__{
       id: Map.get(attrs, :id, generate_id()),
-      watcher: Map.fetch!(attrs, :watcher),
+      operator: Map.fetch!(attrs, :operator),
       anomaly_type: Map.fetch!(attrs, :anomaly_type),
       severity: Map.fetch!(attrs, :severity),
       summary: Map.fetch!(attrs, :summary),

@@ -1,4 +1,4 @@
-defmodule Beamlens.Integration.WatcherTest do
+defmodule Beamlens.Integration.OperatorTest do
   @moduledoc false
 
   use Beamlens.IntegrationCase, async: false
@@ -37,7 +37,7 @@ defmodule Beamlens.Integration.WatcherTest do
     end
   end
 
-  describe "watcher lifecycle" do
+  describe "operator lifecycle" do
     @tag timeout: 30_000
     test "starts and emits iteration events", context do
       ref = make_ref()
@@ -46,16 +46,16 @@ defmodule Beamlens.Integration.WatcherTest do
 
       :telemetry.attach(
         ref,
-        [:beamlens, :watcher, :iteration_start],
+        [:beamlens, :operator, :iteration_start],
         fn _event, _measurements, metadata, _ ->
           send(parent, {:telemetry, :iteration_start, metadata})
         end,
         nil
       )
 
-      {:ok, _pid} = start_watcher(context, domain_module: TestDomain)
+      {:ok, _pid} = start_operator(context, domain_module: TestDomain)
 
-      assert_receive {:telemetry, :iteration_start, %{watcher: :integration_test, iteration: 0}},
+      assert_receive {:telemetry, :iteration_start, %{operator: :integration_test, iteration: 0}},
                      10_000
     end
 
@@ -74,7 +74,7 @@ defmodule Beamlens.Integration.WatcherTest do
         nil
       )
 
-      {:ok, _pid} = start_watcher(context, domain_module: TestDomain)
+      {:ok, _pid} = start_operator(context, domain_module: TestDomain)
 
       assert_receive {:telemetry, :llm_start, %{trace_id: trace_id}}, 15_000
       assert is_binary(trace_id)
@@ -88,17 +88,17 @@ defmodule Beamlens.Integration.WatcherTest do
 
       :telemetry.attach(
         ref,
-        [:beamlens, :watcher, :take_snapshot],
+        [:beamlens, :operator, :take_snapshot],
         fn _event, _measurements, metadata, _ ->
           send(parent, {:telemetry, :take_snapshot, metadata})
         end,
         nil
       )
 
-      {:ok, _pid} = start_watcher(context, domain_module: TestDomain)
+      {:ok, _pid} = start_operator(context, domain_module: TestDomain)
 
       assert_receive {:telemetry, :take_snapshot,
-                      %{watcher: :integration_test, snapshot_id: snapshot_id}},
+                      %{operator: :integration_test, snapshot_id: snapshot_id}},
                      30_000
 
       assert is_binary(snapshot_id)
@@ -108,21 +108,21 @@ defmodule Beamlens.Integration.WatcherTest do
 
   describe "multi-iteration behavior" do
     @tag timeout: 30_000
-    test "watcher increments iteration counter across multiple iterations", context do
+    test "operator increments iteration counter across multiple iterations", context do
       ref = make_ref()
       parent = self()
       on_exit(fn -> :telemetry.detach(ref) end)
 
       :telemetry.attach(
         ref,
-        [:beamlens, :watcher, :iteration_start],
+        [:beamlens, :operator, :iteration_start],
         fn _event, _measurements, metadata, _ ->
           send(parent, {:telemetry, :iteration_start, metadata})
         end,
         nil
       )
 
-      {:ok, _pid} = start_watcher(context, domain_module: TestDomain)
+      {:ok, _pid} = start_operator(context, domain_module: TestDomain)
 
       iterations_received =
         Enum.reduce_while(1..3, [], fn _, acc ->
@@ -143,21 +143,21 @@ defmodule Beamlens.Integration.WatcherTest do
     end
 
     @tag timeout: 20_000
-    test "watcher maintains state across iterations", context do
+    test "operator maintains state across iterations", context do
       ref = make_ref()
       parent = self()
       on_exit(fn -> :telemetry.detach(ref) end)
 
       :telemetry.attach(
         ref,
-        [:beamlens, :watcher, :iteration_start],
+        [:beamlens, :operator, :iteration_start],
         fn _event, _measurements, metadata, _ ->
           send(parent, {:telemetry, :iteration_start, metadata})
         end,
         nil
       )
 
-      {:ok, _pid} = start_watcher(context, domain_module: TestDomain)
+      {:ok, _pid} = start_operator(context, domain_module: TestDomain)
 
       assert_receive {:telemetry, :iteration_start, %{iteration: 0}}, 10_000
       assert_receive {:telemetry, :iteration_start, %{iteration: iteration}}, 10_000

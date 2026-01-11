@@ -1,9 +1,9 @@
-defmodule Beamlens.Watcher.Tools do
+defmodule Beamlens.Operator.Tools do
   @moduledoc """
-  Tool structs and union schema for the watcher agent loop.
+  Tool structs and union schema for the operator agent loop.
 
   Tools:
-  - SetState: Update watcher state
+  - SetState: Update operator state
   - FireAlert: Create an alert with referenced snapshots
   - GetAlerts: See previous alerts for correlation
   - TakeSnapshot: Capture current metrics with unique ID
@@ -104,7 +104,7 @@ defmodule Beamlens.Watcher.Tools do
   end
 
   @doc """
-  Returns a Zoi union schema for parsing watcher tool responses.
+  Returns a Zoi union schema for parsing operator tool responses.
 
   Uses discriminated union pattern matching on the `intent` field.
   """

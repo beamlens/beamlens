@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Configurable compaction for watchers and coordinators (`:compaction_max_tokens`, `:compaction_keep_last`)
+- Configurable compaction for operators and coordinators (`:compaction_max_tokens`, `:compaction_keep_last`)
 - Telemetry events for compaction (`[:beamlens, :compaction, :start]`, `[:beamlens, :compaction, :stop]`)
-- Think tool for Watcher and Coordinator agents — enables structured reasoning before taking actions
-- Coordinator agent that correlates alerts across watchers into unified insights
+- Think tool for Operator and Coordinator agents — enables structured reasoning before taking actions
+- Coordinator agent that correlates alerts across operators into unified insights
 - `Beamlens.Coordinator.status/1` — get coordinator running state and alert counts
 - Telemetry events for coordinator (`[:beamlens, :coordinator, *]`)
-- Autonomous watcher system — LLM-driven loops that monitor domains and fire alerts
+- Autonomous operator system — LLM-driven loops that monitor domains and fire alerts
 - Built-in BEAM domain for VM metrics (memory, processes, schedulers, atoms, ports)
 - Built-in ETS domain for table monitoring (counts, memory, top tables)
 - Built-in GC domain for garbage collection statistics
@@ -28,31 +28,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Built-in Exception domain for exception monitoring via optional `tower` dependency
 - `Beamlens.Domain` behaviour for implementing custom monitoring domains
 - `callback_docs/0` callback in Domain behaviour for dynamic LLM documentation
-- `Beamlens.list_watchers/0` — list all running watchers with status
-- `Beamlens.watcher_status/1` — get details about a specific watcher
+- `Beamlens.list_operators/0` — list all running operators with status
+- `Beamlens.operator_status/1` — get details about a specific operator
 - `:client_registry` option to configure custom LLM providers (OpenAI, Ollama, AWS Bedrock, Google Gemini, etc.)
 - LLM provider configuration guide with retry policies, fallback chains, and round-robin patterns
-- Telemetry events for observability (watcher lifecycle, LLM calls, alerts)
+- Telemetry events for observability (operator lifecycle, LLM calls, alerts)
 - Lua sandbox for safe metric collection callbacks
 
 ### Changed
 
+- Rename "watcher" to "operator" throughout the codebase — `Beamlens.Watcher` is now `Beamlens.Operator`, config key `:watchers` is now `:operators`, telemetry events use `[:beamlens, :operator, *]`
 - Think telemetry events now include `thought` in metadata
-- Watchers and coordinator no longer have iteration limits (can run indefinitely with compaction)
+- Operators and coordinator no longer have iteration limits (can run indefinitely with compaction)
 - BEAM domain callbacks now prefixed: `get_memory` → `beam_get_memory`, etc.
 - Domain behaviour now requires `callback_docs/0` callback
 - Upgraded Puck to 0.2.7 (context compaction, automatic atom→string key conversion for Lua callbacks, fix for message content format)
-- Watchers now run as continuous LLM-driven loops instead of scheduled cron jobs
-- Watcher LLM calls now run asynchronously via `Task.async`, keeping the GenServer responsive to status queries and graceful shutdown
+- Operators now run as continuous LLM-driven loops instead of scheduled cron jobs
+- Operator LLM calls now run asynchronously via `Task.async`, keeping the GenServer responsive to status queries and graceful shutdown
 
 ### Removed
 
 - `memory_utilization_pct` from BEAM domain snapshots — the calculation was meaningless (always 85-100%) because it divided BEAM memory by itself; use `Domain.System` for OS-level memory monitoring instead
 - Circuit breaker protection (use LLM provider retry policies instead)
 - Judge agent quality verification
-- Scheduled cron-based watcher triggers and `crontab` dependency (watchers now run continuously)
+- Scheduled cron-based operator triggers and `crontab` dependency (operators now run continuously)
 - Beamlens.investigate/1 — alerts now fire automatically via telemetry
-- Beamlens.trigger_watcher/1 — watchers are self-managing
+- Beamlens.trigger_operator/1 — operators are self-managing
 - Beamlens.pending_alerts?/0 — replaced by telemetry events
 
 ## [0.1.0] - 2025-01-03

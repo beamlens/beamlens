@@ -1,5 +1,5 @@
 // ============================================================================
-// WATCHER AGENT TOOLS
+// OPERATOR AGENT TOOLS
 // ============================================================================
 // Continuous agent loop with 9 tools:
 //
@@ -10,7 +10,7 @@ class Message {
 }
 
 //
-// - SetState: Update watcher state
+// - SetState: Update operator state
 // - FireAlert: Create an alert with referenced snapshots
 // - GetAlerts: See previous alerts
 // - TakeSnapshot: Capture current metrics with unique ID
@@ -21,7 +21,7 @@ class Message {
 
 class SetState {
   intent "set_state"
-  state "healthy" | "observing" | "warning" | "critical" @description("New watcher state")
+  state "healthy" | "observing" | "warning" | "critical" @description("New operator state")
   reason string @description("Why you're setting this state")
 }
 
@@ -67,12 +67,12 @@ class Think {
   thought string @description("Your reasoning about the current situation")
 }
 
-// Main watcher loop function
-function WatcherLoop(messages: Message[], callback_docs: string) -> SetState | FireAlert | GetAlerts | TakeSnapshot | GetSnapshot | GetSnapshots | Execute | Wait | Think {
+// Main operator loop function
+function OperatorLoop(messages: Message[], callback_docs: string) -> SetState | FireAlert | GetAlerts | TakeSnapshot | GetSnapshot | GetSnapshots | Execute | Wait | Think {
   client Default
   prompt #"
 {{ _.role("system") }}
-You are a system watcher agent running continuously. Your job is to monitor
+You are a system operator agent running continuously. Your job is to monitor
 your assigned domain, detect anomalies, and alert when necessary.
 
 ## State Model
@@ -124,11 +124,6 @@ Run Lua code to gather detailed metrics. Available functions:
 
 {{ callback_docs }}
 
-Example:
-local mem = beam_get_memory()
-local procs = beam_top_processes(10, "memory")
-return { memory_mb = mem.total_mb, top_proc = procs.processes[1] }
-
 ### wait(ms)
 Sleep for the specified milliseconds, then continue.
 - Normal operation: wait(30000) -- 30 seconds
@@ -162,11 +157,11 @@ What action do you want to take?
 }
 
 // ============================================================================
-// WATCHER TESTS
+// OPERATOR TESTS
 // ============================================================================
 
-test WatcherLoop_CallsTakeSnapshot {
-  functions [WatcherLoop]
+test OperatorLoop_CallsTakeSnapshot {
+  functions [OperatorLoop]
   args {
     messages [
       { role "user", content "Current state: healthy" }
@@ -188,8 +183,8 @@ Top N processes by "memory", "message_queue", or "reductions"
   @@assert(calls_take_snapshot, {{ this.intent == "take_snapshot" }})
 }
 
-test WatcherLoop_HealthySnapshot {
-  functions [WatcherLoop]
+test OperatorLoop_HealthySnapshot {
+  functions [OperatorLoop]
   args {
     messages [
       { role "user", content #"Current state: healthy"# },
@@ -210,8 +205,8 @@ Top N processes by "memory", "message_queue", or "reductions"
   }})
 }
 
-test WatcherLoop_HighProcessUtilization_Investigates {
-  functions [WatcherLoop]
+test OperatorLoop_HighProcessUtilization_Investigates {
+  functions [OperatorLoop]
   args {
     messages [
       { role "user", content #"Current state: healthy"# },
@@ -234,8 +229,8 @@ Top N processes by "memory", "message_queue", or "reductions"
   }})
 }
 
-test WatcherLoop_CriticalAtomUtilization_Alerts {
-  functions [WatcherLoop]
+test OperatorLoop_CriticalAtomUtilization_Alerts {
+  functions [OperatorLoop]
   args {
     messages [
       { role "user", content #"Current state: warning"# },
@@ -258,8 +253,8 @@ Top N processes by "memory", "message_queue", or "reductions"
   }})
 }
 
-test WatcherLoop_SchedulerContention {
-  functions [WatcherLoop]
+test OperatorLoop_SchedulerContention {
+  functions [OperatorLoop]
   args {
     messages [
       { role "user", content #"Current state: healthy"# },
