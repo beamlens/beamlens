@@ -7,10 +7,10 @@ defmodule Beamlens.Evals.OperatorTest do
 
   @moduletag :eval
 
-  defmodule HealthyDomain do
-    @behaviour Beamlens.Domain
+  defmodule HealthySkill do
+    @behaviour Beamlens.Skill
 
-    def domain, do: :eval_healthy
+    def id, do: :eval_healthy
 
     def snapshot do
       %{
@@ -39,7 +39,7 @@ defmodule Beamlens.Evals.OperatorTest do
       {_output, trajectory} =
         Puck.Eval.collect(
           fn ->
-            {:ok, pid} = Operator.start_link(domain_module: HealthyDomain)
+            {:ok, pid} = Operator.start_link(skill_module: HealthySkill)
             wait_for_wait_and_stop(pid)
             :ok
           end,

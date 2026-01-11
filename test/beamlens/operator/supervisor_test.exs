@@ -5,10 +5,10 @@ defmodule Beamlens.Operator.SupervisorTest do
 
   alias Beamlens.Operator.Supervisor, as: OperatorSupervisor
 
-  defmodule TestDomain do
-    @behaviour Beamlens.Domain
+  defmodule TestSkill do
+    @behaviour Beamlens.Skill
 
-    def domain, do: :test_domain
+    def id, do: :test_skill
 
     def snapshot do
       %{
@@ -23,7 +23,7 @@ defmodule Beamlens.Operator.SupervisorTest do
 
     def callbacks, do: %{}
 
-    def callback_docs, do: "Test domain callbacks"
+    def callback_docs, do: "Test skill callbacks"
   end
 
   setup do
@@ -33,10 +33,10 @@ defmodule Beamlens.Operator.SupervisorTest do
   end
 
   describe "start_operator/2 with atom spec" do
-    test "returns error for unknown builtin domain", %{supervisor: supervisor} do
+    test "returns error for unknown builtin skill", %{supervisor: supervisor} do
       result = OperatorSupervisor.start_operator(supervisor, :unknown)
 
-      assert {:error, {:unknown_builtin_domain, :unknown}} = result
+      assert {:error, {:unknown_builtin_skill, :unknown}} = result
     end
   end
 
@@ -45,7 +45,7 @@ defmodule Beamlens.Operator.SupervisorTest do
       result =
         OperatorSupervisor.start_operator(supervisor,
           name: :custom,
-          domain_module: TestDomain,
+          skill_module: TestSkill,
           start_loop: false
         )
 
@@ -59,7 +59,7 @@ defmodule Beamlens.Operator.SupervisorTest do
       {:ok, pid} =
         OperatorSupervisor.start_operator(supervisor,
           name: :to_stop,
-          domain_module: TestDomain,
+          skill_module: TestSkill,
           start_loop: false
         )
 
@@ -85,13 +85,13 @@ defmodule Beamlens.Operator.SupervisorTest do
     test "returns list of operator statuses", %{supervisor: supervisor} do
       OperatorSupervisor.start_operator(supervisor,
         name: :operator1,
-        domain_module: TestDomain,
+        skill_module: TestSkill,
         start_loop: false
       )
 
       OperatorSupervisor.start_operator(supervisor,
         name: :operator2,
-        domain_module: TestDomain,
+        skill_module: TestSkill,
         start_loop: false
       )
 
@@ -108,13 +108,13 @@ defmodule Beamlens.Operator.SupervisorTest do
     test "returns operator status", %{supervisor: supervisor} do
       OperatorSupervisor.start_operator(supervisor,
         name: :status_test,
-        domain_module: TestDomain,
+        skill_module: TestSkill,
         start_loop: false
       )
 
       {:ok, status} = OperatorSupervisor.operator_status(:status_test)
 
-      assert status.operator == :test_domain
+      assert status.operator == :test_skill
       assert status.state == :healthy
     end
 
@@ -130,7 +130,7 @@ defmodule Beamlens.Operator.SupervisorTest do
       {:ok, pid} =
         OperatorSupervisor.start_operator(
           supervisor,
-          [name: :registry_test, domain_module: TestDomain, start_loop: false],
+          [name: :registry_test, skill_module: TestSkill, start_loop: false],
           client_registry
         )
 

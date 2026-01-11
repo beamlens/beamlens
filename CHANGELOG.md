@@ -16,18 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Beamlens.Coordinator.status/1` — get coordinator running state and alert counts
 - Telemetry events for coordinator (`[:beamlens, :coordinator, *]`)
 - Autonomous operator system — LLM-driven loops that monitor domains and fire alerts
-- Built-in BEAM domain for VM metrics (memory, processes, schedulers, atoms, ports)
-- Built-in ETS domain for table monitoring (counts, memory, top tables)
-- Built-in GC domain for garbage collection statistics
-- Built-in Ports domain for port/socket monitoring
-- Built-in Sup domain for supervisor tree monitoring
-- Built-in Ecto domain for database monitoring (query stats, slow queries, connection pool health)
+- Built-in BEAM skill for VM metrics (memory, processes, schedulers, atoms, ports)
+- Built-in ETS skill for table monitoring (counts, memory, top tables)
+- Built-in GC skill for garbage collection statistics
+- Built-in Ports skill for port/socket monitoring
+- Built-in Sup skill for supervisor tree monitoring
+- Built-in Ecto skill for database monitoring (query stats, slow queries, connection pool health)
 - PostgreSQL extras via optional `ecto_psql_extras` dependency (index usage, cache hit ratios, locks, bloat)
-- Built-in Logger domain for application log monitoring (error rates, log patterns, module-specific analysis)
-- Built-in System domain for OS-level monitoring (CPU load, memory usage, disk space via os_mon)
-- Built-in Exception domain for exception monitoring via optional `tower` dependency
-- `Beamlens.Domain` behaviour for implementing custom monitoring domains
-- `callback_docs/0` callback in Domain behaviour for dynamic LLM documentation
+- Built-in Logger skill for application log monitoring (error rates, log patterns, module-specific analysis)
+- Built-in System skill for OS-level monitoring (CPU load, memory usage, disk space via os_mon)
+- Built-in Exception skill for exception monitoring via optional `tower` dependency
+- `Beamlens.Skill` behaviour for implementing custom monitoring skills
+- `callback_docs/0` callback in Skill behaviour for dynamic LLM documentation
 - `Beamlens.list_operators/0` — list all running operators with status
 - `Beamlens.operator_status/1` — get details about a specific operator
 - `:client_registry` option to configure custom LLM providers (OpenAI, Ollama, AWS Bedrock, Google Gemini, etc.)
@@ -37,11 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Rename "domain" to "skill" throughout the codebase — `Beamlens.Domain` is now `Beamlens.Skill`, `domain_module` option is now `skill_module`, `domain/0` callback is now `id/0`, `builtin_domains/0` is now `builtin_skills/0`
 - Rename "watcher" to "operator" throughout the codebase — `Beamlens.Watcher` is now `Beamlens.Operator`, config key `:watchers` is now `:operators`, telemetry events use `[:beamlens, :operator, *]`
 - Think telemetry events now include `thought` in metadata
 - Operators and coordinator no longer have iteration limits (can run indefinitely with compaction)
-- BEAM domain callbacks now prefixed: `get_memory` → `beam_get_memory`, etc.
-- Domain behaviour now requires `callback_docs/0` callback
+- BEAM skill callbacks now prefixed: `get_memory` → `beam_get_memory`, etc.
+- Skill behaviour now requires `callback_docs/0` callback
 - Upgraded Puck to 0.2.7 (context compaction, automatic atom→string key conversion for Lua callbacks, fix for message content format)
 - Operators now run as continuous LLM-driven loops instead of scheduled cron jobs
 - Operator LLM calls now run asynchronously via `Task.async`, keeping the GenServer responsive to status queries and graceful shutdown

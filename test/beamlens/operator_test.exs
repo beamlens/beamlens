@@ -6,10 +6,10 @@ defmodule Beamlens.OperatorTest do
   alias Beamlens.Operator
   alias Beamlens.Operator.Snapshot
 
-  defmodule TestDomain do
-    @behaviour Beamlens.Domain
+  defmodule TestSkill do
+    @behaviour Beamlens.Skill
 
-    def domain, do: :test_continuous
+    def id, do: :test_continuous
 
     def snapshot do
       %{
@@ -34,7 +34,7 @@ defmodule Beamlens.OperatorTest do
   end
 
   defp start_operator_without_loop(opts \\ []) do
-    opts = Keyword.merge([domain_module: TestDomain, start_loop: false], opts)
+    opts = Keyword.merge([skill_module: TestSkill, start_loop: false], opts)
     Operator.start_link(opts)
   end
 
@@ -137,11 +137,11 @@ defmodule Beamlens.OperatorTest do
       Operator.stop(pid)
     end
 
-    test "stores domain_module in state" do
+    test "stores skill_module in state" do
       {:ok, pid} = start_operator_without_loop()
 
       state = :sys.get_state(pid)
-      assert state.domain_module == TestDomain
+      assert state.skill_module == TestSkill
 
       Operator.stop(pid)
     end

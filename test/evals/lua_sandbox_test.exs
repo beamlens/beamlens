@@ -7,10 +7,10 @@ defmodule Beamlens.Evals.LuaSandboxTest do
 
   @moduletag :eval
 
-  defmodule InvestigationDomain do
-    @behaviour Beamlens.Domain
+  defmodule InvestigationSkill do
+    @behaviour Beamlens.Skill
 
-    def domain, do: :eval_investigation
+    def id, do: :eval_investigation
 
     def snapshot do
       %{
@@ -102,7 +102,7 @@ defmodule Beamlens.Evals.LuaSandboxTest do
       {_output, trajectory} =
         Puck.Eval.collect(
           fn ->
-            {:ok, pid} = Operator.start_link(domain_module: InvestigationDomain)
+            {:ok, pid} = Operator.start_link(skill_module: InvestigationSkill)
             wait_for_execute_and_stop(pid)
             :ok
           end,

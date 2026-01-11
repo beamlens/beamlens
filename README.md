@@ -98,15 +98,15 @@ Start multiple watchers:
 
 Each watcher runs independently with its own LLM context, monitoring its specific domain.
 
-### Ecto Domain
+### Ecto Skill
 
-The Ecto domain requires a custom module and supporting infrastructure.
+The Ecto skill requires a custom module and supporting infrastructure.
 
-**Step 1:** Create a domain module configured with your Repo:
+**Step 1:** Create a skill module configured with your Repo:
 
 ```elixir
-defmodule MyApp.EctoDomain do
-  use Beamlens.Domain.Ecto, repo: MyApp.Repo
+defmodule MyApp.EctoSkill do
+  use Beamlens.Skill.Ecto, repo: MyApp.Repo
 end
 ```
 
@@ -115,14 +115,14 @@ end
 ```elixir
 def start(_type, _args) do
   children = [
-    # Ecto domain infrastructure (must be started before Beamlens)
-    {Registry, keys: :unique, name: Beamlens.Domain.Ecto.Registry},
-    {Beamlens.Domain.Ecto.TelemetryStore, repo: MyApp.Repo},
+    # Ecto skill infrastructure (must be started before Beamlens)
+    {Registry, keys: :unique, name: Beamlens.Skill.Ecto.Registry},
+    {Beamlens.Skill.Ecto.TelemetryStore, repo: MyApp.Repo},
 
-    # Beamlens with Ecto watcher
-    {Beamlens, watchers: [
+    # Beamlens with Ecto operator
+    {Beamlens, operators: [
       :beam,
-      [name: :ecto, domain_module: MyApp.EctoDomain]
+      [name: :ecto, skill_module: MyApp.EctoSkill]
     ]}
   ]
 
@@ -136,9 +136,9 @@ For PostgreSQL, add the optional dependency for deeper database insights:
 {:ecto_psql_extras, "~> 0.8"}
 ```
 
-### Exception Domain
+### Exception Skill
 
-The Exception domain captures application exceptions via [Tower](https://github.com/mimiquate/tower).
+The Exception skill captures application exceptions via [Tower](https://github.com/mimiquate/tower).
 
 **Step 1:** Add Tower to your dependencies:
 
@@ -151,16 +151,16 @@ The Exception domain captures application exceptions via [Tower](https://github.
 ```elixir
 # config/config.exs
 config :tower,
-  reporters: [Beamlens.Domain.Exception.ExceptionStore]
+  reporters: [Beamlens.Skill.Exception.ExceptionStore]
 ```
 
-**Step 3:** Add the exception watcher:
+**Step 3:** Add the exception operator:
 
 ```elixir
-{Beamlens, watchers: [:beam, :exception]}
+{Beamlens, operators: [:beam, :exception]}
 ```
 
-> **Note:** Exception messages and stacktraces may contain sensitive data (file paths, variable values). Ensure your exception handling does not expose PII before enabling this watcher.
+> **Note:** Exception messages and stacktraces may contain sensitive data (file paths, variable values). Ensure your exception handling does not expose PII before enabling this operator.
 
 Subscribe to alerts via telemetry:
 
@@ -198,9 +198,9 @@ Watchers and the coordinator use context compaction to run indefinitely without 
 Configure compaction per-watcher or globally:
 
 ```elixir
-{Beamlens, watchers: [
+{Beamlens, operators: [
   :beam,
-  [name: :ets, domain_module: Beamlens.Domain.Ets,
+  [name: :ets, skill_module: Beamlens.Skill.Ets,
    compaction_max_tokens: 100_000,
    compaction_keep_last: 10]
 ]}
