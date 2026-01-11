@@ -1,52 +1,33 @@
 # BeamLens
 
-An AI agent that continuously monitors your Elixir application.
+Autonomous supervision for the BEAM.
 
 ## The Problem
 
-Your alerting fires at 3am. Memory is spiking. By the time you open your laptop and start investigating, the spike has passed. Now you're correlating dashboards with log timestamps, piecing together what happened.
+External tools like Datadog or Prometheus see your application from the outside. They tell you *that* memory is spiking, but not *why*.
 
-Even when you have the data, you're the one connecting the dots—cross-referencing metrics with logs, building the picture manually.
+To find the root cause, you might SSH in and attach an `iex` shell. By the time you do, the transient state—the stuck process, the bloated mailbox, the expensive query—is often gone.
 
-BeamLens closes that gap for application-level issues. Autonomous operators monitor specific skills using LLM-driven loops. When one detects an anomaly, it investigates immediately—gathering snapshots, executing diagnostic code, and firing alerts while the system state is still live. You get structured alerts with supporting evidence, not scattered data points to assemble yourself.
+## The Solution
 
-This isn't distributed tracing across services. It's deep introspection within your application—runtime context that generic APM tools can't access. Every operation is read-only by design. Your data stays in your infrastructure. You choose the model provider you trust.
-
-## What You Get
-
-Raw metrics require interpretation. BeamLens gives you analysis:
-
-```
-Without BeamLens:
-memory_total: 12582912000
-memory_processes: 4194304000
-memory_ets: 6815744000
-process_count: 50000
-
-With BeamLens:
-"ETS memory at 54% of total system memory—well above typical levels.
-Investigate ETS table growth, potentially from cache or session storage."
-```
+BeamLens is an Elixir library that runs inside your BEAM application. You add its `Operator` to your own supervision tree, giving it the same access to the runtime that you would have. It observes your system from the inside, with full context of its live state.
 
 ## How It Works
 
-Each operator runs a continuous LLM-driven loop. The LLM monitors snapshots, investigates anomalies using Lua code execution in a sandbox, and fires alerts via telemetry when issues are detected.
+The system is built on standard OTP principles.
 
-```
-Operator → LLM Loop → Telemetry Events
-```
+- **Operator**: A `GenServer` you add to your application's supervision tree. It runs a simple, LLM-driven loop:
+    1. Collect a snapshot of system state using a `Skill`.
+    2. The LLM analyzes the snapshot and selects a tool (e.g., investigate deeper, fire an alert, or wait).
+    3. The tool is executed and the loop continues.
 
-The operator maintains state reflecting its current assessment:
-- **healthy** — Everything is normal
-- **observing** — Something looks off, gathering more data
-- **warning** — Elevated concern, not yet critical
-- **critical** — Active issue requiring attention
+    The `Operator` is just another process. If it crashes, your supervisor restarts it.
 
-**What makes this different:**
+- **Skills**: Elixir `Behaviours` that expose functinality to the `Operator`. You implement the `Beamlens.Skill` behaviour to provide access to application-specific state, such as ETS table sizes, process mailboxes, or Ecto query statistics.
 
-- **Deep runtime access** — Operators can see what generic APM tools can't: BEAM internals, database connection states, queue depths, whatever the skill exposes
-- **Supplements your stack** — Works alongside Prometheus, Datadog, AppSignal, Sentry
-- **Bring your own model** — Anthropic, OpenAI, Ollama, AWS Bedrock, and more
+- **Execution**: Tool execution is sandboxed in a Lua environment by default, preventing unintended side effects.
+
+- **Data Privacy**: You choose your own LLM provider. Telemetry data is processed within your infrastructure and is never sent to BeamLens.
 
 ## Installation
 
@@ -58,7 +39,7 @@ end
 
 ## Quick Start
 
-Set your Anthropic API key (or configure an [alternative provider](docs/providers.md)):
+Set your API key (or configure an [alternative provider](docs/providers.md)):
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -83,12 +64,12 @@ end
 | `:beam` | BEAM VM metrics (memory, processes, schedulers, atoms) |
 | `:ets` | ETS table monitoring (counts, memory, largest tables) |
 | `:gc` | Garbage collection statistics |
-| `:logger` | Application log monitoring (error rates, patterns, module analysis) |
+| `:logger` | Application log monitoring (error rates, patterns) |
 | `:ports` | Port monitoring (file descriptors, sockets) |
 | `:sup` | Supervisor tree monitoring |
-| `:system` | OS-level metrics (CPU load, memory, disk usage via os_mon) |
-| `:ecto` | Database monitoring (requires custom skill module, see below) |
-| `:exception` | Exception tracking via Tower (error patterns, stacktraces) |
+| `:system` | OS-level metrics (CPU, memory, disk via `os_mon`) |
+| `:ecto` | Database monitoring (requires setup, see below) |
+| `:exception` | Exception tracking via Tower |
 
 Start multiple operators:
 
@@ -96,13 +77,11 @@ Start multiple operators:
 {Beamlens, operators: [:beam, :ets, :gc, :ports, :sup]}
 ```
 
-Each operator runs independently with its own LLM context, monitoring its specific skill.
+Each operator runs independently with its own LLM context.
 
 ### Ecto Skill
 
-The Ecto skill requires a custom module and supporting infrastructure.
-
-**Step 1:** Create a skill module configured with your Repo:
+The Ecto skill requires a custom module:
 
 ```elixir
 defmodule MyApp.EctoSkill do
@@ -110,66 +89,43 @@ defmodule MyApp.EctoSkill do
 end
 ```
 
-**Step 2:** Add the required components to your supervision tree:
+Add infrastructure to your supervision tree:
 
 ```elixir
-def start(_type, _args) do
-  children = [
-    # Ecto skill infrastructure (must be started before Beamlens)
-    {Registry, keys: :unique, name: Beamlens.Skill.Ecto.Registry},
-    {Beamlens.Skill.Ecto.TelemetryStore, repo: MyApp.Repo},
+children = [
+  {Registry, keys: :unique, name: Beamlens.Skill.Ecto.Registry},
+  {Beamlens.Skill.Ecto.TelemetryStore, repo: MyApp.Repo},
 
-    # Beamlens with Ecto operator
-    {Beamlens, operators: [
-      :beam,
-      [name: :ecto, skill_module: MyApp.EctoSkill]
-    ]}
-  ]
-
-  Supervisor.start_link(children, strategy: :one_for_one)
-end
+  {Beamlens, operators: [
+    :beam,
+    [name: :ecto, skill_module: MyApp.EctoSkill]
+  ]}
+]
 ```
 
-For PostgreSQL, add the optional dependency for deeper database insights:
-
-```elixir
-{:ecto_psql_extras, "~> 0.8"}
-```
+For PostgreSQL, add `{:ecto_psql_extras, "~> 0.8"}` for deeper insights.
 
 ### Exception Skill
 
-The Exception skill captures application exceptions via [Tower](https://github.com/mimiquate/tower).
-
-**Step 1:** Add Tower to your dependencies:
+Requires [Tower](https://github.com/mimiquate/tower):
 
 ```elixir
+# mix.exs
 {:tower, "~> 0.8.6"}
-```
 
-**Step 2:** Configure Tower with the ExceptionStore reporter:
-
-```elixir
 # config/config.exs
-config :tower,
-  reporters: [Beamlens.Skill.Exception.ExceptionStore]
+config :tower, reporters: [Beamlens.Skill.Exception.ExceptionStore]
 ```
 
-**Step 3:** Add the exception operator:
+Then add the operator:
 
 ```elixir
 {Beamlens, operators: [:beam, :exception]}
 ```
 
-> **Note:** Exception messages and stacktraces may contain sensitive data (file paths, variable values). Ensure your exception handling does not expose PII before enabling this operator.
-
 ## Creating Custom Skills
 
-Build your own skills to monitor application-specific domains. A skill provides:
-- **Snapshot** — Quick metrics for health assessment
-- **Callbacks** — Functions the LLM can call for deeper investigation
-- **Documentation** — Guides the LLM on available callbacks
-
-### Minimal Example
+Implement the `Beamlens.Skill` behaviour to monitor your own domains:
 
 ```elixir
 defmodule MyApp.Skills.Redis do
@@ -202,7 +158,7 @@ defmodule MyApp.Skills.Redis do
     Full Redis INFO as a map.
 
     ### redis_slowlog(count)
-    Returns recent slow queries. `count` limits results (default: 10).
+    Recent slow queries. `count` limits results.
     """
   end
 
@@ -213,7 +169,7 @@ defmodule MyApp.Skills.Redis do
 end
 ```
 
-### Register Your Skill
+Register your skill:
 
 ```elixir
 {Beamlens, operators: [
@@ -222,33 +178,30 @@ end
 ]}
 ```
 
-Custom skills appear in the BeamLens web dashboard alongside built-in skills.
+**Guidelines:**
 
-### Key Guidelines
+- Prefix callbacks with your skill name (`redis_info`, not `info`)
+- Return JSON-safe values (strings, numbers, booleans, lists, maps)
+- Keep snapshots fast—they're called frequently
+- Write clear docs—the LLM uses them to understand your API
 
-- **Prefix callbacks** with your skill name (`redis_info`, not `info`)
-- **Return JSON-safe values** — strings, numbers, booleans, lists, maps only
-- **Keep snapshots fast** — called frequently for health checks
-- **Write clear docs** — the LLM uses `callback_docs` to understand your API
+## Telemetry
 
-See `Beamlens.Skill` module documentation for complete details on callback patterns and advanced topics.
-
-Subscribe to alerts via telemetry:
+Subscribe to alerts:
 
 ```elixir
 :telemetry.attach("my-alerts", [:beamlens, :operator, :alert_fired], fn
   _event, _measurements, %{alert: alert}, _config ->
-    Logger.warning("BeamLens alert: #{alert.summary}")
+    Logger.warning("BeamLens: #{alert.summary}")
 end, nil)
 ```
 
 ## Alert Correlation
 
-The Coordinator receives alerts from all operators and correlates them into unified insights. When multiple alerts occur together, the Coordinator identifies patterns and produces insights explaining how they're related.
+The Coordinator receives alerts from all operators and correlates them. When multiple alerts fire together, it identifies patterns:
 
-Correlation types:
-- **temporal** — Alerts occurred close in time, possibly related
-- **causal** — One alert directly caused another
+- **temporal** — Alerts occurred close in time
+- **causal** — One alert caused another
 - **symptomatic** — Alerts share a common hidden cause
 
 Subscribe to insights:
@@ -264,9 +217,7 @@ end, nil)
 
 ### Compaction
 
-Operators and the coordinator use context compaction to run indefinitely without exceeding the LLM's context window. When the context grows too large, it's summarized while preserving key information.
-
-Configure compaction per-operator or globally:
+Operators use context compaction to run indefinitely. When the context grows too large, it's summarized:
 
 ```elixir
 {Beamlens, operators: [
@@ -277,11 +228,14 @@ Configure compaction per-operator or globally:
 ]}
 ```
 
-Options:
-- `:compaction_max_tokens` — Token threshold before compaction triggers (default: 50,000)
-- `:compaction_keep_last` — Recent messages to keep verbatim after compaction (default: 5)
+- `:compaction_max_tokens` — Threshold before compaction (default: 50,000)
+- `:compaction_keep_last` — Recent messages to preserve (default: 5)
 
-**Sizing guidance:** Set `:compaction_max_tokens` to roughly 10% of your model's context window. This leaves ample room for the compacted summary, new messages, and system prompts. For a 200k context window, 20k is reasonable. For smaller windows (e.g., 32k), reduce to 3k.
+Set to ~10% of your model's context window.
+
+### Model Providers
+
+Default is Anthropic Claude Haiku. See [providers.md](docs/providers.md) for OpenAI, Ollama, AWS Bedrock, Google Gemini, and others.
 
 ## License
 

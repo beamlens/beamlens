@@ -4,7 +4,7 @@ BeamLens supports the vast majority of LLM providers. You can configure them in 
 
 ```elixir
 {Beamlens,
-  watchers: [:beam],
+  operators: [:beam],
   client_registry: %{
     primary: "Ollama",
     clients: [

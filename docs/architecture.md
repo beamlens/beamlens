@@ -1,13 +1,13 @@
 # Architecture
 
-BeamLens uses an **autonomous watcher** architecture where specialized watchers run continuous LLM-driven loops to monitor domains and detect anomalies. Alerts are emitted via telemetry.
+BeamLens uses an **autonomous operator** architecture where specialized operators run continuous LLM-driven loops to monitor skills and detect anomalies. Alerts are emitted via telemetry.
 
 ## Supervision Tree
 
 Add BeamLens to your application's supervision tree:
 
 ```elixir
-{Beamlens, watchers: [:beam]}
+{Beamlens, operators: [:beam]}
 ```
 
 This starts the following components:
@@ -16,24 +16,24 @@ This starts the following components:
 graph TD
     S[Beamlens.Supervisor]
     S --> TS[TaskSupervisor]
-    S --> WR[WatcherRegistry]
+    S --> OR[OperatorRegistry]
     S -.-> LS[LogStore]
     S -.-> ES[ExceptionStore]
-    S --> WS[Watcher.Supervisor]
+    S --> OS[Operator.Supervisor]
     S --> CO[Coordinator]
 
-    WS --> W1[Watcher: beam]
-    WS --> W2[Watcher: logger]
-    WS --> W3[Watcher: custom]
+    OS --> O1[Operator: beam]
+    OS --> O2[Operator: logger]
+    OS --> O3[Operator: custom]
 ```
 
-Each watcher runs independently. If one crashes, others continue operating. The Coordinator receives alerts from all watchers and correlates them into insights.
+Each operator runs independently. If one crashes, others continue operating. The Coordinator receives alerts from all operators and correlates them into insights.
 
-> **Note:** LogStore and ExceptionStore (shown with dashed lines) are only started when their respective watchers (`:logger`, `:exception`) are configured. LogStore captures application logs via an Erlang `:logger` handler. ExceptionStore captures exceptions via Tower's reporter system.
+> **Note:** LogStore and ExceptionStore (shown with dashed lines) are only started when their respective operators (`:logger`, `:exception`) are configured. LogStore captures application logs via an Erlang `:logger` handler. ExceptionStore captures exceptions via Tower's reporter system.
 
-## Watcher Loop
+## Operator Loop
 
-Each watcher is a GenServer running a continuous LLM-driven loop:
+Each operator is a GenServer running a continuous LLM-driven loop:
 
 ```mermaid
 flowchart TD
@@ -56,7 +56,7 @@ The LLM controls the loop timing via the `wait` tool. There are no fixed schedul
 
 ## State Model
 
-Watchers maintain one of four states reflecting current assessment:
+Operators maintain one of four states reflecting current assessment:
 
 | State | Description |
 |-------|-------------|
@@ -69,7 +69,7 @@ State transitions are driven by the LLM via the `set_state` tool.
 
 ## Coordinator
 
-The Coordinator is a GenServer that receives alerts from all watchers and correlates them into unified insights. When watchers fire alerts via telemetry, the Coordinator queues them and runs an LLM-driven analysis loop.
+The Coordinator is a GenServer that receives alerts from all operators and correlates them into unified insights. When operators fire alerts via telemetry, the Coordinator queues them and runs an LLM-driven analysis loop.
 
 ### Alert States
 
@@ -112,7 +112,7 @@ end, nil)
 
 | Tool | Description |
 |------|-------------|
-| `set_state` | Update watcher state with reason |
+| `set_state` | Update operator state with reason |
 | `fire_alert` | Create alert with referenced snapshots |
 | `get_alerts` | Retrieve previous alerts for correlation |
 | `take_snapshot` | Capture current metrics with unique ID |
@@ -124,9 +124,9 @@ end, nil)
 
 ## Lua Callbacks
 
-The `execute` tool runs Lua code in a sandbox with access to domain-specific callbacks. Each domain provides its own prefixed callbacks (e.g., `beam_get_memory` for the BEAM domain).
+The `execute` tool runs Lua code in a sandbox with access to skill-specific callbacks. Each skill provides its own prefixed callbacks (e.g., `beam_get_memory` for the BEAM skill).
 
-Example Lua code for the BEAM domain:
+Example Lua code for the BEAM skill:
 
 ```lua
 local mem = beam_get_memory()
@@ -134,18 +134,18 @@ local procs = beam_top_processes(5, "memory")
 return {memory = mem, top_procs = procs}
 ```
 
-See the domain sections below for available callbacks per domain.
+See the skill sections below for available callbacks per skill.
 
 ## Telemetry Events
 
-Watchers and the Coordinator emit telemetry events for observability. Key events:
+Operators and the Coordinator emit telemetry events for observability. Key events:
 
 | Event | Description |
 |-------|-------------|
-| `[:beamlens, :watcher, :started]` | Watcher initialized |
-| `[:beamlens, :watcher, :state_change]` | State transitioned |
-| `[:beamlens, :watcher, :alert_fired]` | Alert created |
-| `[:beamlens, :watcher, :iteration_start]` | Loop iteration began |
+| `[:beamlens, :operator, :started]` | Operator initialized |
+| `[:beamlens, :operator, :state_change]` | State transitioned |
+| `[:beamlens, :operator, :alert_fired]` | Alert created |
+| `[:beamlens, :operator, :iteration_start]` | Loop iteration began |
 | `[:beamlens, :coordinator, :started]` | Coordinator initialized |
 | `[:beamlens, :coordinator, :alert_received]` | Alert queued for correlation |
 | `[:beamlens, :coordinator, :iteration_start]` | Analysis loop iteration began |
@@ -159,7 +159,7 @@ Watchers and the Coordinator emit telemetry events for observability. Key events
 Subscribe to alerts:
 
 ```elixir
-:telemetry.attach("my-alerts", [:beamlens, :watcher, :alert_fired], fn
+:telemetry.attach("my-alerts", [:beamlens, :operator, :alert_fired], fn
   _event, _measurements, %{alert: alert}, _config ->
     Logger.warning("Alert: #{alert.summary}")
 end, nil)
@@ -171,8 +171,8 @@ See `Beamlens.Telemetry` for the complete event list.
 
 BeamLens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via [Puck](https://github.com/bradleygolden/puck). Two BAML functions handle the agent loops:
 
-- **WatcherLoop**: Continuous agent loop that observes metrics and selects tools
-- **CoordinatorLoop**: Alert correlation agent that identifies patterns across watchers
+- **OperatorLoop**: Continuous agent loop that observes metrics and selects tools
+- **CoordinatorLoop**: Alert correlation agent that identifies patterns across operators
 
 Default LLM: Anthropic Claude Haiku (`claude-haiku-4-5-20251001`)
 
@@ -182,7 +182,7 @@ Configure alternative LLM providers via `:client_registry`:
 
 ```elixir
 {Beamlens,
-  watchers: [:beam],
+  operators: [:beam],
   client_registry: %{
     primary: "Ollama",
     clients: [
@@ -197,7 +197,7 @@ See [providers.md](providers.md) for configuration examples.
 
 ## Compaction
 
-Watchers and the Coordinator use context compaction to run indefinitely without exceeding the LLM's context window. When the context grows beyond a configurable token threshold, Puck's summarization strategy compacts the conversation while preserving essential information.
+Operators and the Coordinator use context compaction to run indefinitely without exceeding the LLM's context window. When the context grows beyond a configurable token threshold, Puck's summarization strategy compacts the conversation while preserving essential information.
 
 **Configuration Options:**
 
@@ -209,9 +209,9 @@ Watchers and the Coordinator use context compaction to run indefinitely without 
 **Example:**
 
 ```elixir
-{Beamlens, watchers: [
+{Beamlens, operators: [
   :beam,
-  [name: :ets, domain_module: Beamlens.Domain.Ets,
+  [name: :ets, skill_module: Beamlens.Skill.Ets,
    compaction_max_tokens: 100_000,
    compaction_keep_last: 10]
 ]}
@@ -227,21 +227,21 @@ Compaction events are emitted via telemetry: `[:beamlens, :compaction, :start]` 
 
 **Sizing Guidance:** Set `:compaction_max_tokens` to roughly 10% of your model's context window. This leaves ample room for the compacted summary, new incoming messages, and system prompts. For a 200k context window, 20k is reasonable. For smaller windows (e.g., 32k), reduce to 3k.
 
-## Built-in Domains
+## Built-in Skills
 
-| Domain | Module | Description |
-|--------|--------|-------------|
-| `:beam` | `Beamlens.Domain.Beam` | BEAM VM metrics (memory, processes, schedulers, atoms) |
-| `:ets` | `Beamlens.Domain.Ets` | ETS table monitoring |
-| `:gc` | `Beamlens.Domain.Gc` | Garbage collection statistics |
-| `:logger` | `Beamlens.Domain.Logger` | Application log monitoring |
-| `:ports` | `Beamlens.Domain.Ports` | Port monitoring (file descriptors, sockets) |
-| `:sup` | `Beamlens.Domain.Sup` | Supervisor tree monitoring |
-| `:system` | `Beamlens.Domain.System` | OS-level metrics (CPU, memory, disk via os_mon) |
-| `:ecto` | `Beamlens.Domain.Ecto` | Database monitoring (requires custom domain module) |
-| `:exception` | `Beamlens.Domain.Exception` | Exception monitoring via Tower |
+| Skill | Module | Description |
+|-------|--------|-------------|
+| `:beam` | `Beamlens.Skill.Beam` | BEAM VM metrics (memory, processes, schedulers, atoms) |
+| `:ets` | `Beamlens.Skill.Ets` | ETS table monitoring |
+| `:gc` | `Beamlens.Skill.Gc` | Garbage collection statistics |
+| `:logger` | `Beamlens.Skill.Logger` | Application log monitoring |
+| `:ports` | `Beamlens.Skill.Ports` | Port monitoring (file descriptors, sockets) |
+| `:sup` | `Beamlens.Skill.Sup` | Supervisor tree monitoring |
+| `:system` | `Beamlens.Skill.System` | OS-level metrics (CPU, memory, disk via os_mon) |
+| `:ecto` | `Beamlens.Skill.Ecto` | Database monitoring (requires custom skill module) |
+| `:exception` | `Beamlens.Skill.Exception` | Exception monitoring via Tower |
 
-### BEAM Domain (`:beam`)
+### BEAM Skill (`:beam`)
 
 Monitors BEAM VM runtime health.
 
@@ -265,7 +265,7 @@ Monitors BEAM VM runtime health.
 | `beam_get_persistent_terms()` | Persistent term count and memory |
 | `beam_top_processes(limit, sort_by)` | Top processes by memory/queue/reductions |
 
-### ETS Domain (`:ets`)
+### ETS Skill (`:ets`)
 
 Monitors ETS table health and memory usage.
 
@@ -282,7 +282,7 @@ Monitors ETS table health and memory usage.
 | `ets_table_info(table_name)` | Single table details |
 | `ets_top_tables(limit, sort_by)` | Top N tables by "memory" or "size" |
 
-### GC Domain (`:gc`)
+### GC Skill (`:gc`)
 
 Monitors garbage collection activity.
 
@@ -298,11 +298,11 @@ Monitors garbage collection activity.
 | `gc_stats()` | Global GC statistics |
 | `gc_top_processes(limit)` | Processes with largest heaps |
 
-### Logger Domain (`:logger`)
+### Logger Skill (`:logger`)
 
 Monitors application logs via Erlang's `:logger` handler system.
 
-> **Important:** The Logger domain captures application log messages and makes them available for LLM analysis. Ensure your application logs do not contain sensitive data (PII, secrets, tokens) before enabling this watcher. Review your logging configuration to verify log messages are safe for analysis.
+> **Important:** The Logger skill captures application log messages and makes them available for LLM analysis. Ensure your application logs do not contain sensitive data (PII, secrets, tokens) before enabling this operator. Review your logging configuration to verify log messages are safe for analysis.
 
 **Snapshot Metrics:**
 - Total log count (1 minute window)
@@ -321,7 +321,7 @@ Monitors application logs via Erlang's `:logger` handler system.
 | `logger_search(pattern, limit)` | Search logs by regex pattern |
 | `logger_by_module(module_name, limit)` | Logs from modules matching name |
 
-### Ports Domain (`:ports`)
+### Ports Skill (`:ports`)
 
 Monitors BEAM ports (file descriptors, sockets).
 
@@ -338,7 +338,7 @@ Monitors BEAM ports (file descriptors, sockets).
 | `ports_info(port_id)` | Port details: I/O bytes, memory |
 | `ports_top(limit, sort_by)` | Top N ports by "input", "output", or "memory" |
 
-### Sup Domain (`:sup`)
+### Sup Skill (`:sup`)
 
 Monitors supervisor tree structure.
 
@@ -354,7 +354,7 @@ Monitors supervisor tree structure.
 | `sup_children(supervisor_name)` | Direct children: id, pid, type |
 | `sup_tree(supervisor_name)` | Full supervision tree (recursive, depth-limited) |
 
-### System Domain (`:system`)
+### System Skill (`:system`)
 
 Monitors OS-level system health via Erlang's os_mon application.
 
@@ -374,15 +374,15 @@ Monitors OS-level system health via Erlang's os_mon application.
 | `system_get_memory()` | System memory stats |
 | `system_get_disks()` | Disk usage per mount point |
 
-### Ecto Domain (`:ecto`)
+### Ecto Skill (`:ecto`)
 
-Monitors Ecto database health. Requires a custom domain module and supporting infrastructure.
+Monitors Ecto database health. Requires a custom skill module and supporting infrastructure.
 
-**Step 1:** Create a domain module:
+**Step 1:** Create a skill module:
 
 ```elixir
-defmodule MyApp.EctoDomain do
-  use Beamlens.Domain.Ecto, repo: MyApp.Repo
+defmodule MyApp.EctoSkill do
+  use Beamlens.Skill.Ecto, repo: MyApp.Repo
 end
 ```
 
@@ -390,13 +390,13 @@ end
 
 ```elixir
 children = [
-  # Ecto domain infrastructure (must start before Beamlens)
-  {Registry, keys: :unique, name: Beamlens.Domain.Ecto.Registry},
-  {Beamlens.Domain.Ecto.TelemetryStore, repo: MyApp.Repo},
+  # Ecto skill infrastructure (must start before Beamlens)
+  {Registry, keys: :unique, name: Beamlens.Skill.Ecto.Registry},
+  {Beamlens.Skill.Ecto.TelemetryStore, repo: MyApp.Repo},
 
-  # Beamlens with Ecto watcher
-  {Beamlens, watchers: [
-    [name: :ecto, domain_module: MyApp.EctoDomain]
+  # Beamlens with Ecto operator
+  {Beamlens, operators: [
+    [name: :ecto, skill_module: MyApp.EctoSkill]
   ]}
 ]
 ```
@@ -428,11 +428,11 @@ children = [
 
 PostgreSQL-specific callbacks require `{:ecto_psql_extras, "~> 0.8"}` as an optional dependency.
 
-### Exception Domain (`:exception`)
+### Exception Skill (`:exception`)
 
 Monitors application exceptions via Tower's reporter system.
 
-> **Important:** The Exception domain captures exception messages and stacktraces which may contain sensitive data (file paths, variable values). Ensure your exception handling does not expose PII before enabling this watcher.
+> **Important:** The Exception skill captures exception messages and stacktraces which may contain sensitive data (file paths, variable values). Ensure your exception handling does not expose PII before enabling this operator.
 
 > **Requirement:** Requires Tower to be installed and configured:
 >
@@ -442,7 +442,7 @@ Monitors application exceptions via Tower's reporter system.
 >
 > # In config/config.exs
 > config :tower,
->   reporters: [Beamlens.Domain.Exception.ExceptionStore]
+>   reporters: [Beamlens.Skill.Exception.ExceptionStore]
 > ```
 
 **Snapshot Metrics:**
@@ -462,16 +462,16 @@ Monitors application exceptions via Tower's reporter system.
 | `exception_search(pattern, limit)` | Search exception messages by regex pattern |
 | `exception_stacktrace(exception_id)` | Get full stacktrace for specific exception by ID |
 
-## Custom Domains
+## Custom Skills
 
-Implement the `Beamlens.Domain` behaviour to create custom monitoring domains:
+Implement the `Beamlens.Skill` behaviour to create custom monitoring skills:
 
 ```elixir
-defmodule MyApp.Domain.Postgres do
-  @behaviour Beamlens.Domain
+defmodule MyApp.Skills.Postgres do
+  @behaviour Beamlens.Skill
 
   @impl true
-  def domain, do: :postgres
+  def id, do: :postgres
 
   @impl true
   def snapshot do
@@ -506,8 +506,8 @@ end
 Register in supervision tree:
 
 ```elixir
-{Beamlens, watchers: [
+{Beamlens, operators: [
   :beam,
-  [name: :postgres, domain_module: MyApp.Domain.Postgres]
+  [name: :postgres, skill_module: MyApp.Skills.Postgres]
 ]}
 ```
