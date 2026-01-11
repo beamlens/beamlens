@@ -10,6 +10,8 @@ defmodule Beamlens.Operator.SupervisorTest do
 
     def id, do: :test_skill
 
+    def description, do: "Test skill for supervisor tests"
+
     def system_prompt, do: "You are a test skill for supervisor tests."
 
     def snapshot do

@@ -41,12 +41,16 @@ class CoordinatorThink {
   thought string @description("Your reasoning about the current situation")
 }
 
-function CoordinatorLoop(messages: Message[]) -> CoordinatorGetAlerts | CoordinatorUpdateAlertStatuses | CoordinatorProduceInsight | CoordinatorDone | CoordinatorThink {
+function CoordinatorLoop(messages: Message[], operator_descriptions: string) -> CoordinatorGetAlerts | CoordinatorUpdateAlertStatuses | CoordinatorProduceInsight | CoordinatorDone | CoordinatorThink {
   client Default
   prompt #"
 {{ _.role("system") }}
-You are an alert correlation agent. You receive alerts from BEAM system watchers
+You are an alert correlation agent. You receive alerts from system operators
 and identify patterns across them.
+
+## Active Operators
+
+{{ operator_descriptions }}
 
 ## Alert States
 - unread: New alerts, not yet processed
@@ -109,6 +113,7 @@ test CoordinatorLoop_GetsAlertsFirst {
     messages [
       { role "user", content "Process alerts" }
     ]
+    operator_descriptions "- beam: BEAM VM health: memory, processes, schedulers, atoms"
   }
   @@assert(gets_alerts, {{ this.intent == "get_alerts" }})
 }
@@ -120,6 +125,7 @@ test CoordinatorLoop_AcknowledgesUnreadAlerts {
       { role "user", content "Process alerts" },
       { role "user", content #"[{"id":"a1","status":"unread","watcher":"beam","anomaly_type":"memory_elevated","severity":"warning","summary":"Memory at 78%","detected_at":"2024-01-06T10:30:00Z"},{"id":"a2","status":"unread","watcher":"beam","anomaly_type":"scheduler_contention","severity":"warning","summary":"Run queue at 45","detected_at":"2024-01-06T10:30:30Z"}]"# }
     ]
+    operator_descriptions "- beam: BEAM VM health: memory, processes, schedulers, atoms"
   }
   @@assert(acknowledges_first, {{ (this.intent == "update_alert_statuses" and this.status == "acknowledged") or this.intent == "think" }})
 }
@@ -131,6 +137,7 @@ test CoordinatorLoop_ResolvesFalsePositive {
       { role "user", content "Process alerts" },
       { role "user", content #"[{"id":"a1","status":"acknowledged","watcher":"beam","anomaly_type":"memory_elevated","severity":"info","summary":"Brief memory spike, returned to normal - no action needed","detected_at":"2024-01-06T10:30:00Z"}]"# }
     ]
+    operator_descriptions "- beam: BEAM VM health: memory, processes, schedulers, atoms"
   }
   @@assert(resolves_false_positive, {{ (this.intent == "update_alert_statuses" and this.status == "resolved") or this.intent == "think" }})
 }
@@ -143,6 +150,7 @@ test CoordinatorLoop_CompletesWhenDone {
       { role "assistant", content #"{"intent":"get_alerts","status":"unread"}"# },
       { role "user", content "No unread alerts found: []" }
     ]
+    operator_descriptions "- beam: BEAM VM health: memory, processes, schedulers, atoms"
   }
   @@assert(calls_done, {{ this.intent == "done" or this.intent == "think" }})
 }

@@ -30,6 +30,9 @@ defmodule Beamlens.Skill.System do
   def id, do: :system
 
   @impl true
+  def description, do: "OS resources: CPU load, system memory, disk usage"
+
+  @impl true
   def system_prompt do
     """
     You are an OS-level system monitor. You track CPU, memory, and disk resources

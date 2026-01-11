@@ -11,6 +11,8 @@ defmodule Beamlens.OperatorTest do
 
     def id, do: :test_continuous
 
+    def description, do: "Test skill for unit tests"
+
     def system_prompt, do: "You are a test skill for unit tests."
 
     def snapshot do

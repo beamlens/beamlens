@@ -135,6 +135,9 @@ defmodule MyApp.Skills.Redis do
   def id, do: :redis
 
   @impl true
+  def description, do: "Redis cache: hit rates, memory, key distribution"
+
+  @impl true
   def system_prompt do
     """
     You are a Redis cache monitor. You track cache health, memory usage,

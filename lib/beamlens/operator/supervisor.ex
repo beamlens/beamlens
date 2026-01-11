@@ -170,6 +170,25 @@ defmodule Beamlens.Operator.Supervisor do
   end
 
   @doc """
+  Resolves an operator specification to {name, skill_module}.
+
+  Handles both atom shortcuts for built-in skills and keyword list specs
+  for custom skills.
+  """
+  def resolve_skill(skill) when is_atom(skill) do
+    case Map.fetch(@builtin_skills, skill) do
+      {:ok, module} -> {:ok, {skill, module}}
+      :error -> {:error, {:unknown_builtin_skill, skill}}
+    end
+  end
+
+  def resolve_skill(opts) when is_list(opts) do
+    name = Keyword.fetch!(opts, :name)
+    skill = Keyword.fetch!(opts, :skill)
+    {:ok, {name, skill}}
+  end
+
+  @doc """
   Returns all configured operator names.
 
   This includes both built-in skills (specified as atoms) and custom skills

@@ -8,6 +8,7 @@ defmodule Beamlens.Skill do
   ## Required Callbacks
 
   - `id/0` - Returns the skill identifier atom (e.g., `:beam`)
+  - `description/0` - Returns a brief (1-line) summary for the Coordinator
   - `system_prompt/0` - Returns the operator's identity and monitoring focus
   - `snapshot/0` - Returns high-level metrics for quick health assessment
   - `callbacks/0` - Returns the Lua sandbox callback map for investigation
@@ -150,6 +151,9 @@ defmodule Beamlens.Skill do
         def id, do: :redis
 
         @impl true
+        def description, do: "Redis cache: hit rates, memory, key distribution"
+
+        @impl true
         def system_prompt do
           \"\"\"
           You are a Redis cache monitor. You track cache health, memory usage,
@@ -227,6 +231,7 @@ defmodule Beamlens.Skill do
   """
 
   @callback id() :: atom()
+  @callback description() :: String.t()
   @callback system_prompt() :: String.t()
   @callback snapshot() :: map()
   @callback callbacks() :: map()

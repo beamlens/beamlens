@@ -13,6 +13,9 @@ defmodule Beamlens.Skill.Ets do
   def id, do: :ets
 
   @impl true
+  def description, do: "ETS tables: memory usage, table sizes, growth patterns"
+
+  @impl true
   def system_prompt do
     """
     You are an ETS table analyst. You monitor ETS tables for memory usage,

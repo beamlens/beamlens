@@ -29,6 +29,9 @@ defmodule Beamlens.Skill.Logger do
   def id, do: :logger
 
   @impl true
+  def description, do: "Application logs: error rates, patterns, module-specific issues"
+
+  @impl true
   def system_prompt do
     """
     You are an application log analyst. You monitor log streams for error patterns,

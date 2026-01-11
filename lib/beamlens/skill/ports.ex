@@ -13,6 +13,9 @@ defmodule Beamlens.Skill.Ports do
   def id, do: :ports
 
   @impl true
+  def description, do: "Ports: file descriptors, sockets, I/O throughput"
+
+  @impl true
   def system_prompt do
     """
     You are a BEAM port monitor. You track ports (file descriptors, sockets,

@@ -12,6 +12,8 @@ defmodule Beamlens.Evals.OperatorTest do
 
     def id, do: :eval_healthy
 
+    def description, do: "Test skill for operator evals"
+
     def system_prompt, do: "You are a test skill for operator evals."
 
     def snapshot do

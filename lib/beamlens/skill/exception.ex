@@ -36,6 +36,9 @@ if Code.ensure_loaded?(Tower) do
     def id, do: :exception
 
     @impl true
+    def description, do: "Exceptions: error types, crash patterns, stacktraces"
+
+    @impl true
     def system_prompt do
       """
       You are an exception analyst. You monitor application exceptions and crashes

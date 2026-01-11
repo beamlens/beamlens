@@ -320,12 +320,17 @@ defmodule Beamlens.Coordinator do
   end
 
   defp build_puck_client(client_registry, opts) do
+    operator_descriptions = build_operator_descriptions()
+
     backend_config =
       %{
         function: "CoordinatorLoop",
         args_format: :auto,
         args: fn messages ->
-          %{messages: Utils.format_messages_for_baml(messages)}
+          %{
+            messages: Utils.format_messages_for_baml(messages),
+            operator_descriptions: operator_descriptions
+          }
         end,
         path: Application.app_dir(:beamlens, "priv/baml_src")
       }
@@ -336,6 +341,15 @@ defmodule Beamlens.Coordinator do
       hooks: Beamlens.Telemetry.Hooks,
       auto_compaction: build_compaction_config(opts)
     )
+  end
+
+  defp build_operator_descriptions do
+    operators = Application.get_env(:beamlens, :operators, [])
+
+    operators
+    |> Enum.map(&Beamlens.Operator.Supervisor.resolve_skill/1)
+    |> Enum.filter(&match?({:ok, _}, &1))
+    |> Enum.map_join("\n", fn {:ok, {name, skill}} -> "- #{name}: #{skill.description()}" end)
   end
 
   defp build_compaction_config(opts) do

@@ -15,6 +15,9 @@ defmodule Beamlens.Skill.Beam do
   def id, do: :beam
 
   @impl true
+  def description, do: "BEAM VM health: memory, processes, schedulers, atoms"
+
+  @impl true
   def system_prompt do
     """
     You are a BEAM VM health monitor. You continuously watch the Erlang runtime

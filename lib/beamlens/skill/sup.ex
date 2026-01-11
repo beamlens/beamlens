@@ -13,6 +13,9 @@ defmodule Beamlens.Skill.Sup do
   def id, do: :sup
 
   @impl true
+  def description, do: "Supervisors: tree structure, child states, restart patterns"
+
+  @impl true
   def system_prompt do
     """
     You are a supervision tree analyst. You monitor the structure and health

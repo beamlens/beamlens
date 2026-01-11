@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `description/0` callback in Skill behaviour — brief summary for the Coordinator to understand what each operator monitors
 - `system_prompt/0` callback in Skill behaviour — defines operator identity and monitoring focus (e.g., "You are a BEAM VM health monitor...")
 - `Beamlens.Operator.Supervisor.configured_operators/0` — returns all configured operator names (built-in and custom) for discovery
 - Custom skill creation guide in README with minimal example

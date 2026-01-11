@@ -12,6 +12,8 @@ defmodule Beamlens.Evals.LuaSandboxTest do
 
     def id, do: :eval_investigation
 
+    def description, do: "Investigation skill for Lua sandbox evals"
+
     def system_prompt, do: "You are a test skill for Lua sandbox evals."
 
     def snapshot do

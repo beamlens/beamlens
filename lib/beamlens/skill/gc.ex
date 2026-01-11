@@ -13,6 +13,9 @@ defmodule Beamlens.Skill.Gc do
   def id, do: :gc
 
   @impl true
+  def description, do: "Garbage collection: heap sizes, GC frequency, memory pressure"
+
+  @impl true
   def system_prompt do
     """
     You are a garbage collection analyst. You monitor GC activity to detect

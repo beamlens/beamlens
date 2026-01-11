@@ -48,6 +48,11 @@ defmodule Beamlens.Skill.Ecto do
       def id, do: :ecto
 
       @impl true
+      def description do
+        @ecto_module.description()
+      end
+
+      @impl true
       def system_prompt do
         @ecto_module.system_prompt()
       end
@@ -68,6 +73,8 @@ defmodule Beamlens.Skill.Ecto do
       end
     end
   end
+
+  def description, do: "Database: query performance, connection pool, slow queries"
 
   def system_prompt do
     """
