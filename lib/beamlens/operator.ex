@@ -109,6 +109,216 @@ defmodule Beamlens.Operator do
     GenServer.stop(server)
   end
 
+  @doc """
+  Runs a single monitoring iteration without starting a persistent process.
+
+  Useful for Oban-style scheduled execution where you want to run monitoring
+  on a cron schedule rather than continuously.
+
+  ## Arguments
+
+    * `skill` - Module implementing `Beamlens.Skill`, or atom for built-in skill
+    * `client_registry` - LLM provider configuration map
+
+  ## Options
+
+    * `:max_iterations` - Maximum LLM iterations before returning (default: 10)
+
+  ## Returns
+
+    * `{:ok, alerts}` - List of alerts fired during this run
+    * `{:error, reason}` - If the skill couldn't be resolved or LLM failed
+
+  ## Example
+
+      # Run a single monitoring pass
+      {:ok, alerts} = Beamlens.Operator.run_once(:beam, client_registry())
+
+      # With options
+      {:ok, alerts} = Beamlens.Operator.run_once(:beam, client_registry(), max_iterations: 5)
+
+  ## Oban Integration
+
+      defmodule MyApp.BeamlensWorker do
+        use Oban.Worker, queue: :monitoring
+
+        @impl true
+        def perform(%{args: %{"skill" => skill_name}}) do
+          skill = String.to_existing_atom(skill_name)
+          {:ok, _alerts} = Beamlens.Operator.run_once(skill, client_registry())
+          :ok
+        end
+      end
+
+  """
+  def run_once(skill, client_registry, opts \\ []) do
+    with {:ok, {_name, skill_module}} <- resolve_skill(skill) do
+      do_run_once(skill_module, client_registry, opts)
+    end
+  end
+
+  defp resolve_skill(skill) when is_atom(skill) do
+    Beamlens.Operator.Supervisor.resolve_skill(skill)
+  end
+
+  defp resolve_skill(skill_module) when is_atom(skill_module) do
+    {:ok, {skill_module.id(), skill_module}}
+  end
+
+  defp do_run_once(skill, client_registry, opts) do
+    max_iterations = Keyword.get(opts, :max_iterations, 10)
+    client = build_puck_client(skill, client_registry, opts)
+
+    run_state = %{
+      skill: skill,
+      client: client,
+      context: Context.new(metadata: %{iteration: 0}),
+      alerts: [],
+      snapshots: [],
+      state: :healthy,
+      iteration: 0
+    }
+
+    run_loop(run_state, max_iterations)
+  end
+
+  defp run_loop(run_state, max_iterations) when run_state.iteration >= max_iterations do
+    {:ok, run_state.alerts}
+  end
+
+  defp run_loop(run_state, max_iterations) do
+    trace_id = Telemetry.generate_trace_id()
+    input = build_input(run_state.state)
+
+    context = %{
+      run_state.context
+      | metadata: Map.put(run_state.context.metadata, :trace_id, trace_id)
+    }
+
+    case Puck.call(run_state.client, input, context, output_schema: Tools.schema()) do
+      {:ok, response, new_context} ->
+        run_state = %{run_state | context: new_context}
+        handle_run_once_action(response.content, run_state, max_iterations, trace_id)
+
+      {:error, reason} ->
+        {:error, {:llm_error, reason}}
+    end
+  end
+
+  defp handle_run_once_action(%Wait{}, run_state, _max_iterations, _trace_id) do
+    {:ok, run_state.alerts}
+  end
+
+  defp handle_run_once_action(%SetState{state: new_state}, run_state, max_iterations, _trace_id) do
+    run_state = %{run_state | state: new_state, iteration: run_state.iteration + 1}
+    run_loop(run_state, max_iterations)
+  end
+
+  defp handle_run_once_action(
+         %FireAlert{type: type, summary: summary, severity: severity, snapshot_ids: snapshot_ids},
+         run_state,
+         max_iterations,
+         trace_id
+       ) do
+    case resolve_snapshots(snapshot_ids, run_state.snapshots) do
+      {:ok, snapshots} ->
+        alert =
+          Alert.new(%{
+            operator: run_state.skill.id(),
+            anomaly_type: type,
+            severity: severity,
+            summary: summary,
+            snapshots: snapshots
+          })
+
+        :telemetry.execute(
+          [:beamlens, :operator, :alert_fired],
+          %{system_time: System.system_time()},
+          %{operator: run_state.skill.id(), trace_id: trace_id, alert: alert}
+        )
+
+        run_state = %{
+          run_state
+          | alerts: run_state.alerts ++ [alert],
+            iteration: run_state.iteration + 1
+        }
+
+        run_loop(run_state, max_iterations)
+
+      {:error, reason} ->
+        new_context = Utils.add_result(run_state.context, %{error: reason})
+        run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
+        run_loop(run_state, max_iterations)
+    end
+  end
+
+  defp handle_run_once_action(%TakeSnapshot{}, run_state, max_iterations, _trace_id) do
+    data = run_state.skill.snapshot()
+    snapshot = Snapshot.new(data)
+    new_context = Utils.add_result(run_state.context, snapshot)
+
+    run_state = %{
+      run_state
+      | context: new_context,
+        snapshots: run_state.snapshots ++ [snapshot],
+        iteration: run_state.iteration + 1
+    }
+
+    run_loop(run_state, max_iterations)
+  end
+
+  defp handle_run_once_action(%GetSnapshot{id: id}, run_state, max_iterations, _trace_id) do
+    result =
+      case Enum.find(run_state.snapshots, fn s -> s.id == id end) do
+        nil -> %{error: "snapshot_not_found", id: id}
+        snapshot -> snapshot
+      end
+
+    new_context = Utils.add_result(run_state.context, result)
+    run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
+    run_loop(run_state, max_iterations)
+  end
+
+  defp handle_run_once_action(
+         %GetSnapshots{limit: limit, offset: offset},
+         run_state,
+         max_iterations,
+         _trace_id
+       ) do
+    offset = offset || 0
+    snapshots = Enum.drop(run_state.snapshots, offset)
+    snapshots = if limit, do: Enum.take(snapshots, limit), else: snapshots
+
+    new_context = Utils.add_result(run_state.context, snapshots)
+    run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
+    run_loop(run_state, max_iterations)
+  end
+
+  defp handle_run_once_action(%GetAlerts{}, run_state, max_iterations, _trace_id) do
+    new_context = Utils.add_result(run_state.context, run_state.alerts)
+    run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
+    run_loop(run_state, max_iterations)
+  end
+
+  defp handle_run_once_action(%Execute{code: lua_code}, run_state, max_iterations, _trace_id) do
+    result =
+      case Eval.eval(:lua, lua_code, callbacks: run_state.skill.callbacks()) do
+        {:ok, result} -> result
+        {:error, reason} -> %{error: inspect(reason)}
+      end
+
+    new_context = Utils.add_result(run_state.context, result)
+    run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
+    run_loop(run_state, max_iterations)
+  end
+
+  defp handle_run_once_action(%Think{thought: thought}, run_state, max_iterations, _trace_id) do
+    result = %{thought: thought, recorded: true}
+    new_context = Utils.add_result(run_state.context, result)
+    run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
+    run_loop(run_state, max_iterations)
+  end
+
   @impl true
   def init(opts) do
     skill = Keyword.fetch!(opts, :skill)

@@ -11,6 +11,24 @@ defmodule Beamlens.Skill.SupTest do
     end
   end
 
+  describe "description/0" do
+    test "returns a non-empty string" do
+      description = Sup.description()
+
+      assert is_binary(description)
+      assert String.length(description) > 0
+    end
+  end
+
+  describe "system_prompt/0" do
+    test "returns a non-empty string" do
+      system_prompt = Sup.system_prompt()
+
+      assert is_binary(system_prompt)
+      assert String.length(system_prompt) > 0
+    end
+  end
+
   describe "snapshot/0" do
     test "returns supervisor count and children" do
       snapshot = Sup.snapshot()

@@ -797,4 +797,174 @@ defmodule Beamlens.CoordinatorTest do
       stop_coordinator(pid)
     end
   end
+
+  describe "pubsub integration" do
+    setup do
+      pubsub_name = :"TestPubSub_#{:erlang.unique_integer([:positive])}"
+      {:ok, _} = start_supervised({Phoenix.PubSub, name: pubsub_name})
+      %{pubsub: pubsub_name}
+    end
+
+    test "stores pubsub in state when provided", %{pubsub: pubsub} do
+      name = :"coordinator_pubsub_#{:erlang.unique_integer([:positive])}"
+      {:ok, pid} = Coordinator.start_link(name: name, pubsub: pubsub)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: mock_client()}
+      end)
+
+      state = :sys.get_state(pid)
+      assert state.pubsub == pubsub
+
+      stop_coordinator(pid)
+    end
+
+    test "subscribes to pubsub topic on init", %{pubsub: pubsub} do
+      name = :"coordinator_pubsub_sub_#{:erlang.unique_integer([:positive])}"
+      {:ok, pid} = Coordinator.start_link(name: name, pubsub: pubsub)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: mock_client()}
+      end)
+
+      alert = build_test_alert()
+      Phoenix.PubSub.broadcast(pubsub, "beamlens:alerts", {:beamlens_alert, alert, :other@node})
+
+      state = :sys.get_state(pid)
+      assert Map.has_key?(state.alerts, alert.id)
+
+      stop_coordinator(pid)
+    end
+
+    test "ignores alerts from local node", %{pubsub: pubsub} do
+      name = :"coordinator_pubsub_local_#{:erlang.unique_integer([:positive])}"
+      {:ok, pid} = Coordinator.start_link(name: name, pubsub: pubsub)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: mock_client()}
+      end)
+
+      alert = build_test_alert()
+      Phoenix.PubSub.broadcast(pubsub, "beamlens:alerts", {:beamlens_alert, alert, node()})
+
+      state = :sys.get_state(pid)
+      refute Map.has_key?(state.alerts, alert.id)
+
+      stop_coordinator(pid)
+    end
+
+    test "emits remote_alert_received telemetry for cross-node alerts", %{pubsub: pubsub} do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :remote_alert},
+        [:beamlens, :coordinator, :remote_alert_received],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :remote_alert_received, metadata})
+        end,
+        nil
+      )
+
+      name = :"coordinator_pubsub_tel_#{:erlang.unique_integer([:positive])}"
+      {:ok, pid} = Coordinator.start_link(name: name, pubsub: pubsub)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: mock_client()}
+      end)
+
+      alert = build_test_alert()
+      Phoenix.PubSub.broadcast(pubsub, "beamlens:alerts", {:beamlens_alert, alert, :other@node})
+
+      assert_receive {:telemetry, :remote_alert_received,
+                      %{alert_id: _, operator: :test, source_node: :other@node}},
+                     1000
+
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :remote_alert})
+    end
+
+    test "starts loop when receiving first remote alert", %{pubsub: pubsub} do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :iteration_start},
+        [:beamlens, :coordinator, :iteration_start],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :iteration_start, metadata})
+        end,
+        nil
+      )
+
+      name = :"coordinator_pubsub_loop_#{:erlang.unique_integer([:positive])}"
+      {:ok, pid} = Coordinator.start_link(name: name, pubsub: pubsub)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: mock_client()}
+      end)
+
+      alert = build_test_alert()
+      Phoenix.PubSub.broadcast(pubsub, "beamlens:alerts", {:beamlens_alert, alert, :other@node})
+
+      assert_receive {:telemetry, :iteration_start, %{iteration: 0}}, 1000
+
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :iteration_start})
+    end
+  end
+
+  describe "takeover telemetry" do
+    test "emits takeover event on :shutdown termination" do
+      Process.flag(:trap_exit, true)
+
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :takeover},
+        [:beamlens, :coordinator, :takeover],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :takeover, metadata})
+        end,
+        nil
+      )
+
+      {:ok, pid} = start_coordinator()
+
+      alert = build_test_alert()
+
+      :sys.replace_state(pid, fn state ->
+        alerts = %{alert.id => %{alert: alert, status: :unread}}
+        %{state | alerts: alerts}
+      end)
+
+      GenServer.stop(pid, :shutdown)
+
+      assert_receive {:telemetry, :takeover, %{alert_count: 1}}, 1000
+
+      :telemetry.detach({ref, :takeover})
+    end
+
+    test "does not emit takeover event on normal termination" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :takeover},
+        [:beamlens, :coordinator, :takeover],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :takeover, metadata})
+        end,
+        nil
+      )
+
+      {:ok, pid} = start_coordinator()
+      GenServer.stop(pid, :normal)
+
+      refute_receive {:telemetry, :takeover, _}, 100
+
+      :telemetry.detach({ref, :takeover})
+    end
+  end
 end

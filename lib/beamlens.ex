@@ -83,8 +83,8 @@ defmodule Beamlens do
       # Built-in BEAM operator
       :beam
 
-      # Custom domain module
-      [name: :postgres, domain_module: MyApp.Domain.Postgres]
+      # Custom skill module
+      [name: :postgres, skill: MyApp.Skill.Postgres]
 
   ## Runtime API
 

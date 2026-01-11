@@ -8,26 +8,51 @@ defmodule Beamlens.Supervisor do
     * `Beamlens.OperatorRegistry` - Registry for operator processes
     * `Beamlens.Domain.Logger.LogStore` - Log buffer (when `:logger` operator enabled)
     * `Beamlens.Domain.Exception.ExceptionStore` - Exception buffer (when `:exception` operator enabled)
+    * `Beamlens.AlertForwarder` - Cross-node alert broadcasting (when `:pubsub` provided)
     * `Beamlens.Operator.Supervisor` - DynamicSupervisor for operators
     * `Beamlens.Coordinator` - Alert correlation and insight generation
 
-  ## Configuration
+  ## Single Node Configuration
 
-      config :beamlens,
-        operators: [
-          :beam
-        ],
-        client_registry: %{
-          primary: "Ollama",
-          clients: [
-            %{name: "Ollama", provider: "openai-generic",
-              options: %{base_url: "http://localhost:11434/v1", model: "qwen3:4b"}}
-          ]
-        }
+      children = [
+        {Beamlens,
+          operators: [:beam, :ets],
+          client_registry: client_registry()}
+      ]
+
+  ## Clustered Configuration
+
+  When running in a cluster, provide a `:pubsub` option to enable cross-node
+  alert propagation and automatic singleton coordination:
+
+      children = [
+        {Beamlens,
+          operators: [:beam, :ets],
+          client_registry: client_registry(),
+          pubsub: MyApp.PubSub}
+      ]
+
+  When `pubsub` is provided:
+    * `Beamlens.AlertForwarder` is started to broadcast alerts to PubSub
+    * `Beamlens.Coordinator` is wrapped in Highlander for cluster singleton
+    * Coordinator subscribes to PubSub for cross-node alerts
+
+  ## Options
+
+    * `:operators` - List of operators to start (default: from application config)
+    * `:client_registry` - LLM client configuration
+    * `:pubsub` - Phoenix.PubSub module for clustered mode (optional)
+    * `:coordinator` - Additional options for the Coordinator
+
+  ## Advanced Deployments
+
+  For custom supervision trees, use the building blocks directly.
+  See `docs/deployment.md` for examples.
   """
 
   use Supervisor
 
+  alias Beamlens.AlertForwarder
   alias Beamlens.Coordinator
   alias Beamlens.Domain.Exception.ExceptionStore
   alias Beamlens.Domain.Logger.LogStore
@@ -41,26 +66,44 @@ defmodule Beamlens.Supervisor do
   def init(opts) do
     operators = Keyword.get(opts, :operators, Application.get_env(:beamlens, :operators, []))
     client_registry = Keyword.get(opts, :client_registry)
-    coordinator_opts = Keyword.get(opts, :coordinator, [])
+    pubsub = Keyword.get(opts, :pubsub)
 
     coordinator_opts =
-      Keyword.put_new(coordinator_opts, :client_registry, client_registry)
+      opts
+      |> Keyword.get(:coordinator, [])
+      |> Keyword.put_new(:client_registry, client_registry)
+      |> maybe_put(:pubsub, pubsub)
 
     children =
       ([
          {Task.Supervisor, name: Beamlens.TaskSupervisor},
          {Registry, keys: :unique, name: Beamlens.OperatorRegistry}
        ] ++
+         alert_forwarder_children(pubsub) ++
          logger_children(operators) ++
          exception_children(operators) ++
          [
            {OperatorSupervisor, []},
            operator_starter_child(operators, client_registry),
-           {Coordinator, coordinator_opts}
+           coordinator_child(coordinator_opts, pubsub)
          ])
       |> Enum.reject(&is_nil/1)
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp alert_forwarder_children(nil), do: []
+  defp alert_forwarder_children(pubsub), do: [{AlertForwarder, pubsub: pubsub}]
+
+  defp coordinator_child(opts, nil) do
+    {Coordinator, opts}
+  end
+
+  defp coordinator_child(opts, _pubsub) do
+    {Highlander, {Coordinator, opts}}
   end
 
   defp operator_starter_child([], _client_registry), do: nil

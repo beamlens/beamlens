@@ -12,15 +12,33 @@ defmodule Beamlens.Coordinator do
   - `:acknowledged` - Currently being analyzed
   - `:resolved` - Processed (correlated into insight or dismissed)
 
-  ## Example
+  ## Single Node Example
 
       {:ok, pid} = Beamlens.Coordinator.start_link(
         client_registry: %{...}
       )
+
+  ## Clustered Example
+
+  When running in a cluster with PubSub, the Coordinator can receive alerts
+  from other nodes:
+
+      {:ok, pid} = Beamlens.Coordinator.start_link(
+        client_registry: %{...},
+        pubsub: MyApp.PubSub
+      )
+
+  In clustered mode, wrap with Highlander to ensure only one runs cluster-wide:
+
+      children = [
+        {Highlander, {Beamlens.Coordinator, client_registry: %{...}, pubsub: MyApp.PubSub}}
+      ]
+
   """
 
   use GenServer
 
+  alias Beamlens.AlertForwarder
   alias Beamlens.Coordinator.{Insight, Tools}
   alias Beamlens.Coordinator.Tools.{Done, GetAlerts, ProduceInsight, Think, UpdateAlertStatuses}
   alias Beamlens.LLM.Utils
@@ -36,6 +54,7 @@ defmodule Beamlens.Coordinator do
     :context,
     :pending_task,
     :pending_trace_id,
+    :pubsub,
     alerts: %{},
     iteration: 0,
     running: false
@@ -48,6 +67,7 @@ defmodule Beamlens.Coordinator do
 
     * `:name` - Optional process name for registration (default: `__MODULE__`)
     * `:client_registry` - Optional LLM provider configuration map
+    * `:pubsub` - Phoenix.PubSub module for cross-node alerts (optional)
     * `:compaction_max_tokens` - Token threshold for compaction (default: 50_000)
     * `:compaction_keep_last` - Messages to keep verbatim after compaction (default: 5)
 
@@ -67,6 +87,7 @@ defmodule Beamlens.Coordinator do
   @impl true
   def init(opts) do
     client = build_puck_client(Keyword.get(opts, :client_registry), opts)
+    pubsub = Keyword.get(opts, :pubsub)
 
     :telemetry.attach(
       @telemetry_handler_id,
@@ -75,9 +96,14 @@ defmodule Beamlens.Coordinator do
       %{coordinator: self()}
     )
 
+    if pubsub do
+      Phoenix.PubSub.subscribe(pubsub, AlertForwarder.pubsub_topic())
+    end
+
     state = %__MODULE__{
       client: client,
       client_registry: Keyword.get(opts, :client_registry),
+      pubsub: pubsub,
       context: Context.new()
     }
 
@@ -87,14 +113,26 @@ defmodule Beamlens.Coordinator do
   end
 
   @impl true
-  def terminate(_reason, %{pending_task: %Task{} = task} = _state) do
+  def terminate(reason, %{pending_task: %Task{} = task} = state) do
     Task.shutdown(task, :brutal_kill)
     :telemetry.detach(@telemetry_handler_id)
+    maybe_emit_takeover(reason, state)
   end
 
-  def terminate(_reason, _state) do
+  def terminate(reason, state) do
     :telemetry.detach(@telemetry_handler_id)
+    maybe_emit_takeover(reason, state)
   end
+
+  defp maybe_emit_takeover(:shutdown, state) do
+    :telemetry.execute(
+      [:beamlens, :coordinator, :takeover],
+      %{system_time: System.system_time()},
+      %{alert_count: map_size(state.alerts)}
+    )
+  end
+
+  defp maybe_emit_takeover(_reason, _state), do: :ok
 
   @impl true
   def handle_cast({:alert_received, %Alert{} = alert}, state) do
@@ -155,6 +193,28 @@ defmodule Beamlens.Coordinator do
     })
 
     {:noreply, %{state | pending_task: nil, pending_trace_id: nil, running: false}}
+  end
+
+  def handle_info({:beamlens_alert, %Alert{} = alert, source_node}, state) do
+    if source_node == node() do
+      {:noreply, state}
+    else
+      emit_telemetry(:remote_alert_received, state, %{
+        alert_id: alert.id,
+        operator: alert.operator,
+        source_node: source_node
+      })
+
+      new_alerts = Map.put(state.alerts, alert.id, %{alert: alert, status: :unread})
+      new_state = %{state | alerts: new_alerts}
+
+      if state.running do
+        {:noreply, new_state}
+      else
+        {:noreply, %{new_state | running: true, iteration: 0, context: Context.new()},
+         {:continue, :loop}}
+      end
+    end
   end
 
   def handle_info(msg, state) do

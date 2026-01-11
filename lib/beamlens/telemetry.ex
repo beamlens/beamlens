@@ -156,6 +156,14 @@ defmodule Beamlens.Telemetry do
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{running: boolean, alert_count: integer, message: String.t()}`
 
+  * `[:beamlens, :coordinator, :remote_alert_received]` - Alert received from another node via PubSub
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{alert_id: String.t(), operator: atom(), source_node: node()}`
+
+  * `[:beamlens, :coordinator, :takeover]` - Coordinator shutdown for Highlander takeover
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{alert_count: integer}`
+
   ## Compaction Events
 
   * `[:beamlens, :compaction, :start]` - Context compaction starting
@@ -224,6 +232,8 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :coordinator, :loop_stopped],
       [:beamlens, :coordinator, :llm_error],
       [:beamlens, :coordinator, :unexpected_message],
+      [:beamlens, :coordinator, :remote_alert_received],
+      [:beamlens, :coordinator, :takeover],
       [:beamlens, :compaction, :start],
       [:beamlens, :compaction, :stop]
     ]

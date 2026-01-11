@@ -56,6 +56,8 @@ defmodule Beamlens.MixProject do
       {:telemetry, "~> 1.2"},
       {:ecto_psql_extras, "~> 0.8", optional: true},
       {:tower, "~> 0.8.6", optional: true},
+      {:highlander, "~> 0.2", optional: true},
+      {:phoenix_pubsub, "~> 2.1", optional: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
@@ -131,36 +133,39 @@ defmodule Beamlens.MixProject do
       groups_for_modules: [
         Core: [
           Beamlens,
-          Beamlens.Supervisor
+          Beamlens.Supervisor,
+          Beamlens.AlertForwarder
         ],
-        Watcher: [
-          Beamlens.Watcher,
-          Beamlens.Watcher.Supervisor,
-          Beamlens.Watcher.Alert,
-          Beamlens.Watcher.Snapshot,
-          Beamlens.Watcher.Tools
+        Operator: [
+          Beamlens.Operator,
+          Beamlens.Operator.Supervisor,
+          Beamlens.Operator.Alert,
+          Beamlens.Operator.Snapshot,
+          Beamlens.Operator.Tools
         ],
         Coordinator: [
           Beamlens.Coordinator,
           Beamlens.Coordinator.Insight,
           Beamlens.Coordinator.Tools
         ],
-        Domain: [
-          Beamlens.Domain,
-          Beamlens.Domain.Beam,
-          Beamlens.Domain.Ecto,
-          Beamlens.Domain.Ecto.TelemetryStore,
-          Beamlens.Domain.Ecto.Adapters.Postgres,
-          Beamlens.Domain.Ecto.Adapters.Generic,
-          Beamlens.Domain.Ets,
-          Beamlens.Domain.Exception,
-          Beamlens.Domain.Exception.ExceptionStore,
-          Beamlens.Domain.Gc,
-          Beamlens.Domain.Logger,
-          Beamlens.Domain.Logger.LogStore,
-          Beamlens.Domain.Ports,
-          Beamlens.Domain.Sup,
-          Beamlens.Domain.System
+        Skill: [
+          Beamlens.Skill,
+          Beamlens.Skill.Beam,
+          Beamlens.Skill.Ecto,
+          Beamlens.Skill.Ecto.Local,
+          Beamlens.Skill.Ecto.Global,
+          Beamlens.Skill.Ecto.TelemetryStore,
+          Beamlens.Skill.Ecto.Adapters.Postgres,
+          Beamlens.Skill.Ecto.Adapters.Generic,
+          Beamlens.Skill.Ets,
+          Beamlens.Skill.Exception,
+          Beamlens.Skill.Exception.ExceptionStore,
+          Beamlens.Skill.Gc,
+          Beamlens.Skill.Logger,
+          Beamlens.Skill.Logger.LogStore,
+          Beamlens.Skill.Ports,
+          Beamlens.Skill.Sup,
+          Beamlens.Skill.System
         ],
         Telemetry: [
           Beamlens.Telemetry,

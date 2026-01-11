@@ -3,7 +3,7 @@ defmodule Beamlens.Skill.Beam do
   BEAM VM metrics skill.
 
   Provides callback functions for collecting BEAM runtime metrics.
-  Used by watchers and can be called directly.
+  Used by operators and can be called directly.
 
   All functions are read-only with zero side effects.
   No PII/PHI exposure - only aggregate system statistics.
