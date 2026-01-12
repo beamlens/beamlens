@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Beamlens.Skill.Base` module with common callbacks for all skills (`get_current_time`, `get_node_info`)
 - `description/0` callback in Skill behaviour for operator summaries
 - `system_prompt/0` callback in Skill behaviour for operator identity
 - `Beamlens.Operator.Supervisor.configured_operators/0` to list operator names
@@ -16,10 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable compaction (`:compaction_max_tokens`, `:compaction_keep_last`)
 - Compaction telemetry events (`[:beamlens, :compaction, :start]`, `[:beamlens, :compaction, :stop]`)
 - Think tool for reasoning before actions
-- Coordinator agent that correlates alerts across operators into unified insights
-- `Beamlens.Coordinator.status/1` — get coordinator running state and alert counts
+- Coordinator agent that correlates notifications across operators into unified insights
+- `Beamlens.Coordinator.status/1` — get coordinator running state and notification counts
 - Telemetry events for coordinator (`[:beamlens, :coordinator, *]`)
-- Autonomous operator system — LLM-driven loops that monitor domains and fire alerts
+- Autonomous operator system — LLM-driven loops that monitor domains and send notifications
 - Built-in BEAM skill for VM metrics (memory, processes, schedulers, atoms, ports)
 - Built-in ETS skill for table monitoring (counts, memory, top tables)
 - Built-in GC skill for garbage collection statistics
@@ -36,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Beamlens.operator_status/1` — get details about a specific operator
 - `:client_registry` option to configure custom LLM providers (OpenAI, Ollama, AWS Bedrock, Google Gemini, etc.)
 - LLM provider configuration guide with retry policies, fallback chains, and round-robin patterns
-- Telemetry events for observability (operator lifecycle, LLM calls, alerts)
+- Telemetry events for observability (operator lifecycle, LLM calls, notifications)
 - Lua sandbox for safe metric collection callbacks
 
 ### Changed
@@ -45,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README uses consistent "operator" terminology
 - Renamed "domain" to "skill": `Beamlens.Domain` → `Beamlens.Skill`, `domain_module` → `skill`, `domain/0` → `id/0`
 - Renamed "watcher" to "operator": `Beamlens.Watcher` → `Beamlens.Operator`, `:watchers` → `:operators`
+- Renamed "alert" to "notification": `Alert` → `Notification`, `fire_alert` → `send_notification`, `alert_fired` → `notification_sent`
 - Think telemetry events include `thought` in metadata
 - Operators and coordinator can run indefinitely with compaction
 - BEAM skill callbacks prefixed: `get_memory` → `beam_get_memory`
@@ -59,9 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Circuit breaker protection (use LLM provider retry policies instead)
 - Judge agent quality verification
 - Scheduled cron-based operator triggers and `crontab` dependency (operators now run continuously)
-- Beamlens.investigate/1 — alerts now fire automatically via telemetry
+- Beamlens.investigate/1 — notifications now sent automatically via telemetry
 - Beamlens.trigger_operator/1 — operators are self-managing
-- Beamlens.pending_alerts?/0 — replaced by telemetry events
+- Beamlens.pending_notifications?/0 — replaced by telemetry events
 
 ## [0.1.0] - 2025-01-03
 

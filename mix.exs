@@ -134,12 +134,12 @@ defmodule Beamlens.MixProject do
         Core: [
           Beamlens,
           Beamlens.Supervisor,
-          Beamlens.AlertForwarder
+          Beamlens.NotificationForwarder
         ],
         Operator: [
           Beamlens.Operator,
           Beamlens.Operator.Supervisor,
-          Beamlens.Operator.Alert,
+          Beamlens.Operator.Notification,
           Beamlens.Operator.Snapshot,
           Beamlens.Operator.Tools
         ],
