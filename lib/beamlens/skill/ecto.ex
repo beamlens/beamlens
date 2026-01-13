@@ -2,6 +2,10 @@ defmodule Beamlens.Skill.Ecto do
   @moduledoc """
   Ecto database monitoring skill.
 
+  > #### Experimental {: .warning}
+  >
+  > This skill is experimental. The API may change in future releases.
+
   Monitors query performance, connection pool health, and database-specific
   insights. Requires configuration with a Repo module.
 

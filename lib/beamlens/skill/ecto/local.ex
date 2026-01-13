@@ -2,6 +2,10 @@ defmodule Beamlens.Skill.Ecto.Local do
   @moduledoc """
   Node-local Ecto monitoring skill.
 
+  > #### Experimental {: .warning}
+  >
+  > This skill is experimental. The API may change in future releases.
+
   Monitors connection pool health and query performance using telemetry data
   collected on this node. Each node in a cluster should run its own instance
   of this skill.

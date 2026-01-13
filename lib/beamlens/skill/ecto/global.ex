@@ -2,6 +2,10 @@ defmodule Beamlens.Skill.Ecto.Global do
   @moduledoc """
   Database-wide Ecto monitoring skill.
 
+  > #### Experimental {: .warning}
+  >
+  > This skill is experimental. The API may change in future releases.
+
   Monitors database-level metrics that are the same regardless of which node
   queries them: indexes, locks, bloat, slow queries from pg_stat_statements.
   Run as a cluster singleton to avoid duplicate monitoring.

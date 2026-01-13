@@ -3,6 +3,10 @@ if Code.ensure_loaded?(Tower) do
     @moduledoc """
     Application exception monitoring skill.
 
+    > #### Experimental {: .warning}
+    >
+    > This skill is experimental. The API may change in future releases.
+
     Captures and analyzes exceptions via Tower's reporter system
     to help identify error patterns, exception types, and crash investigations.
 
