@@ -1,7 +1,9 @@
 // ============================================================================
 // OPERATOR AGENT TOOLS
 // ============================================================================
-// Continuous agent loop with 9 tools:
+// Agent tools for two execution modes:
+// - OperatorLoop: For GenServer continuous monitoring (runs forever with wait())
+// - OperatorRun: For run/3 one-shot analysis (runs until done() is called)
 //
 // Message class for conversation history
 class Message {
@@ -18,6 +20,8 @@ class Message {
 // - GetSnapshots: Retrieve multiple snapshots with pagination
 // - Execute: Run Lua code for investigation
 // - Wait: Sleep before next iteration
+// - Think: Reason through complex decisions
+// - Done: Signal analysis completion (OperatorRun only)
 
 class SetState {
   intent "set_state"
@@ -67,20 +71,15 @@ class Think {
   thought string @description("Your reasoning about the current situation")
 }
 
-// Main operator loop function
-function OperatorLoop(messages: Message[], system_prompt: string, callback_docs: string) -> SetState | SendNotification | GetNotifications | TakeSnapshot | GetSnapshot | GetSnapshots | Execute | Wait | Think {
-  client Default
-  prompt #"
-{{ _.role("system") }}
-{{ system_prompt }}
+class Done {
+  intent "done"
+}
 
-## State Model
-You have a state that reflects your current assessment:
-- healthy: Everything is normal
-- observing: Something looks off, you're gathering more data
-- warning: Elevated concern, but not critical
-- critical: Active issue requiring immediate attention
+// ============================================================================
+// SHARED PROMPT COMPONENTS
+// ============================================================================
 
+template_string OperatorToolDocs(callback_docs: string) #"
 ## Available Tools
 
 ### set_state(state, reason)
@@ -123,18 +122,46 @@ Run Lua code to gather detailed metrics. Available functions:
 
 {{ callback_docs }}
 
-### wait(ms)
-Sleep for the specified milliseconds, then continue.
-- Normal operation: wait(30000) -- 30 seconds
-- Elevated concern: wait(5000) -- 5 seconds
-- Critical monitoring: wait(1000) -- 1 second
-
 ### think(thought)
 Use this to reason through complex decisions before acting. Your thought
 will be recorded but no action is taken. Good for:
 - Analyzing tool results before deciding next action
 - Working through ambiguous situations
 - Planning multi-step investigations
+"#
+
+template_string OperatorMessages(messages: Message[]) #"
+{% for message in messages %}
+{{ _.role(message.role) }}
+{{ message.content }}
+{% endfor %}
+"#
+
+// ============================================================================
+// CONTINUOUS MODE
+// ============================================================================
+// Runs forever with wait() for pacing between iterations
+
+function OperatorLoop(messages: Message[], system_prompt: string, callback_docs: string) -> SetState | SendNotification | GetNotifications | TakeSnapshot | GetSnapshot | GetSnapshots | Execute | Wait | Think {
+  client Default
+  prompt #"
+{{ _.role("system") }}
+{{ system_prompt }}
+
+## State Model
+You have a state that reflects your current assessment:
+- healthy: Everything is normal
+- observing: Something looks off, you're gathering more data
+- warning: Elevated concern, but not critical
+- critical: Active issue requiring immediate attention
+
+{{ OperatorToolDocs(callback_docs) }}
+
+### wait(ms)
+Sleep for the specified milliseconds, then continue.
+- Normal operation: wait(30000) -- 30 seconds
+- Elevated concern: wait(5000) -- 5 seconds
+- Critical monitoring: wait(1000) -- 1 second
 
 ## Guidelines
 
@@ -144,10 +171,54 @@ will be recorded but no action is taken. Good for:
 4. When sending notifications, include the snapshot IDs that show the problem
 5. Set appropriate wait times based on urgency
 
-{% for message in messages %}
-{{ _.role(message.role) }}
-{{ message.content }}
-{% endfor %}
+{{ OperatorMessages(messages) }}
+
+What action do you want to take?
+
+{{ ctx.output_format }}
+"#
+}
+
+// ============================================================================
+// ONE-SHOT RUN MODE
+// ============================================================================
+// For run/3 - runs until LLM calls done() to signal completion
+
+function OperatorRun(messages: Message[], system_prompt: string, callback_docs: string) -> SetState | SendNotification | GetNotifications | TakeSnapshot | GetSnapshot | GetSnapshots | Execute | Wait | Think | Done {
+  client Default
+  prompt #"
+{{ _.role("system") }}
+{{ system_prompt }}
+
+## State Model
+You have a state that reflects your current assessment:
+- healthy: Everything is normal
+- observing: Something looks off, you're gathering more data
+- warning: Elevated concern, but not critical
+- critical: Active issue requiring immediate attention
+
+{{ OperatorToolDocs(callback_docs) }}
+
+### wait(ms)
+Sleep for the specified milliseconds, then continue investigating.
+Use this when you need to wait for conditions to change or to pace your investigation.
+
+### done()
+Signal that you have completed your analysis. Use this when:
+- You've finished investigating the concern
+- You've sent any necessary notifications
+- You're ready to return results
+
+## Guidelines
+
+Your workflow:
+1. Start by calling take_snapshot() to capture current system metrics
+2. Investigate using execute() and additional snapshots as needed
+3. Send notifications for any issues found (include snapshot_ids)
+4. Set appropriate state based on your findings
+5. Call done() when your analysis is complete
+
+{{ OperatorMessages(messages) }}
 
 What action do you want to take?
 
@@ -279,4 +350,42 @@ Top N processes by "memory", "message_queue", or "reductions"
     this.intent == "think" or
     (this.intent == "set_state" and this.state != "healthy")
   }})
+}
+
+// OperatorRun tests (for run/3)
+test OperatorRun_CallsTakeSnapshot {
+  functions [OperatorRun]
+  args {
+    messages [
+      { role "user", content #"Analyze: high memory usage detected"# }
+    ]
+    system_prompt "You are a BEAM VM health monitor."
+    callback_docs #"
+### beam_get_memory()
+Memory stats in MB: total_mb, processes_mb, system_mb, binary_mb, ets_mb, code_mb
+
+### beam_top_processes(limit, sort_by)
+Top N processes by "memory", "message_queue", or "reductions"
+"#
+  }
+  @@assert(calls_take_snapshot, {{ this.intent == "take_snapshot" }})
+}
+
+test OperatorRun_CallsDoneAfterAnalysis {
+  functions [OperatorRun]
+  args {
+    messages [
+      { role "user", content #"Analyze: routine check"# },
+      { role "assistant", content #"{"intent":"take_snapshot"}"# },
+      { role "tool", content #"{"id":"abc123","captured_at":"2024-01-06T10:30:00Z","data":{"process_utilization_pct":12.1,"port_utilization_pct":3.4,"atom_utilization_pct":8.9,"scheduler_run_queue":0,"schedulers_online":8}}"# },
+      { role "assistant", content #"{"intent":"set_state","state":"healthy","reason":"All metrics within normal ranges"}"# },
+      { role "tool", content #"{"ok":true}"# }
+    ]
+    system_prompt "You are a BEAM VM health monitor. After confirming healthy state, call done() to complete your analysis."
+    callback_docs #"
+### beam_get_memory()
+Memory stats in MB: total_mb, processes_mb, system_mb, binary_mb, ets_mb, code_mb
+"#
+  }
+  @@assert(calls_done, {{ this.intent == "done" }})
 }

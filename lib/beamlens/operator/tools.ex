@@ -12,6 +12,7 @@ defmodule Beamlens.Operator.Tools do
   - Execute: Run Lua code with metric callbacks
   - Wait: Sleep, then continue with fresh context
   - Think: Reason through complex decisions before acting
+  - Done: Signal analysis completion (on-demand only)
   """
 
   defmodule SetState do
@@ -103,12 +104,26 @@ defmodule Beamlens.Operator.Tools do
           }
   end
 
+  defmodule Done do
+    @moduledoc false
+    defstruct [:intent]
+
+    @type t :: %__MODULE__{intent: String.t()}
+  end
+
   @doc """
   Returns a Zoi union schema for parsing operator tool responses.
 
   Uses discriminated union pattern matching on the `intent` field.
+
+  ## Modes
+
+  - `:continuous` (default) - Standard tools for continuous monitoring loop
+  - `:on_demand` - Includes `done` action for signaling analysis completion
   """
-  def schema do
+  def schema(mode \\ :continuous)
+
+  def schema(:continuous) do
     Zoi.union([
       set_state_schema(),
       send_notification_schema(),
@@ -119,6 +134,21 @@ defmodule Beamlens.Operator.Tools do
       execute_schema(),
       wait_schema(),
       think_schema()
+    ])
+  end
+
+  def schema(:on_demand) do
+    Zoi.union([
+      set_state_schema(),
+      send_notification_schema(),
+      get_notifications_schema(),
+      take_snapshot_schema(),
+      get_snapshot_schema(),
+      get_snapshots_schema(),
+      execute_schema(),
+      wait_schema(),
+      think_schema(),
+      done_schema()
     ])
   end
 
@@ -195,6 +225,11 @@ defmodule Beamlens.Operator.Tools do
       thought: Zoi.string()
     })
     |> Zoi.transform(fn data -> {:ok, struct!(Think, data)} end)
+  end
+
+  defp done_schema do
+    Zoi.object(%{intent: Zoi.literal("done")})
+    |> Zoi.transform(fn data -> {:ok, struct!(Done, data)} end)
   end
 
   defp atomize_state("healthy"), do: {:ok, :healthy}

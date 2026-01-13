@@ -29,7 +29,7 @@ defmodule Beamlens.Skill.Ecto.Global do
         use Oban.Worker, queue: :monitoring, unique: [period: 300]
 
         def perform(_job) do
-          Beamlens.Operator.run_once(MyApp.EctoGlobalSkill, client_registry())
+          Beamlens.Operator.run(MyApp.EctoGlobalSkill, client_registry())
         end
       end
 
@@ -57,6 +57,9 @@ defmodule Beamlens.Skill.Ecto.Global do
 
       @impl true
       def id, do: :ecto_global
+
+      @impl true
+      def title, do: "Ecto Global"
 
       @impl true
       def description do

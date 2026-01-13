@@ -29,6 +29,32 @@ The system is built on standard OTP principles.
 
 - **Data Privacy**: You choose your own LLM provider. Telemetry data is processed within your infrastructure and is never sent to BeamLens.
 
+## Execution Modes
+
+Operators support two execution modes:
+
+### Continuous Mode
+
+For always-on monitoring, add operators to your supervision tree:
+
+```elixir
+{Beamlens, operators: [:beam]}
+```
+
+The LLM controls timing via `wait()` between iterations. This is the default for supervised operators.
+
+### On-Demand Mode
+
+For scheduled or triggered analysis (e.g., Oban workers, alerts):
+
+```elixir
+{:ok, notifications} = Beamlens.Operator.run(:beam, client_registry(),
+  context: %{reason: "high memory detected"}
+)
+```
+
+The LLM investigates and calls `done()` when finished, returning notifications generated during analysis. Useful for triggered investigations without running a continuous process.
+
 ## Installation
 
 ```elixir

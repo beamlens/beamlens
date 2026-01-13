@@ -40,7 +40,7 @@ defmodule Beamlens.Integration.AllSkillsTest do
           nil
         )
 
-        {:ok, _pid} = start_operator(context, skill: skill_module)
+        {:ok, _pid} = start_operator(context, skill: skill_module, mode: :continuous)
 
         assert_receive {:snapshot, snapshot_id}, 25_000
         assert is_binary(snapshot_id)

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Beamlens.Operator.run/3` for on-demand analysis that returns when complete
+- `Beamlens.Operator.await/2` to wait for on-demand operator results
+- `:context` option to pass trigger context (e.g., alert reason) to operators
+- `done` tool allowing LLM to signal analysis completion in on-demand mode
 - `title/0` callback in Skill behaviour for frontend-friendly display names
 - `list_operators/0` now includes `title` and `description` from skill modules
 - `Beamlens.Skill.Base` module with common callbacks for all skills (`get_current_time`, `get_node_info`)
@@ -44,6 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Operators support two modes: `:on_demand` (returns results) and `:continuous` (runs forever)
+- Supervisor-started operators default to `:continuous` mode
 - Improved `Beamlens.Skill` module documentation
 - README uses consistent "operator" terminology
 - Renamed "domain" to "skill": `Beamlens.Domain` → `Beamlens.Skill`, `domain_module` → `skill`, `domain/0` → `id/0`

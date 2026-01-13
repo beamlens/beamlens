@@ -24,8 +24,11 @@ defmodule Beamlens.Operator.Supervisor do
 
     * `:name` - Required. Atom identifier for the operator
     * `:skill` - Required. Module implementing `Beamlens.Skill`
+    * `:mode` - `:continuous` or `:on_demand` (default: `:continuous`)
     * `:compaction_max_tokens` - Token threshold before compaction (default: 50,000)
     * `:compaction_keep_last` - Messages to keep after compaction (default: 5)
+
+  For one-shot analysis instead of continuous monitoring, use `Beamlens.Operator.run/3`.
 
   ## Example with Compaction
 
@@ -111,6 +114,7 @@ defmodule Beamlens.Operator.Supervisor do
     operator_opts =
       opts
       |> Keyword.drop([:name, :skill])
+      |> Keyword.put_new(:mode, :continuous)
       |> Keyword.merge(
         name: via_registry(name),
         skill: skill

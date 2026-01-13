@@ -108,7 +108,7 @@ defmodule Beamlens.Evals.LuaSandboxTest do
       {_output, trajectory} =
         Puck.Eval.collect(
           fn ->
-            {:ok, pid} = Operator.start_link(skill: InvestigationSkill)
+            {:ok, pid} = Operator.start_link(skill: InvestigationSkill, mode: :continuous)
             wait_for_execute_and_stop(pid)
             :ok
           end,

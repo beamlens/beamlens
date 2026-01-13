@@ -43,14 +43,14 @@ This requires two additional dependencies:
 
 ## Scheduled Monitoring with Oban
 
-If you prefer scheduled monitoring over continuous loops (useful for reducing LLM costs or running heavier analysis periodically), use `Operator.run_once/3` with Oban:
+If you prefer scheduled monitoring over continuous loops (useful for reducing LLM costs or running heavier analysis periodically), use `Operator.run/3` with Oban:
 
 ```elixir
 defmodule MyApp.BeamlensWorker do
   use Oban.Worker, queue: :monitoring
 
   def perform(%{args: %{"skill" => skill}}) do
-    {:ok, _notifications} = Beamlens.Operator.run_once(String.to_existing_atom(skill), client_registry())
+    {:ok, _notifications} = Beamlens.Operator.run(String.to_existing_atom(skill), client_registry())
     :ok
   end
 end

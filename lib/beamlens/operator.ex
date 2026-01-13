@@ -1,33 +1,44 @@
 defmodule Beamlens.Operator do
   @moduledoc """
-  GenServer that runs an operator in a continuous LLM-driven loop.
+  Operator for LLM-driven BEAM monitoring.
 
-  The LLM has full control over timing via the `wait` tool. The loop runs:
+  Provides two ways to run operators:
 
-  1. Collect snapshot
-  2. Send to LLM with current state
-  3. LLM returns action (set_state, send_notification, get_notifications, execute, wait, think)
-  4. Execute action and loop
+  - **`run/3`** - On-demand analysis that returns when the LLM calls `done()`
+  - **GenServer** - Continuous monitoring that runs forever with `wait()` for pacing
 
-  The `wait` tool lets the LLM control its own cadence:
+  ## On-Demand Analysis with `run/3`
+
+  For scheduled or triggered analysis (e.g., Oban workers):
+
+      {:ok, notifications} = Beamlens.Operator.run(:beam, client_registry,
+        context: %{reason: "high memory detected"}
+      )
+
+  The LLM investigates and calls `done()` when finished, returning the
+  notifications generated during analysis.
+
+  ## Continuous Monitoring with GenServer
+
+  For always-on monitoring:
+
+      {:ok, pid} = Beamlens.Operator.start_link(
+        skill: Beamlens.Skill.Beam,
+        client_registry: registry
+      )
+
+  The LLM controls timing via `wait()`:
   - Normal operation: wait(30000) -- 30 seconds
   - Elevated concern: wait(5000) -- 5 seconds
   - Critical monitoring: wait(1000) -- 1 second
 
   ## State Model
 
-  The operator maintains one of four states:
+  Operators maintain one of four states:
   - `:healthy` - Everything is normal
   - `:observing` - Something looks off, gathering more data
   - `:warning` - Elevated concern, but not critical
   - `:critical` - Active issue requiring immediate attention
-
-  ## Example
-
-      {:ok, pid} = Beamlens.Operator.start_link(
-        name: {:via, Registry, {MyRegistry, :beam}},
-        skill: Beamlens.Skill.Beam
-      )
   """
 
   use GenServer
@@ -60,6 +71,9 @@ defmodule Beamlens.Operator do
     :client,
     :client_registry,
     :context,
+    :mode,
+    :max_iterations,
+    :caller,
     :pending_task,
     :pending_trace_id,
     notifications: [],
@@ -73,12 +87,18 @@ defmodule Beamlens.Operator do
   @doc """
   Starts an operator process.
 
+  Defaults to `:on_demand` mode. For continuous monitoring, pass
+  `mode: :continuous`.
+
   ## Options
 
     * `:name` - Optional process name for registration
     * `:skill` - Required module implementing `Beamlens.Skill`
     * `:client_registry` - Optional LLM provider configuration map
-    * `:start_loop` - Whether to start the LLM loop on init (default: true)
+    * `:mode` - `:on_demand` or `:continuous` (default: `:on_demand`)
+    * `:start_loop` - Whether to start the LLM loop on init (default: `true` for `:continuous`, `false` for `:on_demand`)
+    * `:context` - Map with context to pass to the LLM
+    * `:max_iterations` - Maximum LLM iterations before returning in on-demand mode (default: 10)
     * `:compaction_max_tokens` - Token threshold for compaction (default: 50_000)
     * `:compaction_keep_last` - Messages to keep verbatim after compaction (default: 5)
 
@@ -114,32 +134,37 @@ defmodule Beamlens.Operator do
   end
 
   @doc """
-  Runs a single monitoring iteration without starting a persistent process.
+  Runs an on-demand analysis using the operator GenServer.
 
-  Useful for Oban-style scheduled execution where you want to run monitoring
-  on a cron schedule rather than continuously.
+  The LLM investigates and calls `done()` when finished, returning the
+  notifications generated during analysis.
 
   ## Arguments
 
     * `skill` - Module implementing `Beamlens.Skill`, or atom for built-in skill
     * `client_registry` - LLM provider configuration map
+    * `opts` - Options
 
   ## Options
 
+    * `:context` - Map with context to pass to the LLM (e.g., trigger reason)
     * `:max_iterations` - Maximum LLM iterations before returning (default: 10)
+    * `:timeout` - Timeout for awaiting completion (default: `:infinity`)
 
   ## Returns
 
     * `{:ok, notifications}` - List of notifications sent during this run
     * `{:error, reason}` - If the skill couldn't be resolved or LLM failed
 
-  ## Example
+  ## Examples
 
-      # Run a single monitoring pass
-      {:ok, notifications} = Beamlens.Operator.run_once(:beam, client_registry())
+      # Basic run
+      {:ok, notifications} = Beamlens.Operator.run(:beam, client_registry())
 
-      # With options
-      {:ok, notifications} = Beamlens.Operator.run_once(:beam, client_registry(), max_iterations: 5)
+      # With context
+      {:ok, notifications} = Beamlens.Operator.run(:beam, client_registry(),
+        context: %{reason: "high memory detected"}
+      )
 
   ## Oban Integration
 
@@ -147,185 +172,55 @@ defmodule Beamlens.Operator do
         use Oban.Worker, queue: :monitoring
 
         @impl true
-        def perform(%{args: %{"skill" => skill_name}}) do
+        def perform(%{args: %{"skill" => skill_name, "reason" => reason}}) do
           skill = String.to_existing_atom(skill_name)
-          {:ok, _notifications} = Beamlens.Operator.run_once(skill, client_registry())
+          {:ok, _notifications} = Beamlens.Operator.run(skill, client_registry(),
+            context: %{reason: reason}
+          )
           :ok
         end
       end
 
   """
-  def run_once(skill, client_registry, opts \\ []) do
+  def run(skill, client_registry, opts \\ []) do
     with {:ok, {_name, skill_module}} <- resolve_skill(skill) do
-      do_run_once(skill_module, client_registry, opts)
+      opts =
+        opts
+        |> Keyword.put(:skill, skill_module)
+        |> Keyword.put(:client_registry, client_registry)
+        |> Keyword.put(:mode, :on_demand)
+
+      timeout = Keyword.get(opts, :timeout, :infinity)
+
+      case start_link(opts) do
+        {:ok, pid} -> await(pid, timeout)
+        {:error, reason} -> {:error, reason}
+      end
     end
+  end
+
+  @doc """
+  Awaits completion for an on-demand operator.
+
+  Returns `{:error, :not_on_demand}` for continuous operators.
+  """
+  def await(server, timeout \\ :infinity) do
+    GenServer.call(server, :await, timeout)
   end
 
   defp resolve_skill(skill) when is_atom(skill) do
-    Beamlens.Operator.Supervisor.resolve_skill(skill)
-  end
+    case Beamlens.Operator.Supervisor.resolve_skill(skill) do
+      {:ok, resolved} ->
+        {:ok, resolved}
 
-  defp resolve_skill(skill_module) when is_atom(skill_module) do
-    {:ok, {skill_module.id(), skill_module}}
-  end
-
-  defp do_run_once(skill, client_registry, opts) do
-    max_iterations = Keyword.get(opts, :max_iterations, 10)
-    client = build_puck_client(skill, client_registry, opts)
-
-    run_state = %{
-      skill: skill,
-      client: client,
-      context: Context.new(metadata: %{iteration: 0}),
-      notifications: [],
-      snapshots: [],
-      state: :healthy,
-      iteration: 0
-    }
-
-    run_loop(run_state, max_iterations)
-  end
-
-  defp run_loop(run_state, max_iterations) when run_state.iteration >= max_iterations do
-    {:ok, run_state.notifications}
-  end
-
-  defp run_loop(run_state, max_iterations) do
-    trace_id = Telemetry.generate_trace_id()
-    input = build_input(run_state.state)
-
-    context = %{
-      run_state.context
-      | metadata: Map.put(run_state.context.metadata, :trace_id, trace_id)
-    }
-
-    case Puck.call(run_state.client, input, context, output_schema: Tools.schema()) do
-      {:ok, response, new_context} ->
-        run_state = %{run_state | context: new_context}
-        handle_run_once_action(response.content, run_state, max_iterations, trace_id)
-
-      {:error, reason} ->
-        {:error, {:llm_error, reason}}
+      {:error, {:unknown_builtin_skill, _}} ->
+        # Not a built-in skill, try as a custom skill module
+        if function_exported?(skill, :id, 0) do
+          {:ok, {skill.id(), skill}}
+        else
+          {:error, {:invalid_skill_module, skill}}
+        end
     end
-  end
-
-  defp handle_run_once_action(%Wait{}, run_state, _max_iterations, _trace_id) do
-    {:ok, run_state.notifications}
-  end
-
-  defp handle_run_once_action(%SetState{state: new_state}, run_state, max_iterations, _trace_id) do
-    run_state = %{run_state | state: new_state, iteration: run_state.iteration + 1}
-    run_loop(run_state, max_iterations)
-  end
-
-  defp handle_run_once_action(
-         %SendNotification{
-           type: type,
-           summary: summary,
-           severity: severity,
-           snapshot_ids: snapshot_ids
-         },
-         run_state,
-         max_iterations,
-         trace_id
-       ) do
-    case resolve_snapshots(snapshot_ids, run_state.snapshots) do
-      {:ok, snapshots} ->
-        notification =
-          Notification.new(%{
-            operator: run_state.skill.id(),
-            anomaly_type: type,
-            severity: severity,
-            summary: summary,
-            snapshots: snapshots
-          })
-
-        :telemetry.execute(
-          [:beamlens, :operator, :notification_sent],
-          %{system_time: System.system_time()},
-          %{operator: run_state.skill.id(), trace_id: trace_id, notification: notification}
-        )
-
-        run_state = %{
-          run_state
-          | notifications: run_state.notifications ++ [notification],
-            iteration: run_state.iteration + 1
-        }
-
-        run_loop(run_state, max_iterations)
-
-      {:error, reason} ->
-        new_context = Utils.add_result(run_state.context, %{error: reason})
-        run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
-        run_loop(run_state, max_iterations)
-    end
-  end
-
-  defp handle_run_once_action(%TakeSnapshot{}, run_state, max_iterations, _trace_id) do
-    data = run_state.skill.snapshot()
-    snapshot = Snapshot.new(data)
-    new_context = Utils.add_result(run_state.context, snapshot)
-
-    run_state = %{
-      run_state
-      | context: new_context,
-        snapshots: run_state.snapshots ++ [snapshot],
-        iteration: run_state.iteration + 1
-    }
-
-    run_loop(run_state, max_iterations)
-  end
-
-  defp handle_run_once_action(%GetSnapshot{id: id}, run_state, max_iterations, _trace_id) do
-    result =
-      case Enum.find(run_state.snapshots, fn s -> s.id == id end) do
-        nil -> %{error: "snapshot_not_found", id: id}
-        snapshot -> snapshot
-      end
-
-    new_context = Utils.add_result(run_state.context, result)
-    run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
-    run_loop(run_state, max_iterations)
-  end
-
-  defp handle_run_once_action(
-         %GetSnapshots{limit: limit, offset: offset},
-         run_state,
-         max_iterations,
-         _trace_id
-       ) do
-    offset = offset || 0
-    snapshots = Enum.drop(run_state.snapshots, offset)
-    snapshots = if limit, do: Enum.take(snapshots, limit), else: snapshots
-
-    new_context = Utils.add_result(run_state.context, snapshots)
-    run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
-    run_loop(run_state, max_iterations)
-  end
-
-  defp handle_run_once_action(%GetNotifications{}, run_state, max_iterations, _trace_id) do
-    new_context = Utils.add_result(run_state.context, run_state.notifications)
-    run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
-    run_loop(run_state, max_iterations)
-  end
-
-  defp handle_run_once_action(%Execute{code: lua_code}, run_state, max_iterations, _trace_id) do
-    result =
-      case Eval.eval(:lua, lua_code, callbacks: merged_callbacks(run_state.skill)) do
-        {:ok, result} -> result
-        {:error, reason} -> %{error: inspect(reason)}
-      end
-
-    new_context = Utils.add_result(run_state.context, result)
-    run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
-    run_loop(run_state, max_iterations)
-  end
-
-  defp handle_run_once_action(%Think{thought: thought}, run_state, max_iterations, _trace_id) do
-    result = %{thought: thought, recorded: true}
-    new_context = Utils.add_result(run_state.context, result)
-    run_state = %{run_state | context: new_context, iteration: run_state.iteration + 1}
-    run_loop(run_state, max_iterations)
   end
 
   @impl true
@@ -333,15 +228,28 @@ defmodule Beamlens.Operator do
     skill = Keyword.fetch!(opts, :skill)
     name = Keyword.get(opts, :name)
     client_registry = Keyword.get(opts, :client_registry)
-    start_loop = Keyword.get(opts, :start_loop, true)
-    client = build_puck_client(skill, client_registry, opts)
+    mode = Keyword.get(opts, :mode, :on_demand)
+    max_iterations = max_iterations(mode, opts)
+    start_loop = Keyword.get(opts, :start_loop, mode == :continuous)
+    run_context = Keyword.get(opts, :context, %{})
+    client = build_puck_client(skill, client_registry, mode, opts)
+
+    context =
+      if map_size(run_context) > 0 do
+        Context.new(metadata: %{iteration: 0})
+        |> Utils.add_result(%{context: run_context})
+      else
+        Context.new(metadata: %{iteration: 0})
+      end
 
     state = %__MODULE__{
       name: name,
       skill: skill,
       client: client,
       client_registry: client_registry,
-      context: Context.new(metadata: %{iteration: 0}),
+      context: context,
+      mode: mode,
+      max_iterations: max_iterations,
       iteration: 0,
       state: :healthy,
       running: start_loop
@@ -357,6 +265,14 @@ defmodule Beamlens.Operator do
   end
 
   @impl true
+  def handle_continue(
+        :loop,
+        %{mode: :on_demand, iteration: iteration, max_iterations: max} = state
+      )
+      when iteration >= max do
+    finish_on_demand(state, {:ok, state.notifications})
+  end
+
   def handle_continue(:loop, state) do
     trace_id = Telemetry.generate_trace_id()
 
@@ -371,7 +287,7 @@ defmodule Beamlens.Operator do
 
     task =
       Task.async(fn ->
-        Puck.call(state.client, input, context, output_schema: Tools.schema())
+        Puck.call(state.client, input, context, output_schema: Tools.schema(state.mode))
       end)
 
     {:noreply, %{state | pending_task: task, pending_trace_id: trace_id}}
@@ -397,7 +313,11 @@ defmodule Beamlens.Operator do
   end
 
   def handle_info(:continue_loop, state) do
-    {:noreply, state, {:continue, :loop}}
+    if state.running do
+      {:noreply, state, {:continue, :loop}}
+    else
+      {:noreply, state}
+    end
   end
 
   def handle_info(msg, state) do
@@ -414,6 +334,26 @@ defmodule Beamlens.Operator do
     }
 
     {:reply, status, state}
+  end
+
+  @impl true
+  def handle_call(:await, _from, %{mode: :continuous} = state) do
+    {:reply, {:error, :not_on_demand}, state}
+  end
+
+  def handle_call(:await, _from, %{mode: :on_demand, caller: caller} = state)
+      when not is_nil(caller) do
+    {:reply, {:error, :already_waiting}, state}
+  end
+
+  def handle_call(:await, from, %{mode: :on_demand, running: running} = state) do
+    state = %{state | caller: from}
+
+    if running do
+      {:noreply, state}
+    else
+      {:noreply, %{state | running: true}, {:continue, :loop}}
+    end
   end
 
   @impl true
@@ -441,8 +381,18 @@ defmodule Beamlens.Operator do
       {:noreply,
        %{state | pending_task: nil, pending_trace_id: nil, llm_retry_count: new_retry_count}}
     else
-      {:noreply,
-       %{state | pending_task: nil, pending_trace_id: nil, running: false, llm_retry_count: 0}}
+      state = %{
+        state
+        | pending_task: nil,
+          pending_trace_id: nil,
+          running: false,
+          llm_retry_count: 0
+      }
+
+      case state.mode do
+        :on_demand -> finish_on_demand(state, {:error, {:llm_error, reason}})
+        :continuous -> {:noreply, state}
+      end
     end
   end
 
@@ -639,6 +589,17 @@ defmodule Beamlens.Operator do
     {:noreply, new_state}
   end
 
+  defp handle_action(%Tools.Done{}, %{mode: :on_demand} = state, trace_id) do
+    emit_telemetry(:done, state, %{trace_id: trace_id})
+    finish_on_demand(state, {:ok, state.notifications})
+  end
+
+  defp handle_action(%Tools.Done{}, state, trace_id) do
+    emit_telemetry(:unexpected_tool, state, %{trace_id: trace_id, tool: "done"})
+    new_state = %{state | iteration: state.iteration + 1, pending_trace_id: nil}
+    {:noreply, new_state, {:continue, :loop}}
+  end
+
   defp handle_action(%Think{thought: thought}, state, trace_id) do
     emit_telemetry(:think, state, %{trace_id: trace_id, thought: thought})
 
@@ -688,13 +649,13 @@ defmodule Beamlens.Operator do
     end
   end
 
-  defp build_puck_client(skill, client_registry, opts) do
+  defp build_puck_client(skill, client_registry, mode, opts) do
     system_prompt = skill.system_prompt()
     callback_docs = skill.callback_docs() <> "\n" <> BaseSkill.callback_docs()
 
     backend_config =
       %{
-        function: "OperatorLoop",
+        function: baml_function(mode),
         args_format: :auto,
         args: fn messages ->
           %{
@@ -748,5 +709,27 @@ defmodule Beamlens.Operator do
 
   defp merged_callbacks(skill) do
     Map.merge(BaseSkill.callbacks(), skill.callbacks())
+  end
+
+  defp baml_function(:continuous), do: "OperatorLoop"
+  defp baml_function(:on_demand), do: "OperatorRun"
+
+  defp max_iterations(:on_demand, opts) do
+    opts
+    |> Keyword.get(:max_iterations, 10)
+    |> normalize_max_iterations()
+  end
+
+  defp max_iterations(:continuous, _opts), do: nil
+
+  defp normalize_max_iterations(nil), do: 10
+  defp normalize_max_iterations(value), do: value
+
+  defp finish_on_demand(state, result) do
+    if state.caller do
+      GenServer.reply(state.caller, result)
+    end
+
+    {:stop, :normal, state}
   end
 end

@@ -1,6 +1,6 @@
 # Architecture
 
-BeamLens uses an **autonomous operator** architecture where specialized operators run continuous LLM-driven loops to monitor skills and detect anomalies. Notifications are emitted via telemetry.
+BeamLens uses an **autonomous operator** architecture where specialized operators run LLM-driven loops to monitor skills and detect anomalies. Operators support two modes: **continuous** for always-on monitoring and **on-demand** for triggered analysis. Notifications are emitted via telemetry.
 
 ## Supervision Tree
 
@@ -53,6 +53,32 @@ flowchart TD
 ```
 
 The LLM controls the loop timing via the `wait` tool. There are no fixed schedules.
+
+## Operator Modes
+
+Operators support two execution modes:
+
+### Continuous Mode
+
+For always-on monitoring that runs indefinitely:
+
+```elixir
+{Beamlens, operators: [:beam]}
+```
+
+The LLM controls timing via `wait()`. This is the default for supervised operators. Uses the `OperatorLoop` BAML function.
+
+### On-Demand Mode
+
+For scheduled or triggered analysis (e.g., Oban workers):
+
+```elixir
+{:ok, notifications} = Beamlens.Operator.run(:beam, client_registry(),
+  context: %{reason: "high memory detected"}
+)
+```
+
+The LLM investigates and calls `done()` when finished, returning notifications generated during analysis. Uses the `OperatorRun` BAML function which includes the `done` tool.
 
 ## State Model
 
@@ -121,6 +147,7 @@ end, nil)
 | `execute` | Run Lua code with metric callbacks |
 | `wait` | Sleep before next iteration (LLM-controlled timing) |
 | `think` | Reason through complex decisions before acting |
+| `done` | Signal analysis completion (on-demand mode only) |
 
 ## Lua Callbacks
 
@@ -146,6 +173,7 @@ Operators and the Coordinator emit telemetry events for observability. Key event
 | `[:beamlens, :operator, :state_change]` | State transitioned |
 | `[:beamlens, :operator, :notification_sent]` | Notification created |
 | `[:beamlens, :operator, :iteration_start]` | Loop iteration began |
+| `[:beamlens, :operator, :done]` | On-demand analysis completed |
 | `[:beamlens, :coordinator, :started]` | Coordinator initialized |
 | `[:beamlens, :coordinator, :notification_received]` | Notification queued for correlation |
 | `[:beamlens, :coordinator, :iteration_start]` | Analysis loop iteration began |
@@ -169,9 +197,10 @@ See `Beamlens.Telemetry` for the complete event list.
 
 ## LLM Integration
 
-BeamLens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via [Puck](https://github.com/bradleygolden/puck). Two BAML functions handle the agent loops:
+BeamLens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via [Puck](https://github.com/bradleygolden/puck). Three BAML functions handle the agent loops:
 
-- **OperatorLoop**: Continuous agent loop that observes metrics and selects tools
+- **OperatorLoop**: Continuous monitoring loop (uses `wait()` for pacing)
+- **OperatorRun**: On-demand analysis loop (uses `done()` to signal completion)
 - **CoordinatorLoop**: Notification correlation agent that identifies patterns across operators
 
 Default LLM: Anthropic Claude Haiku (`claude-haiku-4-5-20251001`)

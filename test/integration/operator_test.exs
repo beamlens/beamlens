@@ -3,6 +3,8 @@ defmodule Beamlens.Integration.OperatorTest do
 
   use Beamlens.IntegrationCase, async: false
 
+  alias Beamlens.Operator
+
   defmodule TestSkill do
     @behaviour Beamlens.Skill
 
@@ -43,9 +45,9 @@ defmodule Beamlens.Integration.OperatorTest do
     end
   end
 
-  describe "operator lifecycle" do
+  describe "continuous mode" do
     @tag timeout: 30_000
-    test "starts and emits iteration events", context do
+    test "auto-starts loop and emits iteration events", context do
       ref = make_ref()
       parent = self()
       on_exit(fn -> :telemetry.detach(ref) end)
@@ -59,7 +61,7 @@ defmodule Beamlens.Integration.OperatorTest do
         nil
       )
 
-      {:ok, _pid} = start_operator(context, skill: TestSkill)
+      {:ok, _pid} = start_operator(context, skill: TestSkill, mode: :continuous)
 
       assert_receive {:telemetry, :iteration_start, %{operator: :integration_test, iteration: 0}},
                      10_000
@@ -80,7 +82,7 @@ defmodule Beamlens.Integration.OperatorTest do
         nil
       )
 
-      {:ok, _pid} = start_operator(context, skill: TestSkill)
+      {:ok, _pid} = start_operator(context, skill: TestSkill, mode: :continuous)
 
       assert_receive {:telemetry, :llm_start, %{trace_id: trace_id}}, 15_000
       assert is_binary(trace_id)
@@ -101,7 +103,7 @@ defmodule Beamlens.Integration.OperatorTest do
         nil
       )
 
-      {:ok, _pid} = start_operator(context, skill: TestSkill)
+      {:ok, _pid} = start_operator(context, skill: TestSkill, mode: :continuous)
 
       assert_receive {:telemetry, :take_snapshot,
                       %{operator: :integration_test, snapshot_id: snapshot_id}},
@@ -110,11 +112,9 @@ defmodule Beamlens.Integration.OperatorTest do
       assert is_binary(snapshot_id)
       assert String.length(snapshot_id) == 16
     end
-  end
 
-  describe "multi-iteration behavior" do
     @tag timeout: 30_000
-    test "operator increments iteration counter across multiple iterations", context do
+    test "increments iteration counter across multiple iterations", context do
       ref = make_ref()
       parent = self()
       on_exit(fn -> :telemetry.detach(ref) end)
@@ -128,7 +128,7 @@ defmodule Beamlens.Integration.OperatorTest do
         nil
       )
 
-      {:ok, _pid} = start_operator(context, skill: TestSkill)
+      {:ok, _pid} = start_operator(context, skill: TestSkill, mode: :continuous)
 
       iterations_received =
         Enum.reduce_while(1..3, [], fn _, acc ->
@@ -149,7 +149,7 @@ defmodule Beamlens.Integration.OperatorTest do
     end
 
     @tag timeout: 20_000
-    test "operator maintains state across iterations", context do
+    test "maintains state across iterations", context do
       ref = make_ref()
       parent = self()
       on_exit(fn -> :telemetry.detach(ref) end)
@@ -163,11 +163,45 @@ defmodule Beamlens.Integration.OperatorTest do
         nil
       )
 
-      {:ok, _pid} = start_operator(context, skill: TestSkill)
+      {:ok, _pid} = start_operator(context, skill: TestSkill, mode: :continuous)
 
       assert_receive {:telemetry, :iteration_start, %{iteration: 0}}, 10_000
       assert_receive {:telemetry, :iteration_start, %{iteration: iteration}}, 10_000
       assert iteration > 0
+    end
+  end
+
+  describe "on-demand mode" do
+    @tag timeout: 30_000
+    test "loop does not start until await is called", context do
+      ref = make_ref()
+      parent = self()
+      on_exit(fn -> :telemetry.detach(ref) end)
+
+      :telemetry.attach(
+        ref,
+        [:beamlens, :operator, :iteration_start],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :iteration_start, metadata})
+        end,
+        nil
+      )
+
+      {:ok, pid} = start_operator(context, skill: TestSkill, mode: :on_demand)
+
+      refute_receive {:telemetry, :iteration_start, _}, 500
+
+      Task.async(fn -> Operator.await(pid) end)
+
+      assert_receive {:telemetry, :iteration_start, %{operator: :integration_test, iteration: 0}},
+                     10_000
+    end
+
+    @tag timeout: 60_000
+    test "run/3 returns notifications when analysis completes", context do
+      {:ok, notifications} = Operator.run(TestSkill, context.client_registry)
+
+      assert is_list(notifications)
     end
   end
 end
