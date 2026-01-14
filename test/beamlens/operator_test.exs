@@ -547,6 +547,63 @@ defmodule Beamlens.OperatorTest do
     end
   end
 
+  describe "run/2 process cleanup" do
+    test "stops operator process on error" do
+      result = Operator.run(TestSkill, %{})
+
+      assert match?({:error, _}, result)
+
+      Process.sleep(50)
+
+      operator_processes =
+        Process.list()
+        |> Enum.filter(fn pid ->
+          case Process.info(pid, :dictionary) do
+            {:dictionary, dict} ->
+              Enum.any?(dict, fn
+                {:"$initial_call", {Beamlens.Operator, :init, 1}} -> true
+                _ -> false
+              end)
+
+            _ ->
+              false
+          end
+        end)
+
+      assert operator_processes == []
+    end
+
+    test "stops operator process after timeout" do
+      Process.flag(:trap_exit, true)
+
+      pid =
+        spawn_link(fn ->
+          Operator.run(TestSkill, %{}, timeout: 1)
+        end)
+
+      assert_receive {:EXIT, ^pid, {:timeout, _}}, 200
+
+      Process.sleep(50)
+
+      operator_processes =
+        Process.list()
+        |> Enum.filter(fn pid ->
+          case Process.info(pid, :dictionary) do
+            {:dictionary, dict} ->
+              Enum.any?(dict, fn
+                {:"$initial_call", {Beamlens.Operator, :init, 1}} -> true
+                _ -> false
+              end)
+
+            _ ->
+              false
+          end
+        end)
+
+      assert operator_processes == []
+    end
+  end
+
   describe "message/3" do
     test "exits when operator not found" do
       assert_raise ArgumentError, fn ->

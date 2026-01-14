@@ -71,11 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Cluster support via PubSub — cross-node notification broadcasting is no longer available
 - `phoenix_pubsub` and `highlander` optional dependencies
-- Continuous mode for operators and coordinator — use `run/2` for on-demand analysis
+- Pre-configured continuous operators — operators no longer auto-start in supervision tree. Use `Operator.run/2` for on-demand analysis or manually start with `Operator.start_link/1`
 - `NotificationForwarder` module
 - Three telemetry events: `[:beamlens, :coordinator, :remote_notification_received]`, `[:beamlens, :coordinator, :takeover]`, `[:beamlens, :coordinator, :pubsub_notification_received]`
 - Automatic operator startup functions (`start_operators/0`, `start_operators_with_opts/2`) — use `start_operator/3` instead
-- `:mode` option for operators and coordinator — only on-demand mode via `run/2` is supported
+- `:mode` option for operators and coordinator — removed in favor of explicit `run/2` for on-demand or `start_link/1` for continuous operation
 - `memory_utilization_pct` from BEAM snapshots (use System skill for OS-level memory)
 - Circuit breaker protection (use LLM provider retry policies instead)
 - Judge agent quality verification

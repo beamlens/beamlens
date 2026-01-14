@@ -33,8 +33,14 @@ defmodule Beamlens.Operator.SupervisorTest do
   end
 
   setup do
+    :persistent_term.erase({Beamlens.Supervisor, :operators})
     start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
     {:ok, supervisor} = OperatorSupervisor.start_link(name: nil)
+
+    on_exit(fn ->
+      :persistent_term.erase({Beamlens.Supervisor, :operators})
+    end)
+
     {:ok, supervisor: supervisor}
   end
 

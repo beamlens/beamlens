@@ -1,6 +1,6 @@
 defmodule Beamlens.Supervisor do
   @moduledoc """
-  Main supervisor for BeamLens.
+  Main supervisor for beamlens.
 
   Supervises the following components:
 
@@ -9,6 +9,7 @@ defmodule Beamlens.Supervisor do
     * `Beamlens.Skill.Logger.LogStore` - Log buffer
     * `Beamlens.Skill.Exception.ExceptionStore` - Exception buffer
     * `Beamlens.Operator.Supervisor` - DynamicSupervisor for operators
+    * `Beamlens.Coordinator` - Coordinator process for multi-operator analysis
 
   ## Configuration
 

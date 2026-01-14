@@ -189,8 +189,15 @@ defmodule Beamlens.Operator do
       timeout = Keyword.get(opts, :timeout, :infinity)
 
       case start_link(opts) do
-        {:ok, pid} -> await(pid, timeout)
-        {:error, reason} -> {:error, reason}
+        {:ok, pid} ->
+          try do
+            await(pid, timeout)
+          after
+            if Process.alive?(pid), do: stop(pid)
+          end
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end

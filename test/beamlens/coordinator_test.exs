@@ -1860,6 +1860,86 @@ defmodule Beamlens.CoordinatorTest do
     end
   end
 
+  describe "build_initial_context/1" do
+    test "formats map with reason key" do
+      context = %{reason: "memory alert triggered"}
+
+      result = Coordinator.build_initial_context(context)
+
+      assert %Puck.Context{} = result
+      assert length(result.messages) == 1
+      [message] = result.messages
+      assert message.role == :user
+      [part] = message.content
+      assert part.text =~ "memory alert"
+    end
+
+    test "handles empty map" do
+      context = %{}
+
+      result = Coordinator.build_initial_context(context)
+
+      assert %Puck.Context{} = result
+      assert result.messages == []
+    end
+
+    test "handles nil" do
+      result = Coordinator.build_initial_context(nil)
+
+      assert %Puck.Context{} = result
+      assert result.messages == []
+    end
+
+    test "formats map with multiple keys" do
+      context = %{
+        reason: "high latency",
+        threshold: "500ms",
+        service: "api"
+      }
+
+      result = Coordinator.build_initial_context(context)
+
+      assert %Puck.Context{} = result
+      assert length(result.messages) == 1
+      [message] = result.messages
+      [part] = message.content
+      assert part.text =~ "high latency"
+      assert part.text =~ "500ms"
+      assert part.text =~ "api"
+    end
+
+    test "handles non-string values" do
+      context = %{
+        count: 42,
+        enabled: true,
+        threshold: 99.9
+      }
+
+      result = Coordinator.build_initial_context(context)
+
+      assert %Puck.Context{} = result
+      assert length(result.messages) == 1
+      [message] = result.messages
+      [part] = message.content
+      assert part.text =~ "42"
+      assert part.text =~ "true"
+      assert part.text =~ "99.9"
+    end
+
+    test "handles special characters safely" do
+      context = %{reason: "Error: <process crashed> & restarted"}
+
+      result = Coordinator.build_initial_context(context)
+
+      assert %Puck.Context{} = result
+      assert length(result.messages) == 1
+      [message] = result.messages
+      [part] = message.content
+      assert is_binary(part.text)
+      assert part.text =~ "<process crashed>"
+    end
+  end
+
   defp has_coordinator_initial_call?(dict) do
     Enum.any?(dict, fn
       {:"$initial_call", {Beamlens.Coordinator, :init, 1}} -> true

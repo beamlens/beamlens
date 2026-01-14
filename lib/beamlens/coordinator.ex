@@ -89,7 +89,7 @@ defmodule Beamlens.Coordinator do
   @doc """
   Runs a one-shot coordinator analysis and returns results.
 
-  Spawns a temporary coordinator in on-demand mode, invokes operators as needed,
+  Spawns a temporary coordinator, invokes operators as needed,
   and blocks until analysis is complete.
 
   ## Arguments
@@ -777,12 +777,15 @@ defmodule Beamlens.Coordinator do
     |> Enum.map_join("\n", fn {:ok, {name, skill}} -> "- #{name}: #{skill.description()}" end)
   end
 
-  defp build_initial_context(nil), do: Context.new()
+  @doc false
+  def build_initial_context(nil), do: Context.new()
 
-  defp build_initial_context(context) when is_map(context) and map_size(context) == 0,
+  @doc false
+  def build_initial_context(context) when is_map(context) and map_size(context) == 0,
     do: Context.new()
 
-  defp build_initial_context(context) when is_map(context) do
+  @doc false
+  def build_initial_context(context) when is_map(context) do
     message = format_initial_context_message(context)
     ctx = Context.new()
     %{ctx | messages: [Puck.Message.new(:user, message)]}
@@ -792,8 +795,9 @@ defmodule Beamlens.Coordinator do
     parts =
       Enum.flat_map(context, fn
         {:reason, reason} when is_binary(reason) -> ["Reason: #{reason}"]
+        {:reason, reason} -> ["Reason: #{inspect(reason)}"]
         {key, value} when is_binary(value) -> ["#{key}: #{value}"]
-        _ -> []
+        {key, value} -> ["#{key}: #{inspect(value)}"]
       end)
 
     case parts do

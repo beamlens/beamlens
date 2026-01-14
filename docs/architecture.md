@@ -25,6 +25,168 @@ graph TD
 
 Operators are started on-demand via `Beamlens.Operator.run/2` or `Beamlens.Coordinator.run/2`.
 
+## Inter-Process Communication
+
+### Operator → Coordinator Communication
+
+beamlens uses direct Erlang message passing for operator-coordinator communication:
+
+```elixir
+# When Coordinator spawns an Operator
+{:ok, operator_pid} = Operator.start_link(
+  skill: :beam,
+  notify_pid: self(),  # Coordinator PID
+  # ...
+)
+
+# Operator sends notifications to coordinator
+send(notify_pid, {:operator_notification, self(), notification})
+
+# Operator signals completion
+send(notify_pid, {:operator_complete, self(), :beam, result})
+```
+
+### Why Direct Messages?
+
+**Previous Architecture (v0.1.0):**
+- Operators published to PubSub topic
+- Coordinator subscribed to topic
+- Required `phoenix_pubsub` dependency
+- Added latency and complexity for single-node use case
+
+**Current Architecture (v0.2.0+):**
+- Direct `send/2` to coordinator PID
+- Zero latency (local process)
+- No external dependencies
+- Simpler code paths
+
+### Process Lifecycle
+
+```
+┌─────────────┐
+│ Coordinator │
+└──────┬──────┘
+       │ spawn + link
+       ├─────────────┐
+       ▼             ▼
+  ┌─────────┐   ┌─────────┐
+  │Operator │   │Operator │
+  │  :beam  │   │  :ets   │
+  └─────────┘   └─────────┘
+       │             │
+       └──────┬──────┘
+              │ send messages
+              ▼
+       {:operator_notification, pid, data}
+       {:operator_complete, pid, skill, result}
+```
+
+**Crash Propagation:**
+- Coordinator crash → Operators die (linked)
+- Operator crash → Coordinator receives `{:DOWN, ref, ...}` (monitored)
+
+### Message Protocol
+
+#### Notification Message
+```elixir
+{:operator_notification, operator_pid, %Notification{
+  id: "abc123",
+  operator: :beam,
+  anomaly_type: "memory_threshold_exceeded",
+  severity: :warning,
+  summary: "Memory usage at 92%",
+  snapshots: [...]
+}}
+```
+
+See `lib/beamlens/operator.ex:438` for implementation.
+
+#### Completion Message
+```elixir
+{:operator_complete, operator_pid, :beam, %{
+  summary: "Analysis complete. No critical issues.",
+  notifications: [...]
+}}
+```
+
+See `lib/beamlens/operator.ex:735` for implementation.
+
+#### Crash Handling
+```elixir
+# Coordinator handles operator crashes
+{:DOWN, ref, :process, pid, reason}
+{:EXIT, pid, reason}
+
+# Removes operator from running_operators map
+# Emits telemetry: [:beamlens, :coordinator, :operator_crashed]
+```
+
+See `lib/beamlens/coordinator.ex` `handle_info` callbacks for crash handling.
+
+### On-Demand vs Continuous Mode
+
+**On-Demand (`Operator.run/2`):**
+- Short-lived operator process
+- Coordinator waits for completion
+- Caller receives result directly
+
+**Continuous (`Operator.start_link/1` with `start_loop: true`):**
+- Long-lived operator process
+- Coordinator receives stream of notifications
+- Operator runs until explicitly stopped
+
+### On-Demand Execution Sequence
+
+```
+User
+  │
+  ├─ Coordinator.run(context)
+  │       │
+  │       ├─ spawn Coordinator (temporary)
+  │       │       │
+  │       │       ├─ spawn Operator (temporary, linked)
+  │       │       │       │
+  │       │       │       ├─ LLM analysis loop
+  │       │       │       │
+  │       │       │       └─ send {:operator_complete, ...}
+  │       │       │
+  │       │       ├─ receive completion message
+  │       │       │
+  │       │       └─ reply to caller
+  │       │
+  │       └─ block until timeout or completion
+  │
+  ├─ {:ok, result}
+```
+
+### Alternative: Standalone Operators
+
+Operators can run without a coordinator:
+
+```elixir
+# No notify_pid — operator doesn't send messages
+{:ok, pid} = Operator.start_link(skill: :beam)
+
+# Query status directly
+status = Operator.status(pid)
+
+# Notifications stored in operator state (not forwarded)
+```
+
+### Telemetry Integration
+
+While operators use direct messaging, beamlens still emits telemetry events for observability:
+
+```elixir
+:telemetry.execute(
+  [:beamlens, :coordinator, :operator_notification_received],
+  %{},
+  %{notification_id: id, operator_pid: pid}
+)
+```
+
+External systems subscribe to telemetry, not PubSub. See [Telemetry Events](#telemetry-events) for full list.
+
 ## Operator Loop
 
 Each operator is a GenServer running an LLM-driven analysis loop:
