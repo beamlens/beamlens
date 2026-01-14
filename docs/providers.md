@@ -21,7 +21,7 @@ beamlens utilizes BAML to provide LLM Client support. See the [ClientRegistry](h
 
 ## Default: Anthropic
 
-By default Anthropic is configured with the `claude-haiku-4-5` model. No configuration needed. Set your API key and you're ready:
+By default Anthropic is configured with the `claude-haiku-4-5-20251001` model. No configuration needed. Set your API key and you're ready:
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."

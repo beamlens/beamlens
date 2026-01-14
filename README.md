@@ -1,243 +1,178 @@
 # beamlens
 
-Autonomous supervision for the BEAM.
+Adaptive runtime intelligence for the BEAM.
+ 
+Move beyond static supervision. Give your application the capability to self-diagnose incidents, analyze traffic patterns, and optimize its own performance.
 
-## The Problem
+## The Result
 
-External tools like Datadog or Prometheus see your application from the outside. They tell you *that* memory is spiking, but not *why*.
+beamlens translates opaque runtime metrics into semantic explanations.
 
-To find the root cause, you might SSH in and attach an `iex` shell. By the time you do, the transient state—the stuck process, the bloated mailbox, the expensive query—is often gone.
+```elixir
+# You trigger an investigation when telemetry spikes
+{:ok, result} = Beamlens.Coordinator.run(%{reason: "memory > 90%"})
 
-## The Solution
-
-beamlens is an Elixir library that runs inside your BEAM application. You add it to your own supervision tree, giving it the same access to the runtime that you would have. It observes your system from the inside, with full context of its live state.
-
-## The Vision
-
-BEAM applications that learn from themselves.
-
-**Today: Observe and analyze.** beamlens monitors your system in real-time, correlates anomalies across domains, and produces actionable insights. When memory spikes, it doesn't just tell you—it investigates why, checking process heaps, ETS tables, and message queues to identify the root cause.
-
-**Next: Execute with human-in-the-loop.** beamlens suggests specific actions based on what it finds. Kill a runaway process. Flush a bloated ETS table. Restart a stuck GenServer. You review and approve before anything happens.
-
-**Already possible: Execute autonomously.** Custom skills can encode your runbooks. beamlens detects the anomaly, diagnoses the cause, and applies the fix—all while you sleep.
-
-**The ultimate goal: Continuous self-improvement.** beamlens runs its own learning loop—observing what works, refining its understanding, and improving its own behavior over time. The system doesn't just heal itself; it gets better at healing itself.
-
-The BEAM is uniquely suited for this future. Hot code reloading means fixes can be applied without restarts. Process isolation means experiments are safe—a failed remediation crashes one process, not your application. Full runtime introspection means the AI sees everything you would see in an IEx shell. No other runtime offers this combination.
-
-## How It Works
-
-When you trigger an analysis, beamlens:
-
-1. Spins up **operators**—LLM-driven agents that collect snapshots and investigate using **skills**
-2. The **coordinator** correlates findings across operators and produces **insights**
-3. Results are returned or emitted via telemetry
-
-**Skills** are Elixir behaviours that expose domain-specific state (memory, processes, ETS tables, etc.) to operators. Tool execution is sandboxed in Lua by default.
-
-**Data Privacy**: You choose your own LLM provider. Telemetry data is processed within your infrastructure and is never sent to beamlens.
+# beamlens returns the specific root cause based on runtime introspection
+result.insights
+# => [
+#      "Analysis: Process <0.450.0> (MyApp.ImageWorker) is holding 2.1GB binary heap.",
+#      "Context: Correlates with 450 concurrent uploads in the last minute.",
+#      "Root Cause: Worker pool exhausted; processes are not hibernating after large binary handling."
+#    ]
+```
 
 ## Installation
 
+Add `beamlens` to your list of dependencies in `mix.exs`:
+
 ```elixir
 def deps do
-  [{:beamlens, "~> 0.1.0"}]
+  [
+    {:beamlens, "~> 0.1.0"}
+  ]
 end
 ```
 
 ## Quick Start
 
-Add beamlens to your supervision tree in `application.ex`:
-
-```elixir
-def start(_type, _args) do
-  children = [
-    # ... your other children
-    Beamlens
-  ]
-
-  Supervisor.start_link(children, strategy: :one_for_one)
-end
-```
-
-Configure a [provider](docs/providers.md) or use the default Anthropic one by setting your API key:
+**1. Select a [provider](docs/providers.md)** or use the default Anthropic one by setting your API key:
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-Trigger an investigation (from an alert handler, Oban job, or IEx):
+**2. Add to your supervision tree** in `application.ex`:
 
 ```elixir
-{:ok, result} = Beamlens.Coordinator.run(%{reason: "memory alert triggered"},
-  skills: [:beam, :ets, :system]
-)
+def start(_type, _args) do
+  children = [
+    # ... your other children
+    {Beamlens, client_registry: client_registry()}
+  ]
 
-# The coordinator invokes operators, correlates findings, returns insights
-result.insights
-```
+  Supervisor.start_link(children, strategy: :one_for_one)
+end
 
-The `skills` option defines which operators are *available* to the coordinator. The LLM decides which to actually invoke based on the investigation context—it may use one, some, or all depending on relevance.
-
-### Pre-configured Operators
-
-For continuous monitoring or consistent operator sets, configure operators at startup:
-
-```elixir
-children = [
-  {Beamlens, operators: [
-    [name: :beam, skill: Beamlens.Skill.Beam, mode: :on_demand],
-    [name: :ets, skill: Beamlens.Skill.Ets, mode: :on_demand]
-  ]}
-]
-```
-
-With pre-configured operators, `Coordinator.run/2` uses them automatically:
-
-```elixir
-{:ok, result} = Beamlens.Coordinator.run(%{reason: "memory alert"})
-# Uses configured :beam and :ets operators
-```
-
-### Direct Operator Analysis
-
-For targeted investigation of a single domain:
-
-```elixir
-{:ok, notifications} = Beamlens.Operator.run(:beam, %{reason: "scheduler contention"})
-```
-
-## Continuous Mode
-
-For always-on monitoring, operators can run continuously in your supervision tree. The LLM controls timing via `wait()` between iterations.
-
-```elixir
-{Beamlens, operators: [[name: :beam, skill: Beamlens.Skill.Beam, mode: :continuous]]}
-```
-
-> **Cost Warning**: In continuous mode, operators choose their own polling interval via `wait()`. Based on ~30-second average pauses, running all core skills continuously with Haiku costs approximately **$1,000/month**—actual costs will vary depending on your runtime. Use on-demand analysis for cost-effective monitoring.
-
-## Built-in Skills
-
-| Skill | Description |
-|-------|-------------|
-| `:beam` | BEAM VM metrics (memory, processes, schedulers, atoms) |
-| `:ets` | ETS table monitoring (counts, memory, largest tables) |
-| `:gc` | Garbage collection statistics |
-| `:logger` | Application log monitoring (error rates, patterns) |
-| `:ports` | Port monitoring (file descriptors, sockets) |
-| `:sup` | Supervisor tree monitoring |
-| `:system` | OS-level metrics (CPU, memory, disk via `os_mon`) |
-
-Add the skills you need to your `operators` list. The coordinator invokes configured operators during analysis.
-
-## Creating Custom Skills
-
-Implement the `Beamlens.Skill` behaviour to monitor your own domains:
-
-```elixir
-defmodule MyApp.Skills.Redis do
-  @behaviour Beamlens.Skill
-
-  @impl true
-  def id, do: :redis
-
-  @impl true
-  def title, do: "Redis Cache"
-
-  @impl true
-  def description, do: "Redis cache: hit rates, memory, key distribution"
-
-  @impl true
-  def system_prompt do
-    """
-    You are a Redis cache monitor. You track cache health, memory usage,
-    and key distribution patterns.
-
-    ## Your Domain
-    - Cache hit rates and efficiency
-    - Memory usage and eviction pressure
-
-    ## What to Watch For
-    - Hit rate < 90%: cache may be ineffective
-    - Memory usage > 80%: eviction pressure increasing
-    """
-  end
-
-  @impl true
-  def snapshot do
-    %{
-      connected: Redix.command!(:redix, ["PING"]) == "PONG",
-      memory_used_mb: get_memory_mb(),
-      connected_clients: get_client_count()
-    }
-  end
-
-  @impl true
-  def callbacks do
-    %{
-      "redis_info" => fn -> get_info() end,
-      "redis_slowlog" => fn count -> get_slowlog(count) end
-    }
-  end
-
-  @impl true
-  def callback_docs do
-    """
-    ### redis_info()
-    Full Redis INFO as a map.
-
-    ### redis_slowlog(count)
-    Recent slow queries. `count` limits results.
-    """
-  end
-
-  defp get_info, do: # ...
-  defp get_slowlog(count), do: # ...
-  defp get_memory_mb, do: # ...
-  defp get_client_count, do: # ...
+defp client_registry do
+  %{
+    primary: "Anthropic",
+    clients: [
+      %{
+        name: "Anthropic",
+        provider: "anthropic",
+        options: %{model: "claude-haiku-4-5-20251001"}
+      }
+    ]
+  }
 end
 ```
 
-Register your skill in application.ex:
+**3. Run a diagnosis** (from an alert handler, Oban job, or IEx):
 
 ```elixir
-children = [
-  {Beamlens, operators: [[name: :redis, skill: MyApp.Skills.Redis]]}
-]
+{:ok, result} = Beamlens.Coordinator.run(%{reason: "memory alert..."})
 ```
 
-**Guidelines:**
+## The Problem
 
-- Write a clear `system_prompt`—it defines the operator's identity and focus
-- Prefix callbacks with your skill name (`redis_info`, not `info`)
-- Return JSON-safe values (strings, numbers, booleans, lists, maps)
-- Keep snapshots fast—they're called frequently
-- Write clear `callback_docs`—the LLM uses them to understand your API
+OTP is a masterpiece of reliability, but it is static. You define pool sizes, timeouts, and supervision strategies at compile time (or config time).
 
-All skills automatically have access to base callbacks from `Beamlens.Skill.Base`:
-- `get_current_time()` — Returns current UTC timestamp
-- `get_node_info()` — Returns node name, uptime, and OS info
+But production is dynamic. User behavior changes. Traffic patterns shift. A configuration that worked yesterday might be a bottleneck today.
 
-## Telemetry
+Standard monitoring tools show you what is happening (metrics), but they don't understand why. They cannot tell you that your user traffic has shifted from "write-heavy" to "read-heavy," requiring a different architecture.
 
-Subscribe to notifications:
+## The Solution
+
+beamlens is an investigation engine that lives inside your supervision tree. It doesn't replace your monitoring; it answers the questions your monitoring raises.
+
+You wire it into your system triggers (Telemetry, Oban, or manual administration), and it performs the deep analysis for you.
+
+1. Deep Context: When triggered, it captures internal state that external monitors miss—ETS key distribution, process dictionary size, and scheduler utilization.
+
+2. Semantic Analysis: It uses an LLM to interpret that raw data. Instead of just showing you a graph, it explains why the graph looks that way.
+
+3. Adaptive Feedback: Over time, you can use these insights to optimize configurations or refactor bottlenecks based on actual production behavior.
+
+## Features
+
+* **Sandboxed Analysis**: All investigation logic runs in a restricted environment. The "brain" observes without interfering with the "body."
+
+* **Privacy-First**: Telemetry data is processed within your infrastructure. You choose the LLM provider; your application state is never sent to beamlens servers.
+
+* **Extensible Skills**: Teach beamlens to understand your domain. If you are building a video platform, give it a skill to analyze `ffmpeg` process metrics.
+
+* **Low Overhead**: Agents are dormant until triggered.
+
+## Examples
+
+**1. Triggering from Telemetry**
 
 ```elixir
-:telemetry.attach("my-notifications", [:beamlens, :operator, :notification_sent], fn
-  _event, _measurements, %{notification: notification}, _config ->
-    Logger.warning("beamlens: #{notification.summary}")
-end, nil)
+# In your Telemetry handler
+def handle_event([:my_app, :memory, :high], _measurements, _metadata, _config) do
+  # Trigger an investigation immediately
+  {:ok, result} = Beamlens.Coordinator.run(%{reason: "memory alert..."})
+
+  # Log the insights
+  Logger.error("Memory Alert Diagnosis: #{inspect(result.insights)}")
+end
 ```
 
-## Correlation Types
+**2. Creating Custom Skills**
 
-When the coordinator correlates notifications from multiple operators, it identifies patterns:
+You can teach beamlens to understand your specific business logic. For example, if you use a GenServer to batch requests, generic metrics won't help. You need a custom skill.
 
-- **temporal** — Notifications occurred close in time
-- **causal** — One notification caused another
-- **symptomatic** — Notifications share a common hidden cause
+```elixir
+defmodule MyApp.Skills.Batcher do
+  @behaviour Beamlens.Skill
+
+  def system_prompt do
+    "You are checking the Batcher process. Watch for 'queue_size' > 5000."
+  end
+
+  def snapshot do
+    %{
+      queue_size: MyApp.Batcher.queue_size(),
+      pending_jobs: MyApp.Batcher.pending_count()
+    }
+  end
+end
+```
+
+**3. Periodic Health Checks (Optimization)**
+
+You can schedule beamlens to run periodically to spot trends before they become alerts.
+
+```elixir
+# In a scheduled job (e.g., Oban)
+def perform(_job) do
+  {:ok, result} = Beamlens.Coordinator.run(%{reason: "daily check..."})
+  # Store insights for review
+  MyApp.InsightStore.save(result)
+end
+```
+
+**4. Automated Remediation (Advanced)**
+
+Once you trust the diagnosis, you can authorize beamlens to fix specific issues. This turns beamlens from a passive observer into an active supervisor.
+
+**Note:** This requires explicit opt-in via the callbacks function.
+
+```elixir
+defmodule MyApp.Skills.Healer do
+  @behaviour Beamlens.Skill
+
+  # Explicitly allow the operator to kill a process
+  @impl Beamlens.Skill
+  def callbacks do
+    %{
+      "kill_process" => fn pid_str ->
+        Process.exit(pid(pid_str), :kill)
+      end
+    }
+  end
+end
+```
 
 ## License
 

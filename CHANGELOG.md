@@ -47,17 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - LLM provider configuration guide with retry policies, fallback chains, and round-robin patterns
 - Telemetry events for observability (operator lifecycle, LLM calls, notifications)
 - Skills run callbacks in a safe Lua sandbox environment
-- Cluster support via optional `pubsub` option for cross-node notification broadcasting
-- `Beamlens.Skill.Ecto.Global` for cluster-singleton database monitoring
-- Deployment guide for clustered and scheduled monitoring scenarios
+- Deployment guide for scheduled monitoring scenarios
 
 ### Changed
 
 - Simplified `Coordinator.run` API: context is now first positional argument, options like `notifications` and `client_registry` passed as keyword list
 - Simplified `Operator.run` API: context is now second positional argument, `client_registry` moves to options keyword list
 - Ecto and Exception skills are now marked as experimental
-- Operators now support two modes: on-demand (get results immediately) and continuous (run indefinitely)
-- Supervisor-started operators default to `:continuous` mode
 - Improved `Beamlens.Skill` module documentation
 - README uses consistent "operator" terminology
 - Renamed "domain" to "skill" throughout the API (modules, options, callbacks)
@@ -65,18 +61,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed "alert" to "notification" throughout the API (structs, tools, telemetry events)
 - Think telemetry events include `thought` in metadata
 - Operators and coordinator can run indefinitely with compaction
-- BEAM skill callbacks are now prefixed (e.g., `beam_get_memory`) to avoid naming collisions
+- BEAM skill callbacks are now prefixed (e.g., `beam_get_memory`) so they don't conflict with callbacks from other skills
 - Skills must now implement `callback_docs/0` (required callback)
 - Upgraded Puck to 0.2.7
-- Operators run as continuous loops instead of scheduled jobs
-- Operator LLM calls run asynchronously via `Task.async`
+- Operators run LLM-driven analysis loops instead of scheduled jobs
+- Operator LLM calls now run in the background for better performance
 
 ### Removed
 
+- Cluster support via PubSub — cross-node notification broadcasting is no longer available
+- `phoenix_pubsub` and `highlander` optional dependencies
+- Continuous mode for operators and coordinator — use `run/2` for on-demand analysis
+- `NotificationForwarder` module
+- Three telemetry events: `[:beamlens, :coordinator, :remote_notification_received]`, `[:beamlens, :coordinator, :takeover]`, `[:beamlens, :coordinator, :pubsub_notification_received]`
+- Automatic operator startup functions (`start_operators/0`, `start_operators_with_opts/2`) — use `start_operator/3` instead
+- `:mode` option for operators and coordinator — only on-demand mode via `run/2` is supported
 - `memory_utilization_pct` from BEAM snapshots (use System skill for OS-level memory)
 - Circuit breaker protection (use LLM provider retry policies instead)
 - Judge agent quality verification
-- Scheduled cron-based operator triggers and `crontab` dependency (operators now run continuously)
 - Beamlens.investigate/1 — notifications now sent automatically via telemetry
 - Beamlens.trigger_operator/1 — operators are self-managing
 - Beamlens.pending_notifications?/0 — replaced by telemetry events

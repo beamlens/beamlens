@@ -1,13 +1,13 @@
 # Architecture
 
-beamlens uses an **autonomous operator** architecture where specialized operators run LLM-driven loops to monitor skills and detect anomalies. Operators support two modes: **continuous** for always-on monitoring and **on-demand** for triggered analysis. Notifications are emitted via telemetry.
+beamlens uses an **autonomous operator** architecture where specialized operators run LLM-driven loops to monitor skills and detect anomalies. Use `Beamlens.Operator.run/2` for triggered analysis that returns results immediately. Notifications are emitted via telemetry.
 
 ## Supervision Tree
 
 Add beamlens to your application's supervision tree:
 
 ```elixir
-{Beamlens, operators: [:beam]}
+{Beamlens, client_registry: client_registry()}
 ```
 
 This starts the following components:
@@ -17,24 +17,17 @@ graph TD
     S[Beamlens.Supervisor]
     S --> TS[TaskSupervisor]
     S --> OR[OperatorRegistry]
-    S -.-> LS[LogStore]
-    S -.-> ES[ExceptionStore]
-    S -.-> NF[NotificationForwarder]
+    S --> LS[LogStore]
+    S --> ES[ExceptionStore]
     S --> OS[Operator.Supervisor]
     S --> CO[Coordinator]
-
-    OS --> O1[Operator: beam]
-    OS --> O2[Operator: logger]
-    OS --> O3[Operator: custom]
 ```
 
-Each operator runs independently. If one crashes, others continue operating. The Coordinator receives notifications from all operators and correlates them into insights.
-
-> **Note:** LogStore, ExceptionStore, and NotificationForwarder (shown with dashed lines) are conditionally started. LogStore and ExceptionStore require their respective operators (`:logger`, `:exception`). NotificationForwarder is started when `:pubsub` is configured for clustered deployments.
+Operators are started on-demand via `Beamlens.Operator.run/2` or `Beamlens.Coordinator.run/2`.
 
 ## Operator Loop
 
-Each operator is a GenServer running a continuous LLM-driven loop:
+Each operator is a GenServer running an LLM-driven analysis loop:
 
 ```mermaid
 flowchart TD
@@ -55,21 +48,7 @@ flowchart TD
 
 The LLM controls the loop timing via the `wait` tool. There are no fixed schedules.
 
-## Operator Modes
-
-Operators support two execution modes:
-
-### Continuous Mode
-
-For always-on monitoring that runs indefinitely:
-
-```elixir
-{Beamlens, operators: [:beam]}
-```
-
-The LLM controls timing via `wait()`. This is the default for supervised operators. Uses the `OperatorLoop` BAML function.
-
-### On-Demand Mode
+## On-Demand Analysis
 
 For scheduled or triggered analysis (e.g., Oban workers):
 
@@ -77,7 +56,7 @@ For scheduled or triggered analysis (e.g., Oban workers):
 {:ok, notifications} = Beamlens.Operator.run(:beam, %{reason: "high memory detected"})
 ```
 
-The LLM investigates and calls `done()` when finished, returning notifications generated during analysis. Uses the `OperatorRun` BAML function which includes the `done` tool.
+The LLM investigates and calls `done()` when finished, returning notifications generated during analysis.
 
 ## State Model
 
@@ -94,7 +73,7 @@ State transitions are driven by the LLM via the `set_state` tool.
 
 ## Coordinator
 
-The Coordinator is a GenServer that receives notifications from all operators and correlates them into unified insights. When operators send notifications via telemetry, the Coordinator queues them and runs an LLM-driven analysis loop.
+The Coordinator is a GenServer that correlates operator notifications into unified insights. When you call `Beamlens.Coordinator.run/2`, it spawns operators, collects their notifications, and runs an LLM-driven analysis to produce insights.
 
 ### Notification States
 
@@ -106,19 +85,17 @@ The Coordinator is a GenServer that receives notifications from all operators an
 
 ### Coordinator Tools
 
-| Tool | Description | Mode |
-|------|-------------|------|
-| `get_notifications` | Query notifications, optionally filtered by status | Both |
-| `update_notification_statuses` | Set status on multiple notifications | Both |
-| `produce_insight` | Create insight correlating notifications (auto-resolves them) | Both |
-| `done` | End processing, wait for next notification | Both |
-| `think` | Reason through complex decisions before acting | Both |
-| `invoke_operators` | Spawn multiple operators in parallel | On-demand |
-| `message_operator` | Send message to running operator, get LLM response | On-demand |
-| `get_operator_statuses` | Check status of running operators | On-demand |
-| `wait` | Pause loop for specified duration | On-demand |
-
-> **Note:** The `done` tool behaves differently depending on mode. In continuous mode, it ends the current processing cycle and the loop resumes when new notifications arrive. In on-demand mode, it signals completion and stops the process, returning accumulated results.
+| Tool | Description |
+|------|-------------|
+| `get_notifications` | Query notifications, optionally filtered by status |
+| `update_notification_statuses` | Set status on multiple notifications |
+| `produce_insight` | Create insight correlating notifications (auto-resolves them) |
+| `done` | Signal analysis completion and return results |
+| `think` | Reason through complex decisions before acting |
+| `invoke_operators` | Spawn multiple operators in parallel |
+| `message_operator` | Send message to running operator, get LLM response |
+| `get_operator_statuses` | Check status of running operators |
+| `wait` | Pause loop for specified duration |
 
 ### Correlation Types
 
@@ -152,7 +129,7 @@ end, nil)
 | `execute` | Run Lua code with metric callbacks |
 | `wait` | Sleep before next iteration (LLM-controlled timing) |
 | `think` | Reason through complex decisions before acting |
-| `done` | Signal analysis completion (on-demand mode only) |
+| `done` | Signal analysis completion |
 
 ## Lua Callbacks
 
@@ -213,12 +190,10 @@ See `Beamlens.Telemetry` for the complete event list.
 
 ## LLM Integration
 
-beamlens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via [Puck](https://github.com/bradleygolden/puck). Four BAML functions handle the agent loops:
+beamlens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via [Puck](https://github.com/bradleygolden/puck). Two BAML functions handle the agent loops:
 
-- **OperatorLoop**: Continuous monitoring loop (uses `wait()` for pacing)
-- **OperatorRun**: On-demand analysis loop (uses `done()` to signal completion)
-- **CoordinatorLoop**: Continuous notification correlation agent
-- **CoordinatorRun**: On-demand coordinator with operator invocation capabilities
+- **OperatorRun**: Operator analysis loop (uses `done()` to signal completion)
+- **CoordinatorRun**: Coordinator analysis with operator invocation capabilities
 
 Default LLM: Anthropic Claude Haiku (`claude-haiku-4-5-20251001`)
 
@@ -252,17 +227,6 @@ Operators and the Coordinator use context compaction to run indefinitely without
 | `:compaction_max_tokens` | 50,000 | Token threshold before compaction triggers |
 | `:compaction_keep_last` | 5 | Recent messages to keep verbatim after compaction |
 
-**Example:**
-
-```elixir
-{Beamlens, operators: [
-  :beam,
-  [name: :ets, skill: Beamlens.Skill.Ets,
-   compaction_max_tokens: 100_000,
-   compaction_keep_last: 10]
-]}
-```
-
 The compaction prompt preserves:
 - Anomalies detected and trend direction
 - Snapshot IDs (exact values required for notification references)
@@ -284,8 +248,6 @@ Compaction events are emitted via telemetry: `[:beamlens, :compaction, :start]` 
 | `:ports` | `Beamlens.Skill.Ports` | Port monitoring (file descriptors, sockets) |
 | `:sup` | `Beamlens.Skill.Sup` | Supervisor tree monitoring |
 | `:system` | `Beamlens.Skill.System` | OS-level metrics (CPU, memory, disk via os_mon) |
-| `:ecto` | `Beamlens.Skill.Ecto` | Database monitoring (requires custom skill module) |
-| `:exception` | `Beamlens.Skill.Exception` | Exception monitoring via Tower |
 
 ### BEAM Skill (`:beam`)
 
@@ -439,11 +401,14 @@ children = [
   {Registry, keys: :unique, name: Beamlens.Skill.Ecto.Registry},
   {Beamlens.Skill.Ecto.TelemetryStore, repo: MyApp.Repo},
 
-  # Beamlens with Ecto operator
-  {Beamlens, operators: [
-    [name: :ecto, skill: MyApp.EctoSkill]
-  ]}
+  # Configure Beamlens with Ecto skill
+  {Beamlens,
+    client_registry: client_registry(),
+    operators: [[name: :ecto, skill: MyApp.EctoSkill]]}
 ]
+
+# Trigger investigation
+{:ok, result} = Beamlens.Coordinator.run(%{reason: "slow queries detected"})
 ```
 
 **Snapshot Metrics:**
@@ -570,8 +535,10 @@ end
 Register in supervision tree:
 
 ```elixir
-{Beamlens, operators: [
-  :beam,
-  [name: :postgres, skill: MyApp.Skills.Postgres]
-]}
+{Beamlens,
+  client_registry: client_registry(),
+  operators: [:beam, [name: :postgres, skill: MyApp.Skills.Postgres]]}
+
+# Trigger investigation
+{:ok, result} = Beamlens.Coordinator.run(%{reason: "database performance check"})
 ```

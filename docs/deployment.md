@@ -1,6 +1,6 @@
 # Deployment
 
-Beamlens works out of the box for single-node applications. For clustered deployments or scheduled monitoring, a few additional options are available.
+Beamlens works out of the box for single-node applications. For scheduled monitoring, a few additional options are available.
 
 ## Basic Setup
 
@@ -8,50 +8,34 @@ Add Beamlens to your supervision tree:
 
 ```elixir
 children = [
-  {Beamlens,
-    operators: [:beam, :ets],
-    client_registry: client_registry()}
+  {Beamlens, client_registry: client_registry()}
 ]
 ```
 
-This starts operators that continuously monitor your application and a Coordinator that correlates notifications into insights.
-
-## Running in a Cluster
-
-When running multiple nodes, you probably want:
-- Operators on every node (they monitor node-local metrics)
-- A single Coordinator across the cluster (to avoid duplicate insights)
-- Notifications from all nodes reaching that Coordinator
-
-Add the `pubsub` option to enable this:
-
-```elixir
-children = [
-  {Beamlens,
-    operators: [:beam, :ets],
-    client_registry: client_registry(),
-    pubsub: MyApp.PubSub}
-]
-```
-
-This requires two additional dependencies:
-
-```elixir
-{:highlander, "~> 0.2"},
-{:phoenix_pubsub, "~> 2.1"}
-```
+This starts the supervision infrastructure. Operators are started on-demand via `Operator.run/2` or `Coordinator.run/2`.
 
 ## Scheduled Monitoring with Oban
 
-If you prefer scheduled monitoring over continuous loops (useful for reducing LLM costs or running heavier analysis periodically), use `Operator.run/2` with Oban:
+For scheduled monitoring (useful for reducing LLM costs or running analysis periodically), use `Operator.run/2` with Oban:
 
 ```elixir
 defmodule MyApp.BeamlensWorker do
   use Oban.Worker, queue: :monitoring
 
   def perform(%{args: %{"skill" => skill}}) do
-    {:ok, _notifications} = Beamlens.Operator.run(String.to_existing_atom(skill), client_registry())
+    {:ok, _notifications} =
+      Beamlens.Operator.run(
+        String.to_existing_atom(skill),
+        %{reason: "scheduled monitoring check"},
+        client_registry: client_registry()
+      )
+
     :ok
+  end
+
+  defp client_registry do
+    # Return your client_registry configuration
+    %{}
   end
 end
 ```
