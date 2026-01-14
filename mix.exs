@@ -13,7 +13,7 @@ defmodule Beamlens.MixProject do
       deps: deps(),
       aliases: aliases(),
       dialyzer: dialyzer(),
-      description: "Automated root cause analysis for BEAM applications.",
+      description: "Adaptive runtime intelligence for the BEAM.",
       package: package(),
       docs: docs(),
       name: "beamlens",
