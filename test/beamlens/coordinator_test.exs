@@ -1004,6 +1004,35 @@ defmodule Beamlens.CoordinatorTest do
 
       stop_coordinator(pid)
     end
+
+    test "handles invalid skill name without crashing" do
+      {:ok, pid} = start_coordinator()
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+      end)
+
+      action_map = %{
+        intent: "message_operator",
+        skill: "nonexistent_skill_12345",
+        message: "test"
+      }
+
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      state = :sys.get_state(pid)
+      last_message = List.last(state.context.messages)
+      content_text = extract_content_text(last_message.content)
+
+      assert content_text =~ "error"
+      assert content_text =~ "not running"
+      assert Process.alive?(pid)
+
+      stop_coordinator(pid)
+    end
   end
 
   describe "handle_action - GetOperatorStatuses" do

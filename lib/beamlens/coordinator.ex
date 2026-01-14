@@ -533,10 +533,15 @@ defmodule Beamlens.Coordinator do
   defp handle_action(%MessageOperator{skill: skill, message: message}, state, trace_id) do
     emit_telemetry(:message_operator, state, %{trace_id: trace_id, skill: skill})
 
-    skill_atom = String.to_existing_atom(skill)
+    skill_atom =
+      try do
+        String.to_existing_atom(skill)
+      rescue
+        ArgumentError -> nil
+      end
 
     result =
-      case find_operator_by_skill(state.running_operators, skill_atom) do
+      case skill_atom && find_operator_by_skill(state.running_operators, skill_atom) do
         nil ->
           %{skill: skill, error: "operator not running"}
 
