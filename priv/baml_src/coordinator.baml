@@ -48,13 +48,13 @@ class CoordinatorThink {
 
 class CoordinatorInvokeOperators {
   intent "invoke_operators"
-  skills string[] @description("List of skills to invoke in parallel (e.g., [\"beam\", \"ets\"])")
+  skills string[] @description("List of skill modules to invoke in parallel (e.g., [\"Beamlens.Skill.Beam\", \"Beamlens.Skill.Ets\"])")
   context string? @description("Shared context for all operators")
 }
 
 class CoordinatorMessageOperator {
   intent "message_operator"
-  skill string @description("Skill name of the running operator to message")
+  skill string @description("Full module name of the running operator to message (e.g., \"Beamlens.Skill.Beam\")")
   message string @description("Your question or prompt for the operator's LLM")
 }
 
@@ -111,12 +111,12 @@ Create insight correlating notifications. Auto-resolves the referenced notificat
 ### invoke_operators(skills, context?)
 Start multiple operators in parallel. They run independently and send notifications
 in real-time as they find issues. Use when you need fresh data from one or more domains.
-Example: invoke_operators(["beam", "ets"]) to check both BEAM VM and ETS tables.
+Example: invoke_operators(["Beamlens.Skill.Beam", "Beamlens.Skill.Ets"]) to check both BEAM VM and ETS tables.
 
 ### message_operator(skill, message)
 Send a custom prompt to a running operator. The operator's LLM will respond using its
 full conversation context. Use to ask specific questions about what an operator is seeing.
-Example: message_operator("beam", "What's causing the elevated memory?")
+Example: message_operator("Beamlens.Skill.Beam", "What's causing the elevated memory?")
 
 ### get_operator_statuses()
 Get deterministic metadata for all running operators: skill, state, iteration, alive status.
@@ -170,8 +170,8 @@ test CoordinatorRun_GetsNotificationsFirst {
     messages [
       { role "user", content "Process notifications" }
     ]
-    operator_descriptions "- beam: BEAM VM health: memory, processes, schedulers, atoms"
-    available_skills "beam"
+    operator_descriptions "- Beamlens.Skill.Beam: BEAM VM health: memory, processes, schedulers, atoms"
+    available_skills "Beamlens.Skill.Beam"
   }
   @@assert(gets_notifications, {{ this.intent == "get_notifications" }})
 }
@@ -181,11 +181,11 @@ test CoordinatorRun_AcknowledgesUnreadNotifications {
   args {
     messages [
       { role "user", content "Process notifications" },
-      { role "user", content #"[{"id":"a1","status":"unread","operator":"beam","anomaly_type":"memory_elevated","severity":"warning","summary":"Memory at 78%","detected_at":"2024-01-06T10:30:00Z"},{"id":"a2","status":"unread","operator":"beam","anomaly_type":"scheduler_contention","severity":"warning","summary":"Run queue at 45","detected_at":"2024-01-06T10:30:30Z"}]"# },
+      { role "user", content #"[{"id":"a1","status":"unread","operator":"Beamlens.Skill.Beam","anomaly_type":"memory_elevated","severity":"warning","summary":"Memory at 78%","detected_at":"2024-01-06T10:30:00Z"},{"id":"a2","status":"unread","operator":"Beamlens.Skill.Beam","anomaly_type":"scheduler_contention","severity":"warning","summary":"Run queue at 45","detected_at":"2024-01-06T10:30:30Z"}]"# },
       { role "user", content "You should acknowledge these unread notifications to start analyzing them." }
     ]
-    operator_descriptions "- beam: BEAM VM health: memory, processes, schedulers, atoms"
-    available_skills "beam"
+    operator_descriptions "- Beamlens.Skill.Beam: BEAM VM health: memory, processes, schedulers, atoms"
+    available_skills "Beamlens.Skill.Beam"
   }
   @@assert(acknowledges_first, {{ this.intent == "update_notification_statuses" and this.status == "acknowledged" }})
 }
@@ -195,11 +195,11 @@ test CoordinatorRun_ResolvesFalsePositive {
   args {
     messages [
       { role "user", content "Process notifications" },
-      { role "user", content #"[{"id":"a1","status":"acknowledged","operator":"beam","anomaly_type":"memory_elevated","severity":"info","summary":"Brief memory spike, returned to normal - no action needed","detected_at":"2024-01-06T10:30:00Z"}]"# },
+      { role "user", content #"[{"id":"a1","status":"acknowledged","operator":"Beamlens.Skill.Beam","anomaly_type":"memory_elevated","severity":"info","summary":"Brief memory spike, returned to normal - no action needed","detected_at":"2024-01-06T10:30:00Z"}]"# },
       { role "user", content "This notification indicates a false alarm that returned to normal. Resolve it as it requires no further action." }
     ]
-    operator_descriptions "- beam: BEAM VM health: memory, processes, schedulers, atoms"
-    available_skills "beam"
+    operator_descriptions "- Beamlens.Skill.Beam: BEAM VM health: memory, processes, schedulers, atoms"
+    available_skills "Beamlens.Skill.Beam"
   }
   @@assert(resolves_false_positive, {{ this.intent == "update_notification_statuses" and this.status == "resolved" }})
 }
@@ -213,8 +213,8 @@ test CoordinatorRun_CompletesWhenDone {
       { role "user", content "No unread notifications found: []" },
       { role "user", content "There are no notifications to process and no pending work. You should finish the analysis now." }
     ]
-    operator_descriptions "- beam: BEAM VM health: memory, processes, schedulers, atoms"
-    available_skills "beam"
+    operator_descriptions "- Beamlens.Skill.Beam: BEAM VM health: memory, processes, schedulers, atoms"
+    available_skills "Beamlens.Skill.Beam"
   }
   @@assert(calls_done, {{ this.intent == "done" }})
 }
@@ -223,12 +223,12 @@ test CoordinatorRun_InvokesOperatorsForFreshData {
   functions [CoordinatorRun]
   args {
     messages [
-      { role "user", content "A BEAM VM health check was requested. No notifications are currently available. Invoke the beam operator to gather current metrics." }
+      { role "user", content "A BEAM VM health check was requested. No notifications are currently available. Invoke the Beamlens.Skill.Beam operator to gather current metrics." }
     ]
-    operator_descriptions "- beam: BEAM VM health: memory, processes, schedulers, atoms"
-    available_skills "beam, ets, gc"
+    operator_descriptions "- Beamlens.Skill.Beam: BEAM VM health: memory, processes, schedulers, atoms"
+    available_skills "Beamlens.Skill.Beam, Beamlens.Skill.Ets, Beamlens.Skill.Gc"
   }
-  @@assert(invokes_beam, {{ this.intent == "invoke_operators" and this.skills[0] == "beam" }})
+  @@assert(invokes_beam, {{ this.intent == "invoke_operators" and this.skills[0] == "Beamlens.Skill.Beam" }})
 }
 
 test CoordinatorRun_CallsDoneAfterAnalysis {
@@ -238,16 +238,16 @@ test CoordinatorRun_CallsDoneAfterAnalysis {
       { role "user", content "Analyze notifications" },
       { role "assistant", content #"{"intent":"get_notifications","status":"unread"}"# },
       { role "user", content "[]" },
-      { role "assistant", content #"{"intent":"invoke_operators","skills":["beam"],"context":"gather current metrics"}"# },
-      { role "user", content #"{"started":["beam"],"count":1}"# },
+      { role "assistant", content #"{"intent":"invoke_operators","skills":["Beamlens.Skill.Beam"],"context":"gather current metrics"}"# },
+      { role "user", content #"{"started":["Beamlens.Skill.Beam"],"count":1}"# },
       { role "assistant", content #"{"intent":"wait","ms":5000}"# },
       { role "user", content #"{"waited":5000}"# },
       { role "assistant", content #"{"intent":"get_operator_statuses"}"# },
       { role "user", content #"[]"# },
       { role "user", content "All operators have completed. No pending work remains. You should finish the analysis now." }
     ]
-    operator_descriptions "- beam: BEAM VM health: memory, processes, schedulers, atoms"
-    available_skills "beam"
+    operator_descriptions "- Beamlens.Skill.Beam: BEAM VM health: memory, processes, schedulers, atoms"
+    available_skills "Beamlens.Skill.Beam"
   }
   @@assert(calls_done, {{ this.intent == "done" }})
 }
