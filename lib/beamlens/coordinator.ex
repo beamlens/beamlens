@@ -486,11 +486,60 @@ defmodule Beamlens.Coordinator do
   end
 
   defp handle_action(%Done{}, state, trace_id) do
-    has_unread =
-      Enum.any?(state.notifications, fn {_id, %{status: status}} -> status == :unread end)
+    running_operator_count = map_size(state.running_operators)
+    unread_count = count_by_status(state.notifications, :unread)
 
-    emit_telemetry(:done, state, %{trace_id: trace_id, has_unread: has_unread})
-    finish(state)
+    cond do
+      running_operator_count > 0 ->
+        emit_telemetry(:done_rejected, state, %{
+          trace_id: trace_id,
+          running_operator_count: running_operator_count
+        })
+
+        running_skills =
+          state.running_operators
+          |> Map.values()
+          |> Enum.map_join(", ", &inspect(&1.skill))
+
+        error_message =
+          "Cannot complete analysis: #{running_operator_count} operator(s) still running (#{running_skills}). " <>
+            "You must wait for all operators to complete before calling done(). " <>
+            "Use get_operator_statuses() to check their progress, or wait() to give them time."
+
+        new_context = Utils.add_result(state.context, %{error: error_message})
+
+        new_state = %{
+          state
+          | context: new_context,
+            iteration: state.iteration + 1,
+            pending_trace_id: nil
+        }
+
+        {:noreply, new_state, {:continue, :loop}}
+
+      unread_count > 0 ->
+        emit_telemetry(:done_rejected, state, %{trace_id: trace_id, unread_count: unread_count})
+
+        error_message =
+          "Cannot complete analysis: #{unread_count} unread notification(s) remain. " <>
+            "You must acknowledge and process all notifications before calling done(). " <>
+            "Use get_notifications(status: \"unread\") to see them."
+
+        new_context = Utils.add_result(state.context, %{error: error_message})
+
+        new_state = %{
+          state
+          | context: new_context,
+            iteration: state.iteration + 1,
+            pending_trace_id: nil
+        }
+
+        {:noreply, new_state, {:continue, :loop}}
+
+      true ->
+        emit_telemetry(:done, state, %{trace_id: trace_id, has_unread: false})
+        finish(state)
+    end
   end
 
   defp handle_action(%Think{thought: thought}, state, trace_id) do

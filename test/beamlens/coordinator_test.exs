@@ -504,15 +504,15 @@ defmodule Beamlens.CoordinatorTest do
       stop_coordinator(pid)
     end
 
-    test "resets iteration when unread notifications exist" do
+    test "rejects done when unread notifications exist" do
       ref = make_ref()
       parent = self()
 
       :telemetry.attach(
-        {ref, :done},
-        [:beamlens, :coordinator, :done],
+        {ref, :done_rejected},
+        [:beamlens, :coordinator, :done_rejected],
         fn _event, _measurements, metadata, _ ->
-          send(parent, {:telemetry, :done, metadata})
+          send(parent, {:telemetry, :done_rejected, metadata})
         end,
         nil
       )
@@ -531,10 +531,67 @@ defmodule Beamlens.CoordinatorTest do
       action_map = %{intent: "done"}
       send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
 
-      assert_receive {:telemetry, :done, %{has_unread: true}}, 1000
+      assert_receive {:telemetry, :done_rejected, %{unread_count: 1}}, 1000
+
+      state = :sys.get_state(pid)
+      assert state.running == true
+      assert state.iteration == 6
 
       stop_coordinator(pid)
-      :telemetry.detach({ref, :done})
+      :telemetry.detach({ref, :done_rejected})
+    end
+
+    test "rejects done when operators are still running" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :done_rejected},
+        [:beamlens, :coordinator, :done_rejected],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :done_rejected, metadata})
+        end,
+        nil
+      )
+
+      {:ok, pid} = start_coordinator()
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      fake_operator_pid = spawn(fn -> :timer.sleep(:infinity) end)
+      fake_ref = make_ref()
+
+      :sys.replace_state(pid, fn state ->
+        running_operators = %{
+          fake_operator_pid => %{
+            skill: Beamlens.Skill.Beam,
+            ref: fake_ref,
+            started_at: DateTime.utc_now()
+          }
+        }
+
+        %{
+          state
+          | running_operators: running_operators,
+            running: true,
+            pending_task: task,
+            iteration: 5
+        }
+      end)
+
+      action_map = %{intent: "done"}
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      assert_receive {:telemetry, :done_rejected, %{running_operator_count: 1}}, 1000
+
+      state = :sys.get_state(pid)
+      assert state.running == true
+      assert state.iteration == 6
+
+      Process.exit(fake_operator_pid, :kill)
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :done_rejected})
     end
   end
 
