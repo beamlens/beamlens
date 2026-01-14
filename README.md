@@ -6,7 +6,7 @@ Adaptive runtime intelligence for the BEAM.
  
 Move beyond static supervision. Give your application the capability to self-diagnose incidents, analyze traffic patterns, and optimize its own performance.
 
-[![IMAGE ALT TEXT](http://img.youtube.com/vi/oi8vLu5epEc/0.jpg)](http://www.youtube.com/watch?v=oi8vLu5epEc "Beamlens Demo Video")
+[DEMO VIDEO](https://screen.studio/share/w1qXNbUc)
 
 **[Request free early access to the web dashboard here](https://forms.gle/1KDwTLTC1UNwhGbh7)**. The web dashboard will be **free**, I just want to get early feedback first before releasing to everyone.
 
