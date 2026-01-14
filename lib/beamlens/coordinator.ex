@@ -68,21 +68,23 @@ defmodule Beamlens.Coordinator do
 
   ## Options
 
-    * `:name` - Optional process name for registration (default: `__MODULE__`)
+    * `:name` - Optional process name for registration (default: `nil`, no registration)
     * `:client_registry` - Optional LLM provider configuration map
     * `:compaction_max_tokens` - Token threshold for compaction (default: 50_000)
     * `:compaction_keep_last` - Messages to keep verbatim after compaction (default: 5)
 
   """
   def start_link(opts) do
-    name = Keyword.get(opts, :name, __MODULE__)
-    GenServer.start_link(__MODULE__, opts, name: name)
+    case Keyword.get(opts, :name) do
+      nil -> GenServer.start_link(__MODULE__, opts)
+      name -> GenServer.start_link(__MODULE__, opts, name: name)
+    end
   end
 
   @doc """
   Returns the current coordinator status.
   """
-  def status(server \\ __MODULE__) do
+  def status(server) do
     GenServer.call(server, :status)
   end
 
