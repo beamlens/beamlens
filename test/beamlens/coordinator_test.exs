@@ -6,15 +6,96 @@ defmodule Beamlens.CoordinatorTest do
   alias Beamlens.Coordinator
   alias Beamlens.Coordinator.Insight
   alias Beamlens.Operator.Notification
+  alias Beamlens.TestSupport.Provider
+
+  @live_skip_reason Provider.live_skip_reason()
 
   defp mock_client do
     Puck.Client.new({Puck.Backends.Mock, error: :test_stop})
   end
 
+  defp operator_mock_client do
+    Puck.Client.new({__MODULE__.OperatorDoneBackend, %{}})
+  end
+
+  defmodule OperatorDoneBackend do
+    @behaviour Puck.Backend
+
+    def call(_config, _messages, _opts) do
+      {:ok,
+       Puck.Response.new(
+         content: %Beamlens.Operator.Tools.Done{intent: "done"},
+         finish_reason: :stop
+       )}
+    end
+
+    def stream(_config, _messages, _opts) do
+      chunk = %{type: :content, content: %Beamlens.Operator.Tools.Done{intent: "done"}}
+      {:ok, [chunk]}
+    end
+
+    def introspect(_config) do
+      %{
+        provider: "mock",
+        model: "operator-done",
+        operation: :chat,
+        capabilities: []
+      }
+    end
+  end
+
+  defp blocking_client do
+    Puck.Client.new({__MODULE__.BlockingBackend, %{}})
+  end
+
+  defmodule BlockingBackend do
+    @behaviour Puck.Backend
+
+    def call(_config, _messages, _opts) do
+      receive do
+        :unblock -> {:error, :blocked}
+      end
+    end
+
+    def stream(_config, _messages, _opts) do
+      receive do
+        :unblock -> {:error, :blocked}
+      end
+    end
+
+    def introspect(_config) do
+      %{
+        provider: "mock",
+        model: "blocking",
+        operation: :chat,
+        capabilities: []
+      }
+    end
+  end
+
+  setup :live_context
+
+  defp live_context(%{live: true}) do
+    case Provider.build_context() do
+      {:ok, context} ->
+        {:ok, live_context: context}
+
+      {:error, reason} ->
+        flunk(reason)
+    end
+  end
+
+  defp live_context(_context), do: :ok
+
   defp start_coordinator(opts \\ []) do
     Process.flag(:trap_exit, true)
     name = Keyword.get(opts, :name, :"coordinator_#{:erlang.unique_integer([:positive])}")
-    opts = Keyword.put(opts, :name, name)
+
+    opts =
+      opts
+      |> Keyword.put(:name, name)
+      |> Keyword.put_new(:operator_puck_client, operator_mock_client())
+
     {:ok, pid} = Coordinator.start_link(opts)
 
     :sys.replace_state(pid, fn state ->
@@ -525,7 +606,15 @@ defmodule Beamlens.CoordinatorTest do
 
       :sys.replace_state(pid, fn state ->
         notifications = %{notification.id => %{notification: notification, status: :unread}}
-        %{state | notifications: notifications, running: true, pending_task: task, iteration: 5}
+
+        %{
+          state
+          | notifications: notifications,
+            running: true,
+            pending_task: task,
+            iteration: 5,
+            client: blocking_client()
+        }
       end)
 
       action_map = %{intent: "done"}
@@ -576,7 +665,8 @@ defmodule Beamlens.CoordinatorTest do
           | running_operators: running_operators,
             running: true,
             pending_task: task,
-            iteration: 5
+            iteration: 5,
+            client: blocking_client()
         }
       end)
 
@@ -1607,10 +1697,11 @@ defmodule Beamlens.CoordinatorTest do
         %{state | running_operators: running_operators}
       end)
 
+      ref = Process.monitor(operator_pid)
+
       Process.unlink(coordinator_pid)
       Process.exit(coordinator_pid, :kill)
 
-      ref = Process.monitor(operator_pid)
       assert_receive {:DOWN, ^ref, :process, ^operator_pid, :killed}, 1000
     end
   end
@@ -1687,6 +1778,19 @@ defmodule Beamlens.CoordinatorTest do
       assert Process.alive?(pid)
 
       stop_coordinator(pid)
+    end
+  end
+
+  describe "puck_client override" do
+    test "runs with provided client" do
+      client =
+        Beamlens.Testing.mock_client(
+          [%Beamlens.Coordinator.Tools.Done{intent: "done"}],
+          default: %Beamlens.Coordinator.Tools.Done{intent: "done"}
+        )
+
+      assert {:ok, %{insights: [], operator_results: []}} =
+               Coordinator.run(%{}, puck_client: client, skills: [], timeout: 1_000)
     end
   end
 
@@ -1842,12 +1946,16 @@ defmodule Beamlens.CoordinatorTest do
 
   describe "run/2 - timeout behavior" do
     @tag :live
-    test "respects timeout option by exiting" do
+    @tag skip: @live_skip_reason
+    test "respects timeout option by exiting", %{live_context: live_context} do
       Process.flag(:trap_exit, true)
 
       pid =
         spawn_link(fn ->
-          Coordinator.run(%{}, timeout: 50)
+          Coordinator.run(%{},
+            client_registry: live_context.client_registry,
+            timeout: 50
+          )
         end)
 
       assert_receive {:EXIT, ^pid, {:timeout, _}}, 200
@@ -1856,13 +1964,17 @@ defmodule Beamlens.CoordinatorTest do
 
   describe "run/2 - process cleanup" do
     @tag :live
-    test "coordinator process stops even when timeout occurs" do
+    @tag skip: @live_skip_reason
+    test "coordinator process stops even when timeout occurs", %{live_context: live_context} do
       Process.flag(:trap_exit, true)
       coordinators_before = count_coordinator_processes()
 
       pid =
         spawn_link(fn ->
-          Coordinator.run(%{}, timeout: 50)
+          Coordinator.run(%{},
+            client_registry: live_context.client_registry,
+            timeout: 50
+          )
         end)
 
       assert_receive {:EXIT, ^pid, {:timeout, _}}, 200

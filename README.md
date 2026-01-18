@@ -119,6 +119,29 @@ client registry = %{
 {:ok, result} = Beamlens.Coordinator.run(%{reason: "memory alert..."}, client_registry: client_registry)
 ```
 
+## Testing
+
+For deterministic tests without API keys, pass a mock `Puck.Client` via `:puck_client`.
+This bypasses BAML and the provider registry.
+
+```elixir
+client =
+  Beamlens.Testing.mock_client([
+    %Beamlens.Operator.Tools.TakeSnapshot{intent: "take_snapshot"},
+    %Beamlens.Operator.Tools.Done{intent: "done"}
+  ])
+
+{:ok, pid} =
+  Beamlens.Operator.start_link(
+    skill: MyApp.Skill,
+    start_loop: true,
+    puck_client: client
+  )
+```
+
+Live-tagged tests require a real provider. Set `BEAMLENS_TEST_PROVIDER` to `anthropic`, `openai`,
+`google-ai`, or `ollama`. When set to `mock`, live tests are skipped.
+
 ## Examples
 
 **1. Triggering from Telemetry**

@@ -76,6 +76,7 @@ defmodule Beamlens.Operator do
     * `:name` - Optional process name for registration
     * `:skill` - Required module implementing `Beamlens.Skill`
     * `:client_registry` - Optional LLM provider configuration map
+    * `:puck_client` - Optional `Puck.Client` to use instead of BAML
     * `:start_loop` - Whether to start the LLM loop on init (default: `false`)
     * `:context` - Map with context to pass to the LLM
     * `:max_iterations` - Maximum LLM iterations before returning (default: 10)
@@ -145,6 +146,7 @@ defmodule Beamlens.Operator do
 
     * `:context` - Map with context (alternative to second argument)
     * `:client_registry` - LLM provider configuration map (default: `%{}`)
+    * `:puck_client` - Optional `Puck.Client` to use instead of BAML
     * `:max_iterations` - Maximum LLM iterations before returning (default: 10)
     * `:timeout` - Timeout for awaiting completion (default: `:infinity`)
 
@@ -178,12 +180,14 @@ defmodule Beamlens.Operator do
 
   def run(skill, context, opts) when is_map(context) and is_list(opts) do
     {client_registry, opts} = Keyword.pop(opts, :client_registry, %{})
+    {puck_client, opts} = Keyword.pop(opts, :puck_client, nil)
 
     with {:ok, skill_module} <- resolve_skill(skill) do
       opts =
         opts
         |> Keyword.put(:skill, skill_module)
         |> Keyword.put(:client_registry, client_registry)
+        |> Keyword.put(:puck_client, puck_client)
         |> Keyword.put(:context, context)
 
       timeout = Keyword.get(opts, :timeout, :infinity)
@@ -651,7 +655,15 @@ defmodule Beamlens.Operator do
     end
   end
 
-  defp build_puck_client(skill, client_registry, opts) do
+  defp build_puck_client(skill, client_registry, opts) when is_list(opts) do
+    build_puck_client(skill, client_registry, Map.new(opts))
+  end
+
+  defp build_puck_client(_skill, _client_registry, %{puck_client: %Puck.Client{} = client}) do
+    client
+  end
+
+  defp build_puck_client(skill, client_registry, opts) when is_map(opts) do
     system_prompt = skill.system_prompt()
     callback_docs = skill.callback_docs() <> "\n" <> BaseSkill.callback_docs()
 
@@ -677,9 +689,9 @@ defmodule Beamlens.Operator do
     )
   end
 
-  defp build_compaction_config(opts) do
-    max_tokens = Keyword.get(opts, :compaction_max_tokens, 50_000)
-    keep_last = Keyword.get(opts, :compaction_keep_last, 5)
+  defp build_compaction_config(opts) when is_map(opts) do
+    max_tokens = Map.get(opts, :compaction_max_tokens, 50_000)
+    keep_last = Map.get(opts, :compaction_keep_last, 5)
 
     {:summarize,
      max_tokens: max_tokens, keep_last: keep_last, prompt: operator_compaction_prompt()}

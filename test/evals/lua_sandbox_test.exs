@@ -1,22 +1,42 @@
 defmodule Beamlens.Evals.LuaSandboxTest do
   use ExUnit.Case, async: false
 
-  alias Beamlens.IntegrationCase
   alias Beamlens.Operator
   alias Beamlens.Operator.Tools.{Execute, SendNotification, TakeSnapshot}
+  alias Beamlens.TestSupport.Provider
   alias Puck.Eval.Graders
 
   @moduletag :eval
 
   setup do
-    case IntegrationCase.build_client_registry() do
-      {:ok, registry} ->
-        {:ok, client_registry: registry}
-
-      {:error, reason} ->
-        flunk(reason)
+    case Provider.build_context() do
+      {:ok, context} -> {:ok, context}
+      {:error, reason} -> flunk(reason)
     end
   end
+
+  defp with_client(
+         %{provider: "mock", client_registry: client_registry},
+         %Puck.Client{} = client,
+         opts
+       ) do
+    opts
+    |> Keyword.put(:client_registry, client_registry)
+    |> Keyword.put(:puck_client, client)
+  end
+
+  defp with_client(%{client_registry: client_registry}, _client, opts) do
+    Keyword.put(opts, :client_registry, client_registry)
+  end
+
+  defp provider_puck_client(%{provider: "mock"}) do
+    Beamlens.Testing.mock_client([
+      %Beamlens.Operator.Tools.TakeSnapshot{intent: "take_snapshot"},
+      %Beamlens.Operator.Tools.Execute{intent: "execute", code: "return 1"}
+    ])
+  end
+
+  defp provider_puck_client(_context), do: nil
 
   defmodule InvestigationSkill do
     @behaviour Beamlens.Skill
@@ -116,14 +136,14 @@ defmodule Beamlens.Evals.LuaSandboxTest do
 
   describe "lua sandbox eval" do
     test "elevated metrics trigger investigation using execute tool", context do
+      puck_client = provider_puck_client(context)
+
       {_output, trajectory} =
         Puck.Eval.collect(
           fn ->
             {:ok, pid} =
               Operator.start_link(
-                skill: InvestigationSkill,
-                start_loop: true,
-                client_registry: context.client_registry
+                with_client(context, puck_client, skill: InvestigationSkill, start_loop: true)
               )
 
             wait_for_execute_and_stop(pid)

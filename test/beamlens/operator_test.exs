@@ -5,6 +5,9 @@ defmodule Beamlens.OperatorTest do
 
   alias Beamlens.Operator
   alias Beamlens.Operator.Snapshot
+  alias Beamlens.TestSupport.Provider
+
+  @live_skip_reason Provider.live_skip_reason()
 
   defmodule TestSkill do
     @behaviour Beamlens.Skill
@@ -46,6 +49,20 @@ defmodule Beamlens.OperatorTest do
     # Return an error to gracefully stop the loop after iteration_start telemetry
     Puck.Client.new({Puck.Backends.Mock, error: :test_stop})
   end
+
+  setup :live_context
+
+  defp live_context(%{live: true}) do
+    case Provider.build_context() do
+      {:ok, context} ->
+        {:ok, live_context: context}
+
+      {:error, reason} ->
+        flunk(reason)
+    end
+  end
+
+  defp live_context(_context), do: :ok
 
   describe "start_link/1" do
     test "starts with valid options" do
@@ -451,12 +468,16 @@ defmodule Beamlens.OperatorTest do
 
   describe "run/2 timeout behavior" do
     @tag :live
-    test "respects timeout option by exiting" do
+    @tag skip: @live_skip_reason
+    test "respects timeout option by exiting", %{live_context: live_context} do
       Process.flag(:trap_exit, true)
 
       pid =
         spawn_link(fn ->
-          Operator.run(TestSkill, %{}, timeout: 50)
+          Operator.run(TestSkill, %{},
+            client_registry: live_context.client_registry,
+            timeout: 50
+          )
         end)
 
       assert_receive {:EXIT, ^pid, {:timeout, _}}, 200
@@ -465,18 +486,48 @@ defmodule Beamlens.OperatorTest do
 
   describe "run/2 process cleanup" do
     @tag :live
-    test "stops operator process after timeout" do
+    @tag skip: @live_skip_reason
+    test "stops operator process after timeout", %{live_context: live_context} do
       Process.flag(:trap_exit, true)
 
       pid =
         spawn_link(fn ->
-          Operator.run(TestSkill, %{}, timeout: 1)
+          Operator.run(TestSkill, %{},
+            client_registry: live_context.client_registry,
+            timeout: 1
+          )
         end)
 
       assert_receive {:EXIT, ^pid, {:timeout, _}}, 200
 
       # The spawned process has exited (confirmed by EXIT message above).
       # The operator cleanup happens synchronously via GenServer.stop in the after block.
+    end
+  end
+
+  describe "puck_client override" do
+    test "uses provided puck_client for loop responses" do
+      responses = [
+        %Beamlens.Operator.Tools.TakeSnapshot{intent: "take_snapshot"},
+        %Beamlens.Operator.Tools.SetState{intent: "set_state", state: :healthy, reason: "ok"},
+        %Beamlens.Operator.Tools.Done{intent: "done"}
+      ]
+
+      client = Beamlens.Testing.mock_client(responses)
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          start_loop: true,
+          notify_pid: self(),
+          puck_client: client
+        )
+
+      Operator.await(pid, 1_000)
+
+      assert_receive {:operator_complete, _, _,
+                      %Beamlens.Operator.CompletionResult{state: :healthy}},
+                     1_000
     end
   end
 

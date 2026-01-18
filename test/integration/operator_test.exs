@@ -5,6 +5,14 @@ defmodule Beamlens.Integration.OperatorTest do
 
   alias Beamlens.Operator
 
+  defp run_opts(%{puck_client: %Puck.Client{} = puck_client, client_registry: client_registry}) do
+    [client_registry: client_registry, puck_client: puck_client]
+  end
+
+  defp run_opts(%{client_registry: client_registry}) do
+    [client_registry: client_registry]
+  end
+
   defmodule TestSkill do
     @behaviour Beamlens.Skill
 
@@ -71,7 +79,7 @@ defmodule Beamlens.Integration.OperatorTest do
 
     @tag timeout: 60_000
     test "run/2 returns notifications when analysis completes", context do
-      {:ok, notifications} = Operator.run(TestSkill, client_registry: context.client_registry)
+      {:ok, notifications} = Operator.run(TestSkill, run_opts(context))
 
       assert is_list(notifications)
     end

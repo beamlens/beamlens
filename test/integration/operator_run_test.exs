@@ -5,6 +5,21 @@ defmodule Beamlens.Integration.OperatorRunTest do
 
   alias Beamlens.Operator
 
+  defp run_opts(context, opts \\ [])
+
+  defp run_opts(
+         %{puck_client: %Puck.Client{} = puck_client, client_registry: client_registry},
+         opts
+       ) do
+    opts
+    |> Keyword.put(:client_registry, client_registry)
+    |> Keyword.put(:puck_client, puck_client)
+  end
+
+  defp run_opts(%{client_registry: client_registry}, opts) do
+    Keyword.put(opts, :client_registry, client_registry)
+  end
+
   defmodule TestSkill do
     @behaviour Beamlens.Skill
 
@@ -43,7 +58,7 @@ defmodule Beamlens.Integration.OperatorRunTest do
     @tag timeout: 60_000
     test "accepts valid skill module", context do
       {:ok, notifications} =
-        Operator.run(TestSkill, %{reason: "test"}, client_registry: context.client_registry)
+        Operator.run(TestSkill, %{reason: "test"}, run_opts(context))
 
       assert is_list(notifications)
     end
@@ -53,17 +68,14 @@ defmodule Beamlens.Integration.OperatorRunTest do
     @tag timeout: 60_000
     test "formats context with reason", context do
       {:ok, notifications} =
-        Operator.run(TestSkill, %{reason: "memory alert"},
-          client_registry: context.client_registry
-        )
+        Operator.run(TestSkill, %{reason: "memory alert"}, run_opts(context))
 
       assert is_list(notifications)
     end
 
     @tag timeout: 60_000
     test "handles empty context map", context do
-      {:ok, notifications} =
-        Operator.run(TestSkill, %{}, client_registry: context.client_registry)
+      {:ok, notifications} = Operator.run(TestSkill, %{}, run_opts(context))
 
       assert is_list(notifications)
     end
@@ -71,9 +83,7 @@ defmodule Beamlens.Integration.OperatorRunTest do
     @tag timeout: 60_000
     test "handles context with non-string values", context do
       {:ok, notifications} =
-        Operator.run(TestSkill, %{count: 42, enabled: true},
-          client_registry: context.client_registry
-        )
+        Operator.run(TestSkill, %{count: 42, enabled: true}, run_opts(context))
 
       assert is_list(notifications)
     end
@@ -83,7 +93,7 @@ defmodule Beamlens.Integration.OperatorRunTest do
     @tag timeout: 60_000
     test "accepts timeout option", context do
       {:ok, notifications} =
-        Operator.run(TestSkill, %{}, client_registry: context.client_registry, timeout: 30_000)
+        Operator.run(TestSkill, %{}, run_opts(context, timeout: 30_000))
 
       assert is_list(notifications)
     end
@@ -91,7 +101,7 @@ defmodule Beamlens.Integration.OperatorRunTest do
     @tag timeout: 60_000
     test "accepts max_iterations option", context do
       {:ok, notifications} =
-        Operator.run(TestSkill, %{}, client_registry: context.client_registry, max_iterations: 5)
+        Operator.run(TestSkill, %{}, run_opts(context, max_iterations: 5))
 
       assert is_list(notifications)
     end
@@ -102,9 +112,10 @@ defmodule Beamlens.Integration.OperatorRunTest do
         Operator.run(
           TestSkill,
           %{},
-          client_registry: context.client_registry,
-          compaction_max_tokens: 100_000,
-          compaction_keep_last: 10
+          run_opts(context,
+            compaction_max_tokens: 100_000,
+            compaction_keep_last: 10
+          )
         )
 
       assert is_list(notifications)
@@ -114,8 +125,7 @@ defmodule Beamlens.Integration.OperatorRunTest do
   describe "run/2 timeout behavior" do
     @tag timeout: 60_000
     test "completes within default timeout", context do
-      {:ok, notifications} =
-        Operator.run(TestSkill, %{}, client_registry: context.client_registry)
+      {:ok, notifications} = Operator.run(TestSkill, %{}, run_opts(context))
 
       assert is_list(notifications)
     end
@@ -124,8 +134,7 @@ defmodule Beamlens.Integration.OperatorRunTest do
   describe "run/2 return structure" do
     @tag timeout: 60_000
     test "returns list of notifications", context do
-      {:ok, notifications} =
-        Operator.run(TestSkill, %{}, client_registry: context.client_registry)
+      {:ok, notifications} = Operator.run(TestSkill, %{}, run_opts(context))
 
       assert is_list(notifications)
     end

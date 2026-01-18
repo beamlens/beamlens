@@ -6,7 +6,30 @@ defmodule Beamlens.Integration.CoordinatorTest do
   alias Beamlens.Coordinator
   alias Beamlens.Operator.Notification
 
-  defp start_coordinator(context, opts \\ []) do
+  defp start_coordinator(context, opts \\ [])
+
+  defp start_coordinator(%{puck_client: %Puck.Client{}} = context, opts) do
+    name = :"coordinator_#{:erlang.unique_integer([:positive])}"
+
+    puck_client =
+      Beamlens.Testing.mock_client(
+        [
+          %Beamlens.Coordinator.Tools.GetNotifications{intent: "get_notifications", status: nil},
+          %Beamlens.Coordinator.Tools.Done{intent: "done"}
+        ],
+        default: %Beamlens.Coordinator.Tools.Done{intent: "done"}
+      )
+
+    opts =
+      opts
+      |> Keyword.put(:name, name)
+      |> Keyword.put(:client_registry, context.client_registry)
+      |> Keyword.put(:puck_client, puck_client)
+
+    start_supervised({Coordinator, opts})
+  end
+
+  defp start_coordinator(context, opts) do
     name = :"coordinator_#{:erlang.unique_integer([:positive])}"
 
     opts =
