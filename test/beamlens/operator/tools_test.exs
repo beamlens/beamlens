@@ -44,6 +44,22 @@ defmodule Beamlens.Operator.ToolsTest do
       assert result.snapshot_ids == ["abc123"]
     end
 
+    test "parses send_notification with nil snapshot_ids" do
+      schema = Tools.schema()
+
+      input = %{
+        intent: "send_notification",
+        type: "memory_elevated",
+        summary: "High memory",
+        severity: "warning",
+        snapshot_ids: nil
+      }
+
+      assert {:ok, result} = Zoi.parse(schema, input)
+      assert %SendNotification{} = result
+      assert result.snapshot_ids == nil
+    end
+
     test "parses get_notifications" do
       schema = Tools.schema()
       input = %{intent: "get_notifications"}

@@ -139,6 +139,9 @@ client =
   )
 ```
 
+When crafting `send_notification` responses, `snapshot_ids` can be `["latest"]`
+or `nil` to reference the most recent snapshot captured via `take_snapshot()`.
+
 Live-tagged tests require a real provider. Set `BEAMLENS_TEST_PROVIDER` to `anthropic`, `openai`,
 `google-ai`, or `ollama`. When set to `mock`, live tests are skipped.
 

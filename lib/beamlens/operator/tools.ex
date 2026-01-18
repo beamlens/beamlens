@@ -13,6 +13,9 @@ defmodule Beamlens.Operator.Tools do
   - Wait: Sleep, then continue with fresh context
   - Think: Reason through complex decisions before acting
   - Done: Signal analysis completion
+
+  `SendNotification.snapshot_ids` can include `"latest"` or be `nil` to use the
+  most recent snapshot.
   """
 
   defmodule SetState do
@@ -35,7 +38,7 @@ defmodule Beamlens.Operator.Tools do
             type: String.t(),
             summary: String.t(),
             severity: :info | :warning | :critical,
-            snapshot_ids: [String.t()]
+            snapshot_ids: [String.t()] | nil
           }
   end
 
@@ -150,7 +153,7 @@ defmodule Beamlens.Operator.Tools do
       severity:
         Zoi.enum(["info", "warning", "critical"])
         |> Zoi.transform(&atomize_severity/1),
-      snapshot_ids: Zoi.list(Zoi.string())
+      snapshot_ids: Zoi.nullish(Zoi.list(Zoi.string()))
     })
     |> Zoi.transform(fn data -> {:ok, struct!(SendNotification, data)} end)
   end

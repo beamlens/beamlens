@@ -531,6 +531,80 @@ defmodule Beamlens.OperatorTest do
     end
   end
 
+  describe "snapshot_id resolution" do
+    alias Beamlens.Operator.Tools.{Done, SendNotification, TakeSnapshot}
+
+    test "send_notification accepts snapshot_ids: [\"latest\"]" do
+      responses = [
+        %TakeSnapshot{intent: "take_snapshot"},
+        %SendNotification{
+          intent: "send_notification",
+          type: "process_spike",
+          summary: "process count elevated",
+          severity: :warning,
+          snapshot_ids: ["latest"]
+        },
+        %Done{intent: "done"}
+      ]
+
+      client = Beamlens.Testing.mock_client(responses)
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          start_loop: true,
+          notify_pid: self(),
+          puck_client: client
+        )
+
+      Operator.await(pid, 1_000)
+
+      assert_receive {:operator_complete, _, _,
+                      %Beamlens.Operator.CompletionResult{
+                        notifications: [notification],
+                        snapshots: [snapshot]
+                      }},
+                     1_000
+
+      assert Enum.any?(notification.snapshots, &(&1.id == snapshot.id))
+    end
+
+    test "send_notification accepts snapshot_ids: nil" do
+      responses = [
+        %TakeSnapshot{intent: "take_snapshot"},
+        %SendNotification{
+          intent: "send_notification",
+          type: "process_spike",
+          summary: "process count elevated",
+          severity: :warning,
+          snapshot_ids: nil
+        },
+        %Done{intent: "done"}
+      ]
+
+      client = Beamlens.Testing.mock_client(responses)
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          start_loop: true,
+          notify_pid: self(),
+          puck_client: client
+        )
+
+      Operator.await(pid, 1_000)
+
+      assert_receive {:operator_complete, _, _,
+                      %Beamlens.Operator.CompletionResult{
+                        notifications: [notification],
+                        snapshots: [snapshot]
+                      }},
+                     1_000
+
+      assert Enum.any?(notification.snapshots, &(&1.id == snapshot.id))
+    end
+  end
+
   describe "message/3" do
     test "exits when operator not found" do
       assert_raise ArgumentError, fn ->
