@@ -10,13 +10,6 @@ defmodule Beamlens.TestSupport.Provider do
     end
   end
 
-  def live_skip_reason(provider \\ nil) do
-    case current_provider(provider) do
-      "mock" -> "BEAMLENS_TEST_PROVIDER=mock skips live tests"
-      _ -> nil
-    end
-  end
-
   defp current_provider(nil), do: System.get_env("BEAMLENS_TEST_PROVIDER", "anthropic")
   defp current_provider(provider), do: provider
 

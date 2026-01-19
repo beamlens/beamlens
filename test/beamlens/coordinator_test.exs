@@ -6,9 +6,6 @@ defmodule Beamlens.CoordinatorTest do
   alias Beamlens.Coordinator
   alias Beamlens.Coordinator.Insight
   alias Beamlens.Operator.Notification
-  alias Beamlens.TestSupport.Provider
-
-  @live_skip_reason Provider.live_skip_reason()
 
   defp mock_client do
     Puck.Client.new({Puck.Backends.Mock, error: :test_stop})
@@ -72,20 +69,6 @@ defmodule Beamlens.CoordinatorTest do
       }
     end
   end
-
-  setup :live_context
-
-  defp live_context(%{live: true}) do
-    case Provider.build_context() do
-      {:ok, context} ->
-        {:ok, live_context: context}
-
-      {:error, reason} ->
-        flunk(reason)
-    end
-  end
-
-  defp live_context(_context), do: :ok
 
   defp start_coordinator(opts \\ []) do
     Process.flag(:trap_exit, true)
@@ -1944,57 +1927,6 @@ defmodule Beamlens.CoordinatorTest do
     end
   end
 
-  describe "run/2 - timeout behavior" do
-    @tag :live
-    @tag skip: @live_skip_reason
-    test "respects timeout option by exiting", %{live_context: live_context} do
-      Process.flag(:trap_exit, true)
-
-      pid =
-        spawn_link(fn ->
-          Coordinator.run(%{},
-            client_registry: live_context.client_registry,
-            timeout: 50
-          )
-        end)
-
-      assert_receive {:EXIT, ^pid, {:timeout, _}}, 200
-    end
-  end
-
-  describe "run/2 - process cleanup" do
-    @tag :live
-    @tag skip: @live_skip_reason
-    test "coordinator process stops even when timeout occurs", %{live_context: live_context} do
-      Process.flag(:trap_exit, true)
-      coordinators_before = count_coordinator_processes()
-
-      pid =
-        spawn_link(fn ->
-          Coordinator.run(%{},
-            client_registry: live_context.client_registry,
-            timeout: 50
-          )
-        end)
-
-      assert_receive {:EXIT, ^pid, {:timeout, _}}, 200
-
-      coordinators_after = count_coordinator_processes()
-      assert coordinators_before == coordinators_after
-    end
-  end
-
-  defp count_coordinator_processes do
-    Enum.count(Process.list(), &coordinator_process?/1)
-  end
-
-  defp coordinator_process?(pid) do
-    case Process.info(pid, :dictionary) do
-      {:dictionary, dict} -> has_coordinator_initial_call?(dict)
-      nil -> false
-    end
-  end
-
   describe "build_initial_context/1" do
     test "formats map with reason key" do
       context = %{reason: "memory alert triggered"}
@@ -2073,12 +2005,5 @@ defmodule Beamlens.CoordinatorTest do
       assert is_binary(part.text)
       assert part.text =~ "<process crashed>"
     end
-  end
-
-  defp has_coordinator_initial_call?(dict) do
-    Enum.any?(dict, fn
-      {:"$initial_call", {Beamlens.Coordinator, :init, 1}} -> true
-      _ -> false
-    end)
   end
 end

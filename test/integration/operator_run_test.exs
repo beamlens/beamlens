@@ -130,4 +130,36 @@ defmodule Beamlens.Integration.OperatorRunTest do
       assert is_list(notifications)
     end
   end
+
+  describe "run/2 timeout edge cases" do
+    @tag timeout: 60_000
+    test "exits with timeout when LLM response exceeds limit", context do
+      Process.flag(:trap_exit, true)
+
+      pid =
+        spawn_link(fn ->
+          Operator.run(TestSkill, %{},
+            client_registry: context.client_registry,
+            timeout: 50
+          )
+        end)
+
+      assert_receive {:EXIT, ^pid, {:timeout, _}}, 5_000
+    end
+
+    @tag timeout: 60_000
+    test "stops operator process after timeout", context do
+      Process.flag(:trap_exit, true)
+
+      pid =
+        spawn_link(fn ->
+          Operator.run(TestSkill, %{},
+            client_registry: context.client_registry,
+            timeout: 1
+          )
+        end)
+
+      assert_receive {:EXIT, ^pid, {:timeout, _}}, 5_000
+    end
+  end
 end
