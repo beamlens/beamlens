@@ -44,6 +44,19 @@ defmodule Beamlens.Operator.ToolsTest do
       assert result.snapshot_ids == ["abc123"]
     end
 
+    test "rejects send_notification with missing snapshot_ids" do
+      schema = Tools.schema()
+
+      input = %{
+        intent: "send_notification",
+        type: "memory_elevated",
+        summary: "High memory",
+        severity: "warning"
+      }
+
+      assert {:error, _} = Zoi.parse(schema, input)
+    end
+
     test "parses get_notifications" do
       schema = Tools.schema()
       input = %{intent: "get_notifications"}

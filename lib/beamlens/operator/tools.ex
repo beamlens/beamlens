@@ -13,6 +13,8 @@ defmodule Beamlens.Operator.Tools do
   - Wait: Sleep, then continue with fresh context
   - Think: Reason through complex decisions before acting
   - Done: Signal analysis completion
+
+  `SendNotification.snapshot_ids` must be a list of snapshot IDs to reference.
   """
 
   defmodule SetState do

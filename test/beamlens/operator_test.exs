@@ -449,34 +449,84 @@ defmodule Beamlens.OperatorTest do
     end
   end
 
-  describe "run/2 timeout behavior" do
-    @tag :live
-    test "respects timeout option by exiting" do
-      Process.flag(:trap_exit, true)
+  describe "puck_client override" do
+    test "uses provided puck_client for loop responses" do
+      responses = [
+        %Beamlens.Operator.Tools.TakeSnapshot{intent: "take_snapshot"},
+        %Beamlens.Operator.Tools.SetState{intent: "set_state", state: :healthy, reason: "ok"},
+        %Beamlens.Operator.Tools.Done{intent: "done"}
+      ]
 
-      pid =
-        spawn_link(fn ->
-          Operator.run(TestSkill, %{}, timeout: 50)
-        end)
+      client = Puck.Test.mock_client(responses)
 
-      assert_receive {:EXIT, ^pid, {:timeout, _}}, 200
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          start_loop: true,
+          notify_pid: self(),
+          puck_client: client
+        )
+
+      Operator.await(pid, 1_000)
+
+      assert_receive {:operator_complete, _, _,
+                      %Beamlens.Operator.CompletionResult{state: :healthy}},
+                     1_000
     end
   end
 
-  describe "run/2 process cleanup" do
-    @tag :live
-    test "stops operator process after timeout" do
-      Process.flag(:trap_exit, true)
+  describe "snapshot_id resolution" do
+    alias Beamlens.Operator.Tools.{Done, SendNotification, TakeSnapshot}
 
-      pid =
-        spawn_link(fn ->
-          Operator.run(TestSkill, %{}, timeout: 1)
-        end)
+    test "send_notification references snapshot via function response" do
+      responses = [
+        %TakeSnapshot{intent: "take_snapshot"},
+        fn messages ->
+          snapshot_id =
+            messages
+            |> Enum.reverse()
+            |> Enum.find_value(fn
+              %{metadata: %{tool_result: true}, content: [%{text: json} | _]} ->
+                case Jason.decode(json) do
+                  {:ok, %{"id" => id, "data" => _, "captured_at" => _}} -> id
+                  _ -> nil
+                end
 
-      assert_receive {:EXIT, ^pid, {:timeout, _}}, 200
+              _ ->
+                nil
+            end)
 
-      # The spawned process has exited (confirmed by EXIT message above).
-      # The operator cleanup happens synchronously via GenServer.stop in the after block.
+          %SendNotification{
+            intent: "send_notification",
+            type: "process_spike",
+            summary: "process count elevated",
+            severity: :warning,
+            snapshot_ids: [snapshot_id]
+          }
+        end,
+        %Done{intent: "done"}
+      ]
+
+      client = Puck.Test.mock_client(responses)
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          start_loop: true,
+          notify_pid: self(),
+          puck_client: client
+        )
+
+      Operator.await(pid, 1_000)
+
+      assert_receive {:operator_complete, _, _,
+                      %Beamlens.Operator.CompletionResult{
+                        notifications: [notification],
+                        snapshots: [snapshot]
+                      }},
+                     1_000
+
+      assert Enum.any?(notification.snapshots, &(&1.id == snapshot.id))
     end
   end
 

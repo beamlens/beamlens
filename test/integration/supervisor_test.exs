@@ -11,10 +11,10 @@ defmodule Beamlens.Integration.SupervisorTest do
     {:ok, supervisor: supervisor}
   end
 
-  describe "start_operator/2 with module spec" do
+  describe "start_operator/2 with atom spec" do
     @tag timeout: 30_000
     test "starts builtin beam operator", %{supervisor: supervisor} do
-      result = OperatorSupervisor.start_operator(supervisor, Beamlens.Skill.Beam)
+      result = OperatorSupervisor.start_operator(supervisor, :beam)
 
       assert {:ok, pid} = result
       assert Process.alive?(pid)

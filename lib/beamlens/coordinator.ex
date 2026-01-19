@@ -50,6 +50,7 @@ defmodule Beamlens.Coordinator do
   defstruct [
     :client,
     :client_registry,
+    :operator_puck_client,
     :context,
     :pending_task,
     :pending_trace_id,
@@ -70,6 +71,8 @@ defmodule Beamlens.Coordinator do
 
     * `:name` - Optional process name for registration (default: `nil`, no registration)
     * `:client_registry` - Optional LLM provider configuration map
+    * `:puck_client` - Optional `Puck.Client` to use instead of BAML
+    * `:operator_puck_client` - Optional `Puck.Client` to use for spawned operators
     * `:compaction_max_tokens` - Token threshold for compaction (default: 50_000)
     * `:compaction_keep_last` - Messages to keep verbatim after compaction (default: 5)
 
@@ -104,6 +107,8 @@ defmodule Beamlens.Coordinator do
     * `:context` - Map with context (alternative to first argument)
     * `:notifications` - List of `Notification` structs to analyze (default: `[]`)
     * `:client_registry` - LLM provider configuration map (default: `%{}`)
+    * `:puck_client` - Optional `Puck.Client` to use instead of BAML
+    * `:operator_puck_client` - Optional `Puck.Client` to use for spawned operators
     * `:max_iterations` - Maximum iterations before stopping (default: 10)
     * `:timeout` - Timeout for await in milliseconds (default: 300_000)
     * `:skills` - List of skill atoms to make available (default: configured operators or all builtins)
@@ -156,12 +161,14 @@ defmodule Beamlens.Coordinator do
   def run(context, opts) when is_map(context) and is_list(opts) do
     {notifications, opts} = Keyword.pop(opts, :notifications, [])
     {client_registry, opts} = Keyword.pop(opts, :client_registry, %{})
+    {puck_client, opts} = Keyword.pop(opts, :puck_client, nil)
     {skills, opts} = Keyword.pop(opts, :skills, nil)
     timeout = Keyword.get(opts, :timeout, 300_000)
 
     coordinator_opts =
       opts
       |> Keyword.put(:client_registry, client_registry)
+      |> Keyword.put(:puck_client, puck_client)
       |> Keyword.put(:initial_notifications, notifications)
       |> Keyword.put(:context, context)
       |> Keyword.put(:skills, skills)
@@ -208,6 +215,7 @@ defmodule Beamlens.Coordinator do
     state = %__MODULE__{
       client: client,
       client_registry: Keyword.get(opts, :client_registry),
+      operator_puck_client: Keyword.get(opts, :operator_puck_client),
       max_iterations: Keyword.get(opts, :max_iterations, 10),
       notifications: initial_notifications,
       context: initial_context,
@@ -563,7 +571,7 @@ defmodule Beamlens.Coordinator do
 
     new_running =
       Enum.reduce(skills, state.running_operators, fn skill, acc ->
-        start_operator(skill, context, state.client_registry, acc)
+        start_operator(skill, context, state.client_registry, state.operator_puck_client, acc)
       end)
 
     started_count = map_size(new_running) - map_size(state.running_operators)
@@ -680,7 +688,13 @@ defmodule Beamlens.Coordinator do
     end)
   end
 
-  defp start_operator(skill_string, context, client_registry, running_operators) do
+  defp start_operator(
+         skill_string,
+         context,
+         client_registry,
+         operator_puck_client,
+         running_operators
+       ) do
     skill_module = resolve_skill_module(skill_string)
 
     case skill_module && Operator.Supervisor.resolve_skill(skill_module) do
@@ -694,7 +708,9 @@ defmodule Beamlens.Coordinator do
             client_registry: client_registry,
             start_loop: true,
             notify_pid: self()
-          ] ++ if(context, do: [context: %{reason: context}], else: [])
+          ]
+          |> maybe_add_operator_client(operator_puck_client)
+          |> maybe_add_operator_context(context)
 
         case Operator.start_link(run_opts) do
           {:ok, pid} ->
@@ -715,6 +731,17 @@ defmodule Beamlens.Coordinator do
         running_operators
     end
   end
+
+  defp maybe_add_operator_client(opts, nil), do: opts
+
+  defp maybe_add_operator_client(opts, %Puck.Client{} = client) do
+    Keyword.put(opts, :puck_client, client)
+  end
+
+  defp maybe_add_operator_context(opts, nil), do: opts
+
+  defp maybe_add_operator_context(opts, context),
+    do: Keyword.put(opts, :context, %{reason: context})
 
   defp resolve_skill_module(skill_string) do
     module = String.to_existing_atom("Elixir." <> skill_string)
@@ -763,8 +790,16 @@ defmodule Beamlens.Coordinator do
     parsed
   end
 
-  defp build_puck_client(client_registry, opts) do
-    skills = Keyword.get(opts, :skills)
+  defp build_puck_client(client_registry, opts) when is_list(opts) do
+    build_puck_client(client_registry, Map.new(opts))
+  end
+
+  defp build_puck_client(_client_registry, %{puck_client: %Puck.Client{} = client}) do
+    client
+  end
+
+  defp build_puck_client(client_registry, opts) when is_map(opts) do
+    skills = Map.get(opts, :skills)
     operator_descriptions = build_operator_descriptions(skills)
     available_skills = build_available_skills(skills)
 
@@ -866,9 +901,9 @@ defmodule Beamlens.Coordinator do
     end
   end
 
-  defp build_compaction_config(opts) do
-    max_tokens = Keyword.get(opts, :compaction_max_tokens, 50_000)
-    keep_last = Keyword.get(opts, :compaction_keep_last, 5)
+  defp build_compaction_config(opts) when is_map(opts) do
+    max_tokens = Map.get(opts, :compaction_max_tokens, 50_000)
+    keep_last = Map.get(opts, :compaction_keep_last, 5)
 
     {:summarize,
      max_tokens: max_tokens, keep_last: keep_last, prompt: coordinator_compaction_prompt()}

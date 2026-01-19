@@ -151,18 +151,61 @@ defmodule Beamlens.Integration.CoordinatorRunTest do
       {:ok, _result} =
         Coordinator.run(%{}, client_registry: context.client_registry, timeout: 30_000)
 
-      refute Enum.any?(Process.list(), fn pid ->
-               case Process.info(pid, :dictionary) do
-                 {:dictionary, dict} ->
-                   Enum.any?(dict, fn
-                     {:"$initial_call", {Beamlens.Coordinator, :init, 1}} -> true
-                     _ -> false
-                   end)
-
-                 nil ->
-                   false
-               end
-             end)
+      refute Enum.any?(Process.list(), &coordinator_process?/1)
     end
+  end
+
+  describe "run/2 - timeout edge cases" do
+    @tag timeout: 60_000
+    test "exits with timeout when LLM response exceeds limit", context do
+      Process.flag(:trap_exit, true)
+
+      pid =
+        spawn_link(fn ->
+          Coordinator.run(%{},
+            client_registry: context.client_registry,
+            timeout: 50
+          )
+        end)
+
+      assert_receive {:EXIT, ^pid, {:timeout, _}}, 5_000
+    end
+
+    @tag timeout: 60_000
+    test "coordinator process stops even when timeout occurs", context do
+      Process.flag(:trap_exit, true)
+      coordinators_before = count_coordinator_processes()
+
+      pid =
+        spawn_link(fn ->
+          Coordinator.run(%{},
+            client_registry: context.client_registry,
+            timeout: 50
+          )
+        end)
+
+      assert_receive {:EXIT, ^pid, {:timeout, _}}, 5_000
+
+      coordinators_after = count_coordinator_processes()
+      assert coordinators_before == coordinators_after
+    end
+  end
+
+  defp count_coordinator_processes do
+    Enum.count(Process.list(), &coordinator_process?/1)
+  end
+
+  defp coordinator_process?(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dict} -> has_coordinator_initial_call?(dict)
+      nil -> false
+    end
+  end
+
+  defp has_coordinator_initial_call?(dict) do
+    Enum.any?(dict, fn
+      {:"$initial_call", {Beamlens.Coordinator, :init, 1}} -> true
+      _ -> false
+    end)
   end
 end
