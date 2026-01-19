@@ -171,6 +171,8 @@ defmodule Beamlens.Operator.Supervisor do
   Returns `{:ok, module}` if valid, `{:error, reason}` otherwise.
   """
   def resolve_skill(skill_module) when is_atom(skill_module) do
+    skill_module = normalize_skill(skill_module)
+
     if Code.ensure_loaded?(skill_module) and
          function_exported?(skill_module, :title, 0) and
          function_exported?(skill_module, :snapshot, 0) do
@@ -200,8 +202,11 @@ defmodule Beamlens.Operator.Supervisor do
     Enum.map(get_operators(), &extract_skill_module/1)
   end
 
-  defp extract_skill_module(skill_module) when is_atom(skill_module), do: skill_module
-  defp extract_skill_module(opts) when is_list(opts), do: Keyword.fetch!(opts, :skill)
+  defp extract_skill_module(skill_module) when is_atom(skill_module),
+    do: normalize_skill(skill_module)
+
+  defp extract_skill_module(opts) when is_list(opts),
+    do: opts |> Keyword.fetch!(:skill) |> normalize_skill()
 
   defp configured_operator_specs do
     Enum.map(get_operators(), &extract_operator_spec/1)
@@ -215,13 +220,24 @@ defmodule Beamlens.Operator.Supervisor do
   end
 
   defp extract_operator_spec(skill_module) when is_atom(skill_module) do
-    {skill_module, skill_module}
+    module = normalize_skill(skill_module)
+    {module, module}
   end
 
   defp extract_operator_spec(opts) when is_list(opts) do
-    skill = Keyword.fetch!(opts, :skill)
-    {skill, skill}
+    module = opts |> Keyword.fetch!(:skill) |> normalize_skill()
+    {module, module}
   end
+
+  defp normalize_skill(:beam), do: Beamlens.Skill.Beam
+  defp normalize_skill(:ets), do: Beamlens.Skill.Ets
+  defp normalize_skill(:gc), do: Beamlens.Skill.Gc
+  defp normalize_skill(:logger), do: Beamlens.Skill.Logger
+  defp normalize_skill(:ports), do: Beamlens.Skill.Ports
+  defp normalize_skill(:sup), do: Beamlens.Skill.Sup
+  defp normalize_skill(:system), do: Beamlens.Skill.System
+  defp normalize_skill(:exception), do: Beamlens.Skill.Exception
+  defp normalize_skill(skill_module), do: skill_module
 
   defp via_registry(name) do
     {:via, Registry, {Beamlens.OperatorRegistry, name}}
