@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Exception skill snapshot data now serializes correctly to JSON
 - Unit tests no longer make LLM provider calls
 - Eval tests now respect `BEAMLENS_TEST_PROVIDER` configuration
 

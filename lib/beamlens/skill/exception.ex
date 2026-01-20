@@ -66,17 +66,27 @@ if Code.ensure_loaded?(Tower) do
     @doc """
     High-level exception statistics for quick health assessment.
 
-    Returns counts by kind, level, and top exception types over a 5-minute rolling window.
+    Returns a map with:
+    - `:total_exceptions_5m` - Total exceptions in the 5-minute window
+    - `:by_kind` - Map of counts by exception kind (`:error`, `:exit`, `:throw`, `:message`)
+    - `:by_level` - Map of counts by log level
+    - `:top_exception_types` - List of maps, each with `:type` (string) and `:count` (integer)
+    - `:unique_exception_types` - Count of distinct exception types
     """
     @impl true
     def snapshot do
       stats = ExceptionStore.get_stats()
 
+      top_types =
+        Enum.map(stats.top_types, fn {type, count} ->
+          %{type: type, count: count}
+        end)
+
       %{
         total_exceptions_5m: stats.total_count,
         by_kind: stats.by_kind,
         by_level: stats.by_level,
-        top_exception_types: stats.top_types,
+        top_exception_types: top_types,
         unique_exception_types: stats.type_count
       }
     end
