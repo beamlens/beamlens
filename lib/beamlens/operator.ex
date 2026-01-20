@@ -213,7 +213,7 @@ defmodule Beamlens.Operator do
         [] ->
           raise ArgumentError,
                 "Operator for #{inspect(skill_module)} not started. " <>
-                  "Add it to the :operators list in your Beamlens config."
+                  "Add it to the :skills list in your Beamlens config."
       end
     end
   end
@@ -242,7 +242,7 @@ defmodule Beamlens.Operator do
     Beamlens.Operator.Supervisor.resolve_skill(skill_module)
   end
 
-  defp prepare_invocation(state, context, _opts, caller) do
+  defp prepare_invocation(state, context, caller) do
     run_context =
       if is_map(context) and map_size(context) > 0 do
         Context.new(metadata: %{iteration: 0})
@@ -326,17 +326,9 @@ defmodule Beamlens.Operator do
     context = %{state.context | metadata: Map.put(state.context.metadata, :trace_id, trace_id)}
 
     task =
-      case Process.whereis(Beamlens.TaskSupervisor) do
-        nil ->
-          Task.async(fn ->
-            Puck.call(state.client, input, context, output_schema: Tools.schema())
-          end)
-
-        _pid ->
-          Task.Supervisor.async_nolink(Beamlens.TaskSupervisor, fn ->
-            Puck.call(state.client, input, context, output_schema: Tools.schema())
-          end)
-      end
+      Beamlens.LLMTask.async(fn ->
+        Puck.call(state.client, input, context, output_schema: Tools.schema())
+      end)
 
     {:noreply, %{state | pending_task: task, pending_trace_id: trace_id}}
   end
@@ -421,8 +413,8 @@ defmodule Beamlens.Operator do
     end
   end
 
-  def handle_call({:invoke, context, opts}, from, %{status: :idle} = state) do
-    state = prepare_invocation(state, context, opts, from)
+  def handle_call({:invoke, context, _opts}, from, %{status: :idle} = state) do
+    state = prepare_invocation(state, context, from)
     {:noreply, %{state | status: :running}, {:continue, :loop}}
   end
 
@@ -434,7 +426,7 @@ defmodule Beamlens.Operator do
   @impl true
   def handle_cast({:invoke_async, context, opts}, %{status: :idle} = state) do
     notify_pid = Keyword.get(opts, :notify_pid)
-    state = prepare_invocation(state, context, opts, nil)
+    state = prepare_invocation(state, context, nil)
     state = %{state | notify_pid: notify_pid}
     {:noreply, %{state | status: :running}, {:continue, :loop}}
   end
@@ -831,7 +823,7 @@ defmodule Beamlens.Operator do
 
         new_state =
           state
-          |> prepare_invocation(next_context, next_opts, next_caller)
+          |> prepare_invocation(next_context, next_caller)
           |> Map.put(:invocation_queue, remaining_queue)
           |> Map.put(:notify_pid, notify_pid)
           |> Map.put(:status, :running)

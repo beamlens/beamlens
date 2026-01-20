@@ -7,21 +7,25 @@ defmodule Beamlens.Operator.Supervisor do
 
   ## Configuration
 
-  Operators are configured via the `:operators` option passed from the
-  main supervisor:
+  Skills are configured via the `:skills` option. If not specified,
+  all built-in skills are started by default.
 
+      # Use built-in skills (default)
+      children = [Beamlens]
+
+      # Use specific skills only
       children = [
-        {Beamlens.Operator.Supervisor, operators: [Beamlens.Skill.Beam, Beamlens.Skill.Ets]}
+        {Beamlens, skills: [Beamlens.Skill.Beam, Beamlens.Skill.Ets, MyApp.CustomSkill]}
       ]
 
-  ## Operator Specifications
+  ## Skill Specifications
 
-  Operators can be specified as:
+  Skills can be specified as:
 
     * `Module` - A module implementing `Beamlens.Skill` behaviour
     * `[skill: module, ...]` - Keyword list with skill module and options
 
-  ## Operator Options
+  ## Skill Options
 
     * `:skill` - Required. Module implementing `Beamlens.Skill`
     * `:compaction_max_tokens` - Token threshold before compaction (default: 50,000)
@@ -51,11 +55,11 @@ defmodule Beamlens.Operator.Supervisor do
 
   @impl true
   def init(opts) do
-    operators = Keyword.get(opts, :operators, [])
+    skills = Keyword.get(opts, :skills, @builtin_skill_modules)
     client_registry = Keyword.get(opts, :client_registry)
 
     children =
-      operators
+      skills
       |> Enum.map(&build_operator_child_spec(&1, client_registry))
       |> Enum.reject(&is_nil/1)
 
@@ -67,7 +71,13 @@ defmodule Beamlens.Operator.Supervisor do
       {:ok, module} ->
         build_operator_child_spec([skill: module], client_registry)
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        :telemetry.execute(
+          [:beamlens, :operator_supervisor, :skill_resolution_failed],
+          %{system_time: System.system_time()},
+          %{skill: skill_module, reason: reason}
+        )
+
         nil
     end
   end
@@ -180,7 +190,7 @@ defmodule Beamlens.Operator.Supervisor do
 
   """
   def configured_operators do
-    Enum.map(get_operators(), &extract_skill_module/1)
+    Enum.map(get_skills(), &extract_skill_module/1)
   end
 
   defp extract_skill_module(skill_module) when is_atom(skill_module),
@@ -190,24 +200,17 @@ defmodule Beamlens.Operator.Supervisor do
     do: opts |> Keyword.fetch!(:skill) |> normalize_skill()
 
   defp configured_operator_specs do
-    Enum.map(get_operators(), &extract_operator_spec/1)
+    Enum.map(get_skills(), fn skill ->
+      module = extract_skill_module(skill)
+      {module, module}
+    end)
   end
 
-  defp get_operators do
-    case :persistent_term.get({Beamlens.Supervisor, :operators}, :not_found) do
-      :not_found -> Application.get_env(:beamlens, :operators, [])
-      ops -> ops
+  defp get_skills do
+    case :persistent_term.get({Beamlens.Supervisor, :skills}, :not_found) do
+      :not_found -> Application.get_env(:beamlens, :skills, @builtin_skill_modules)
+      skills -> skills
     end
-  end
-
-  defp extract_operator_spec(skill_module) when is_atom(skill_module) do
-    module = normalize_skill(skill_module)
-    {module, module}
-  end
-
-  defp extract_operator_spec(opts) when is_list(opts) do
-    module = opts |> Keyword.fetch!(:skill) |> normalize_skill()
-    {module, module}
   end
 
   defp normalize_skill(:beam), do: Beamlens.Skill.Beam

@@ -31,7 +31,7 @@ defmodule Beamlens.Coordinator do
 
   use GenServer
 
-  alias Beamlens.Coordinator.{Insight, Tools}
+  alias Beamlens.Coordinator.{Insight, NotificationEntry, RunningOperator, Tools}
 
   alias Beamlens.Coordinator.Tools.{
     Done,
@@ -206,7 +206,10 @@ defmodule Beamlens.Coordinator do
     initial_notifications =
       Keyword.get(opts, :initial_notifications, [])
       |> Enum.reduce(%{}, fn notification, acc ->
-        Map.put(acc, notification.id, %{notification: notification, status: :unread})
+        Map.put(acc, notification.id, %NotificationEntry{
+          notification: notification,
+          status: :unread
+        })
       end)
 
     initial_context = build_initial_context(Keyword.get(opts, :context))
@@ -265,21 +268,9 @@ defmodule Beamlens.Coordinator do
     }
 
     task =
-      case Process.whereis(Beamlens.TaskSupervisor) do
-        nil ->
-          Task.async(fn ->
-            Puck.call(state.client, "Process notifications", context,
-              output_schema: Tools.schema()
-            )
-          end)
-
-        _pid ->
-          Task.Supervisor.async_nolink(Beamlens.TaskSupervisor, fn ->
-            Puck.call(state.client, "Process notifications", context,
-              output_schema: Tools.schema()
-            )
-          end)
-      end
+      Beamlens.LLMTask.async(fn ->
+        Puck.call(state.client, "Process notifications", context, output_schema: Tools.schema())
+      end)
 
     {:noreply, %{state | pending_task: task, pending_trace_id: trace_id}}
   end
@@ -316,7 +307,7 @@ defmodule Beamlens.Coordinator do
 
       _info ->
         new_notifications =
-          Map.put(state.notifications, notification.id, %{
+          Map.put(state.notifications, notification.id, %NotificationEntry{
             notification: notification,
             status: :unread
           })
@@ -422,8 +413,8 @@ defmodule Beamlens.Coordinator do
     end
   end
 
-  def handle_call({:invoke, context, notifications, opts}, from, %{status: :idle} = state) do
-    state = prepare_invocation(state, context, notifications, opts, from)
+  def handle_call({:invoke, context, notifications, _opts}, from, %{status: :idle} = state) do
+    state = prepare_invocation(state, context, notifications, from)
     {:noreply, %{state | status: :running}, {:continue, :loop}}
   end
 
@@ -709,10 +700,10 @@ defmodule Beamlens.Coordinator do
     end
 
     case :queue.out(state.invocation_queue) do
-      {{:value, {next_caller, next_context, next_notifications, next_opts}}, remaining_queue} ->
+      {{:value, {next_caller, next_context, next_notifications, _next_opts}}, remaining_queue} ->
         new_state =
           state
-          |> prepare_invocation(next_context, next_notifications, next_opts, next_caller)
+          |> prepare_invocation(next_context, next_notifications, next_caller)
           |> Map.put(:invocation_queue, remaining_queue)
           |> Map.put(:status, :running)
 
@@ -734,10 +725,13 @@ defmodule Beamlens.Coordinator do
     end
   end
 
-  defp prepare_invocation(state, context, notifications, _opts, caller) do
+  defp prepare_invocation(state, context, notifications, caller) do
     initial_notifications =
       Enum.reduce(notifications, %{}, fn notification, acc ->
-        Map.put(acc, notification.id, %{notification: notification, status: :unread})
+        Map.put(acc, notification.id, %NotificationEntry{
+          notification: notification,
+          status: :unread
+        })
       end)
 
     initial_context = build_initial_context(context)
@@ -756,7 +750,10 @@ defmodule Beamlens.Coordinator do
 
   defp merge_operator_notifications(notifications, operator_result) do
     Enum.reduce(operator_result.notifications, notifications, fn notification, acc ->
-      Map.put(acc, notification.id, %{notification: notification, status: :unread})
+      Map.put(acc, notification.id, %NotificationEntry{
+        notification: notification,
+        status: :unread
+      })
     end)
   end
 
@@ -773,13 +770,19 @@ defmodule Beamlens.Coordinator do
             ref = Process.monitor(pid)
             Operator.run_async(pid, %{reason: context}, notify_pid: self())
 
-            Map.put(running_operators, pid, %{
+            Map.put(running_operators, pid, %RunningOperator{
               skill: skill_module,
               ref: ref,
               started_at: DateTime.utc_now()
             })
 
           [] ->
+            :telemetry.execute(
+              [:beamlens, :coordinator, :operator_not_found],
+              %{system_time: System.system_time()},
+              %{skill: skill_module}
+            )
+
             running_operators
         end
 
@@ -886,12 +889,12 @@ defmodule Beamlens.Coordinator do
   end
 
   defp build_operator_descriptions(nil) do
-    case Application.get_env(:beamlens, :operators, []) do
-      [] ->
+    case Application.get_env(:beamlens, :skills, nil) do
+      nil ->
         build_descriptions_for_skills(Operator.Supervisor.builtin_skills())
 
-      operators ->
-        operators
+      skills ->
+        skills
         |> Enum.map(&Operator.Supervisor.resolve_skill/1)
         |> Enum.filter(&match?({:ok, _}, &1))
         |> Enum.map_join("\n", fn {:ok, skill} ->

@@ -17,7 +17,7 @@ defmodule Beamlens.Integration.SupervisorTest do
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [Beamlens.Skill.Beam]
+          skills: [Beamlens.Skill.Beam]
         )
 
       children = Supervisor.which_children(supervisor)
@@ -34,7 +34,7 @@ defmodule Beamlens.Integration.SupervisorTest do
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [Beamlens.Skill.Beam]
+          skills: [Beamlens.Skill.Beam]
         )
 
       [{pid, _}] = Registry.lookup(Beamlens.OperatorRegistry, Beamlens.Skill.Beam)

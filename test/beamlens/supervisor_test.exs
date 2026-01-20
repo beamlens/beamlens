@@ -14,7 +14,7 @@ defmodule Beamlens.SupervisorTest do
       {:ok, _supervisor} =
         start_supervised(
           {Beamlens,
-           operators: [
+           skills: [
              [skill: Beamlens.Skill.Beam],
              [skill: Beamlens.Skill.Ets],
              [skill: Beamlens.Skill.System]
@@ -46,6 +46,26 @@ defmodule Beamlens.SupervisorTest do
 
       # Coordinator should be registered with its module name
       assert Process.whereis(Beamlens.Coordinator) != nil
+    end
+  end
+
+  describe "coordinator configuration" do
+    test "coordinator receives client_registry from supervisor" do
+      client_registry = %{primary: "Test", clients: []}
+      {:ok, _} = start_supervised({Beamlens.Supervisor, client_registry: client_registry})
+
+      pid = Process.whereis(Beamlens.Coordinator)
+      state = :sys.get_state(pid)
+      assert state.client_registry == client_registry
+    end
+  end
+
+  describe "default skills" do
+    test "uses builtin skills when not specified" do
+      {:ok, _} = start_supervised({Beamlens.Supervisor, []})
+
+      operators = Beamlens.list_operators()
+      assert length(operators) == 7
     end
   end
 end

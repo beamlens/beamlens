@@ -58,11 +58,11 @@ defmodule Beamlens.Operator.SupervisorTest do
 
   describe "init/1 with configured operators" do
     setup do
-      :persistent_term.erase({Beamlens.Supervisor, :operators})
+      :persistent_term.erase({Beamlens.Supervisor, :skills})
       start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
 
       on_exit(fn ->
-        :persistent_term.erase({Beamlens.Supervisor, :operators})
+        :persistent_term.erase({Beamlens.Supervisor, :skills})
       end)
 
       :ok
@@ -72,7 +72,7 @@ defmodule Beamlens.Operator.SupervisorTest do
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [TestSkill, TestSkill2]
+          skills: [TestSkill, TestSkill2]
         )
 
       children = Supervisor.which_children(supervisor)
@@ -89,7 +89,7 @@ defmodule Beamlens.Operator.SupervisorTest do
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [TestSkill]
+          skills: [TestSkill]
         )
 
       [{TestSkill, pid, :worker, _}] = Supervisor.which_children(supervisor)
@@ -105,7 +105,7 @@ defmodule Beamlens.Operator.SupervisorTest do
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [TestSkill]
+          skills: [TestSkill]
         )
 
       [{pid, _}] = Registry.lookup(Beamlens.OperatorRegistry, TestSkill)
@@ -120,7 +120,7 @@ defmodule Beamlens.Operator.SupervisorTest do
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [TestSkill],
+          skills: [TestSkill],
           client_registry: client_registry
         )
 
@@ -136,7 +136,7 @@ defmodule Beamlens.Operator.SupervisorTest do
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [[skill: TestSkill]]
+          skills: [[skill: TestSkill]]
         )
 
       children = Supervisor.which_children(supervisor)
@@ -149,7 +149,7 @@ defmodule Beamlens.Operator.SupervisorTest do
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [TestSkill, :invalid_skill]
+          skills: [TestSkill, :invalid_skill]
         )
 
       children = Supervisor.which_children(supervisor)
@@ -161,29 +161,31 @@ defmodule Beamlens.Operator.SupervisorTest do
 
   describe "list_operators/0" do
     setup do
-      :persistent_term.erase({Beamlens.Supervisor, :operators})
+      :persistent_term.erase({Beamlens.Supervisor, :skills})
       start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
 
       on_exit(fn ->
-        :persistent_term.erase({Beamlens.Supervisor, :operators})
+        :persistent_term.erase({Beamlens.Supervisor, :skills})
       end)
 
       :ok
     end
 
-    test "returns empty list when no operators configured" do
-      {:ok, supervisor} = OperatorSupervisor.start_link(name: nil, operators: [])
+    test "returns empty list when no skills configured" do
+      :persistent_term.put({Beamlens.Supervisor, :skills}, [])
+
+      {:ok, supervisor} = OperatorSupervisor.start_link(name: nil, skills: [])
       assert OperatorSupervisor.list_operators() == []
       Supervisor.stop(supervisor)
     end
 
     test "returns list of operator statuses" do
-      :persistent_term.put({Beamlens.Supervisor, :operators}, [TestSkill, TestSkill2])
+      :persistent_term.put({Beamlens.Supervisor, :skills}, [TestSkill, TestSkill2])
 
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [TestSkill, TestSkill2]
+          skills: [TestSkill, TestSkill2]
         )
 
       operators = OperatorSupervisor.list_operators()
@@ -197,12 +199,12 @@ defmodule Beamlens.Operator.SupervisorTest do
     end
 
     test "includes title and description from skill module" do
-      :persistent_term.put({Beamlens.Supervisor, :operators}, [TestSkill])
+      :persistent_term.put({Beamlens.Supervisor, :skills}, [TestSkill])
 
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [TestSkill]
+          skills: [TestSkill]
         )
 
       [operator] = OperatorSupervisor.list_operators()
@@ -216,11 +218,11 @@ defmodule Beamlens.Operator.SupervisorTest do
 
   describe "operator_status/1" do
     setup do
-      :persistent_term.erase({Beamlens.Supervisor, :operators})
+      :persistent_term.erase({Beamlens.Supervisor, :skills})
       start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
 
       on_exit(fn ->
-        :persistent_term.erase({Beamlens.Supervisor, :operators})
+        :persistent_term.erase({Beamlens.Supervisor, :skills})
       end)
 
       :ok
@@ -230,7 +232,7 @@ defmodule Beamlens.Operator.SupervisorTest do
       {:ok, supervisor} =
         OperatorSupervisor.start_link(
           name: nil,
-          operators: [TestSkill]
+          skills: [TestSkill]
         )
 
       {:ok, status} = OperatorSupervisor.operator_status(TestSkill)
@@ -242,7 +244,7 @@ defmodule Beamlens.Operator.SupervisorTest do
     end
 
     test "returns error for non-existent operator" do
-      {:ok, supervisor} = OperatorSupervisor.start_link(name: nil, operators: [])
+      {:ok, supervisor} = OperatorSupervisor.start_link(name: nil, skills: [])
       assert {:error, :not_found} = OperatorSupervisor.operator_status(:nonexistent)
       Supervisor.stop(supervisor)
     end

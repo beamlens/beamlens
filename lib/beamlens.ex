@@ -41,7 +41,7 @@ defmodule Beamlens do
 
         def start(_type, _args) do
           children = [
-            {Beamlens, operators: [Beamlens.Skill.Beam]}
+            {Beamlens, skills: [Beamlens.Skill.Beam]}
           ]
 
           Supervisor.start_link(children, strategy: :one_for_one)
@@ -52,7 +52,7 @@ defmodule Beamlens do
 
   Options passed to `Beamlens`:
 
-    * `:operators` - List of operator configurations (see below)
+    * `:skills` - List of skill modules to start (defaults to all built-ins)
 
   ### LLM Provider Configuration
 

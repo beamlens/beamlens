@@ -17,13 +17,11 @@ defmodule Beamlens.Skill.Ecto do
         use Beamlens.Skill.Ecto, repo: MyApp.Repo
       end
 
-  Then configure as an operator:
+  Then configure in your supervision tree:
 
-      config :beamlens,
-        operators: [
-          :beam,
-          [name: :ecto, skill: MyApp.EctoSkill]
-        ]
+      children = [
+        {Beamlens, skills: [:beam, MyApp.EctoSkill]}
+      ]
 
   ## PII Safety
 

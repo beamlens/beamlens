@@ -19,12 +19,12 @@ defmodule Beamlens.Evals.CoordinatorOperatorTest do
   setup do
     # Configure operators for coordinator tests
     :persistent_term.put(
-      {Beamlens.Supervisor, :operators},
+      {Beamlens.Supervisor, :skills},
       [Beamlens.Skill.Beam, Beamlens.Skill.Ets, Beamlens.Skill.Gc]
     )
 
     on_exit(fn ->
-      :persistent_term.erase({Beamlens.Supervisor, :operators})
+      :persistent_term.erase({Beamlens.Supervisor, :skills})
     end)
 
     case IntegrationCase.build_client_registry() do

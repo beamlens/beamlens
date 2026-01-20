@@ -32,12 +32,12 @@ Operators and Coordinator are static, always-running processes invoked via `Beam
 beamlens uses direct Erlang message passing for operator-coordinator communication:
 
 ```elixir
-# When Coordinator spawns an Operator
-{:ok, operator_pid} = Operator.start_link(
-  skill: Beamlens.Skill.Beam,
-  notify_pid: self(),  # Coordinator PID
-  # ...
-)
+# Coordinator invokes static operator
+case Registry.lookup(Beamlens.OperatorRegistry, skill_module) do
+  [{pid, _}] ->
+    ref = Process.monitor(pid)
+    Operator.run_async(pid, %{reason: context}, notify_pid: self())
+end
 
 # Operator sends notifications to coordinator
 send(notify_pid, {:operator_notification, self(), notification})
@@ -49,27 +49,33 @@ send(notify_pid, {:operator_complete, self(), Beamlens.Skill.Beam, result})
 ### Process Lifecycle
 
 ```
-┌─────────────┐
-│ Coordinator │
-└──────┬──────┘
-       │ spawn + link
-       ├─────────────┐
-       ▼             ▼
-  ┌─────────────────────┐   ┌─────────────────────┐
-  │      Operator       │   │      Operator       │
-  │ Beamlens.Skill.Beam │   │ Beamlens.Skill.Ets  │
-  └─────────────────────┘   └─────────────────────┘
-       │             │
-       └──────┬──────┘
-              │ send messages
-              ▼
-       {:operator_notification, pid, data}
-       {:operator_complete, pid, skill, result}
+            ┌───────────────────────┐
+            │   Beamlens.Supervisor │
+            └───────────┬───────────┘
+                        │
+        ┌───────────────┼───────────────┐
+        ▼               ▼               ▼
+┌──────────────┐  ┌─────────────┐  ┌──────────────────┐
+│ Coordinator  │  │   ...       │  │ Operator.Super.  │
+│   (idle)     │  │ (stores)    │  └────────┬─────────┘
+└──────────────┘  └─────────────┘           │
+        │                           ┌───────┴───────┐
+        │                           ▼               ▼
+        │                   ┌─────────────┐   ┌─────────────┐
+        │                   │  Operator   │   │  Operator   │
+        │ invoke via        │  (idle)     │   │  (idle)     │
+        │ run_async()       └─────────────┘   └─────────────┘
+        └──────────────────────────►│
+                                    │ send messages
+                                    ▼
+                          {:operator_notification, pid, data}
+                          {:operator_complete, pid, skill, result}
 ```
 
 **Crash Propagation:**
-- Coordinator crash → Operators die (linked)
-- Operator crash → Coordinator receives `{:DOWN, ref, ...}` (monitored)
+- Coordinator crash → Operators continue running (separate supervisor)
+- Operator crash at rest → `Operator.Supervisor` restarts it
+- Operator crash during invocation → Coordinator receives `{:DOWN, ref, ...}`
 
 ### Message Protocol
 
@@ -113,14 +119,14 @@ See `lib/beamlens/coordinator.ex` `handle_info` callbacks for crash handling.
 ### On-Demand vs Continuous Mode
 
 **On-Demand (`Operator.run/2`):**
-- Short-lived operator process
-- Coordinator waits for completion
+- Invokes static operator process
+- Operator transitions from idle to running, then back to idle
 - Caller receives result directly
 
-**Continuous (`Operator.start_link/1` with `start_loop: true`):**
-- Long-lived operator process
-- Coordinator receives stream of notifications
-- Operator runs until explicitly stopped
+**Async (`Operator.run_async/3`):**
+- Invokes static operator without blocking
+- Caller receives `{:operator_notification, ...}` and `{:operator_complete, ...}` messages
+- Multiple callers can queue invocations
 
 ### On-Demand Execution Sequence
 
@@ -129,9 +135,11 @@ User
   │
   ├─ Coordinator.run(context)
   │       │
-  │       ├─ spawn Coordinator (temporary)
+  │       ├─ GenServer.call to static Coordinator
   │       │       │
-  │       │       ├─ spawn Operator (temporary, linked)
+  │       │       ├─ Registry.lookup for Operator
+  │       │       │
+  │       │       ├─ Operator.run_async (invokes static Operator)
   │       │       │       │
   │       │       │       ├─ LLM analysis loop
   │       │       │       │
@@ -550,7 +558,7 @@ children = [
   {Beamlens.Skill.Ecto.TelemetryStore, repo: MyApp.Repo},
 
   # Configure Beamlens with Ecto skill
-  {Beamlens, operators: [MyApp.EctoSkill]}
+  {Beamlens, skills: [MyApp.EctoSkill]}
 ]
 
 # Trigger investigation
@@ -678,7 +686,7 @@ end
 Register in supervision tree:
 
 ```elixir
-{Beamlens, operators: [Beamlens.Skill.Beam, MyApp.Skills.Postgres]}
+{Beamlens, skills: [Beamlens.Skill.Beam, MyApp.Skills.Postgres]}
 
 # Trigger investigation
 {:ok, result} = Beamlens.Coordinator.run(%{reason: "database performance check"})

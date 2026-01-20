@@ -18,13 +18,11 @@ defmodule Beamlens.Skill.Ecto.Local do
         use Beamlens.Skill.Ecto.Local, repo: MyApp.Repo
       end
 
-  Then configure as an operator:
+  Then configure in your supervision tree:
 
-      config :beamlens,
-        operators: [
-          :beam,
-          [name: :ecto_local, skill: MyApp.EctoLocalSkill]
-        ]
+      children = [
+        {Beamlens, skills: [:beam, MyApp.EctoLocalSkill]}
+      ]
 
   ## Clustered Deployment
 

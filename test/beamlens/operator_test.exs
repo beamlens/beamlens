@@ -449,6 +449,16 @@ defmodule Beamlens.OperatorTest do
     end
   end
 
+  describe "run/3 without started operator" do
+    test "raises ArgumentError when operator not in registry" do
+      start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
+
+      assert_raise ArgumentError, ~r/Operator for .* not started/, fn ->
+        Operator.run(TestSkill, %{reason: "test"}, [])
+      end
+    end
+  end
+
   describe "puck_client override" do
     test "uses provided puck_client for loop responses" do
       responses = [

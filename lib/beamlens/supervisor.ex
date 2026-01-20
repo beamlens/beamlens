@@ -14,7 +14,7 @@ defmodule Beamlens.Supervisor do
   ## Configuration
 
       children = [
-        {Beamlens, operators: [Beamlens.Skill.Beam, Beamlens.Skill.Ets]}
+        {Beamlens, skills: [Beamlens.Skill.Beam, Beamlens.Skill.Ets]}
       ]
 
   ## Advanced Deployments
@@ -35,9 +35,9 @@ defmodule Beamlens.Supervisor do
 
   @impl true
   def init(opts) do
-    operators = Keyword.get(opts, :operators, [])
+    skills = Keyword.get(opts, :skills, Beamlens.Operator.Supervisor.builtin_skills())
     client_registry = Keyword.get(opts, :client_registry)
-    :persistent_term.put({__MODULE__, :operators}, operators)
+    :persistent_term.put({__MODULE__, :skills}, skills)
 
     children =
       [
@@ -46,7 +46,7 @@ defmodule Beamlens.Supervisor do
         LogStore,
         exception_store_child(),
         coordinator_child(client_registry),
-        {OperatorSupervisor, operators: operators, client_registry: client_registry}
+        {OperatorSupervisor, skills: skills, client_registry: client_registry}
       ]
       |> List.flatten()
 

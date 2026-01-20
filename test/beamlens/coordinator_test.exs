@@ -11,36 +11,6 @@ defmodule Beamlens.CoordinatorTest do
     Puck.Client.new({Puck.Backends.Mock, error: :test_stop})
   end
 
-  defp operator_mock_client do
-    Puck.Client.new({__MODULE__.OperatorDoneBackend, %{}})
-  end
-
-  defmodule OperatorDoneBackend do
-    @behaviour Puck.Backend
-
-    def call(_config, _messages, _opts) do
-      {:ok,
-       Puck.Response.new(
-         content: %Beamlens.Operator.Tools.Done{intent: "done"},
-         finish_reason: :stop
-       )}
-    end
-
-    def stream(_config, _messages, _opts) do
-      chunk = %{type: :content, content: %Beamlens.Operator.Tools.Done{intent: "done"}}
-      {:ok, [chunk]}
-    end
-
-    def introspect(_config) do
-      %{
-        provider: "mock",
-        model: "operator-done",
-        operation: :chat,
-        capabilities: []
-      }
-    end
-  end
-
   defp blocking_client do
     Puck.Client.new({__MODULE__.BlockingBackend, %{}})
   end
@@ -74,10 +44,7 @@ defmodule Beamlens.CoordinatorTest do
     Process.flag(:trap_exit, true)
     name = Keyword.get(opts, :name, :"coordinator_#{:erlang.unique_integer([:positive])}")
 
-    opts =
-      opts
-      |> Keyword.put(:name, name)
-      |> Keyword.put_new(:operator_puck_client, operator_mock_client())
+    opts = Keyword.put(opts, :name, name)
 
     {:ok, pid} = Coordinator.start_link(opts)
 
@@ -149,6 +116,14 @@ defmodule Beamlens.CoordinatorTest do
   end
 
   defp extract_content_text(_), do: ""
+
+  describe "run/2 without started coordinator" do
+    test "raises ArgumentError when coordinator not started" do
+      assert_raise ArgumentError, ~r/Coordinator not started/, fn ->
+        Coordinator.run(%{reason: "test"}, [])
+      end
+    end
+  end
 
   describe "start_link/1" do
     test "starts with custom name" do
@@ -972,12 +947,12 @@ defmodule Beamlens.CoordinatorTest do
       start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
 
       :persistent_term.put(
-        {Beamlens.Supervisor, :operators},
+        {Beamlens.Supervisor, :skills},
         [Beamlens.Skill.Beam, Beamlens.Skill.Ets, Beamlens.Skill.Gc]
       )
 
       on_exit(fn ->
-        :persistent_term.erase({Beamlens.Supervisor, :operators})
+        :persistent_term.erase({Beamlens.Supervisor, :skills})
       end)
     end
 
@@ -1801,8 +1776,7 @@ defmodule Beamlens.CoordinatorTest do
       {:ok, pid} =
         Coordinator.start_link(
           name: Beamlens.Coordinator,
-          puck_client: client,
-          operator_puck_client: operator_mock_client()
+          puck_client: client
         )
 
       assert {:ok, %{insights: [], operator_results: []}} =
@@ -1973,8 +1947,7 @@ defmodule Beamlens.CoordinatorTest do
       {:ok, pid} =
         Coordinator.start_link(
           name: :"test_coord_queue_#{:erlang.unique_integer([:positive])}",
-          puck_client: client,
-          operator_puck_client: operator_mock_client()
+          puck_client: client
         )
 
       caller = self()
@@ -2005,8 +1978,7 @@ defmodule Beamlens.CoordinatorTest do
       {:ok, pid} =
         Coordinator.start_link(
           name: :"test_coord_reset_#{:erlang.unique_integer([:positive])}",
-          puck_client: client,
-          operator_puck_client: operator_mock_client()
+          puck_client: client
         )
 
       {:ok, result1} = Coordinator.run(pid, %{reason: "first"}, [])

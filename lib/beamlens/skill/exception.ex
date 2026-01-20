@@ -21,7 +21,7 @@ if Code.ensure_loaded?(Tower) do
 
     ## Usage
 
-        {Beamlens, operators: [:beam, :exception]}
+        {Beamlens, skills: [:beam, :exception]}
 
     ## Sensitive Data
 

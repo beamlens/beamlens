@@ -36,7 +36,7 @@ beamlens is an adaptive runtime engine that lives inside your supervision tree. 
 
 * **Extensible Skills**: Teach beamlens to understand your domain. If you are building a video platform, give it a skill to analyze `ffmpeg` process metrics.
 
-* **Low Overhead**: Agents are dormant until triggered.
+* **Low Overhead**: Operators wait idle until invoked. No LLM calls occur until you trigger analysis.
 
 ## The Result
 
@@ -142,6 +142,9 @@ client =
 For dynamic responses (e.g., referencing snapshot IDs), use function responses.
 See `Puck.Test` documentation for details.
 
+**Note:** This example shows the unit testing pattern using `Puck.Test.mock_client/2`.
+For integration tests with the full supervision tree, use `Operator.run/2` instead.
+
 Live-tagged tests require a real provider. Set `BEAMLENS_TEST_PROVIDER` to `anthropic`, `openai`,
 `google-ai`, or `ollama`. When set to `mock`, live tests are skipped.
 
@@ -198,7 +201,24 @@ def perform(_job) do
 end
 ```
 
-**4. Automated Remediation (Advanced)**
+**4. Fire-and-Forget Analysis**
+
+Use `run_async/3` for background analysis with callbacks:
+
+```elixir
+# Fire-and-forget analysis with callbacks
+Beamlens.Operator.run_async(pid, %{reason: "background check"}, notify_pid: self())
+
+receive do
+  {:operator_notification, _pid, notification} ->
+    Logger.info("Got notification: #{notification.summary}")
+
+  {:operator_complete, _pid, skill, result} ->
+    Logger.info("#{skill} completed with state: #{result.state}")
+end
+```
+
+**5. Automated Remediation (Advanced)**
 
 Once you trust the diagnosis, you can authorize beamlens to fix specific issues. This turns beamlens from a passive observer into an active supervisor.
 

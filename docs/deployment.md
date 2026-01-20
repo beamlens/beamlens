@@ -14,13 +14,13 @@ children = [
 
 This starts a static supervision tree. Operators and Coordinator are always-running processes invoked via `Operator.run/2` or `Coordinator.run/2`.
 
-Configure which operators to start:
+Configure which skills to start:
 
 ```elixir
 children = [
   {Beamlens,
    client_registry: client_registry(),
-   operators: [Beamlens.Skill.Beam, Beamlens.Skill.Ets, MyApp.EctoSkill]}
+   skills: [Beamlens.Skill.Beam, Beamlens.Skill.Ets, MyApp.EctoSkill]}
 ]
 ```
 

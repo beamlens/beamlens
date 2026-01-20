@@ -18,19 +18,16 @@ defmodule Beamlens.Skill do
 
   ## Configuration
 
-  Register your custom skill in your application's config:
+  Register your custom skill in your application's supervision tree:
 
-      config :beamlens,
-        operators: [
+      children = [
+        {Beamlens, skills: [
           Beamlens.Skill.Beam,  # built-in skill
           MyApp.Skills.Redis    # custom skill
-        ]
+        ]}
+      ]
 
-  Or start it dynamically:
-
-      Beamlens.Operator.Supervisor.start_operator(
-        skill: MyApp.Skills.Redis
-      )
+  If no skills are specified, all built-in skills are started by default.
 
   ## Callback Naming Conventions
 
