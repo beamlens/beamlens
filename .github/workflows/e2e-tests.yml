@@ -1,0 +1,90 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Test tags to include (space-separated, e.g., "integration eval")'
+        required: true
+        default: 'integration'
+        type: string
+      provider:
+        description: 'LLM provider'
+        required: true
+        default: 'anthropic'
+        type: choice
+        options:
+          - anthropic
+          - openai
+          - google-ai
+          - zai
+
+permissions:
+  contents: read
+
+env:
+  ELIXIR_VERSION: '1.19'
+  OTP_VERSION: '28'
+  MIX_ENV: test
+
+jobs:
+  prepare:
+    name: Prepare Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Build matrix from tags
+        id: set-matrix
+        run: |
+          TAGS="${{ inputs.tags }}"
+          JSON=$(echo "$TAGS" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -s -c '{tag: .}')
+          echo "matrix=$JSON" >> $GITHUB_OUTPUT
+          echo "Matrix: $JSON"
+
+  e2e-tests:
+    name: "${{ matrix.tag }} (${{ inputs.provider }})"
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: e2e-tests
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ env.ELIXIR_VERSION }}
+        otp-version: ${{ env.OTP_VERSION }}
+
+    - name: Restore dependencies cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          deps
+          _build
+        key: ${{ runner.os }}-mix-e2e-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-mix-e2e-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Compile dependencies
+      run: mix deps.compile
+
+    - name: Compile application
+      run: mix compile
+
+    - name: Run ${{ matrix.tag }} tests
+      env:
+        BEAMLENS_TEST_PROVIDER: ${{ inputs.provider }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+      run: mix test --only ${{ matrix.tag }}

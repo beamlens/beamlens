@@ -231,7 +231,7 @@ defmodule Beamlens.CoordinatorTest do
       {:ok, pid} = start_coordinator()
 
       state = :sys.get_state(pid)
-      assert state.running == false
+      assert state.status == :idle
 
       stop_coordinator(pid)
     end
@@ -263,7 +263,7 @@ defmodule Beamlens.CoordinatorTest do
       notification = build_test_notification()
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true}
+        %{state | status: :running}
       end)
 
       simulate_notification(pid, notification)
@@ -281,7 +281,7 @@ defmodule Beamlens.CoordinatorTest do
       {:ok, pid} = start_coordinator()
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true}
+        %{state | status: :running}
       end)
 
       notification1 = build_test_notification(%{anomaly_type: "type1"})
@@ -340,7 +340,7 @@ defmodule Beamlens.CoordinatorTest do
           notification2.id => %{notification: notification2, status: :acknowledged}
         }
 
-        %{state | notifications: notifications, running: true, pending_task: task}
+        %{state | notifications: notifications, status: :running, pending_task: task}
       end)
 
       action_map = %{intent: "get_notifications"}
@@ -368,7 +368,7 @@ defmodule Beamlens.CoordinatorTest do
           notification2.id => %{notification: notification2, status: :acknowledged}
         }
 
-        %{state | notifications: notifications, running: true, pending_task: task}
+        %{state | notifications: notifications, status: :running, pending_task: task}
       end)
 
       action_map = %{intent: "get_notifications", status: "unread"}
@@ -395,7 +395,7 @@ defmodule Beamlens.CoordinatorTest do
 
       :sys.replace_state(pid, fn state ->
         notifications = %{notification.id => %{notification: notification, status: :unread}}
-        %{state | notifications: notifications, running: true, pending_task: task}
+        %{state | notifications: notifications, status: :running, pending_task: task}
       end)
 
       action_map = %{
@@ -427,7 +427,7 @@ defmodule Beamlens.CoordinatorTest do
           notification2.id => %{notification: notification2, status: :unread}
         }
 
-        %{state | notifications: notifications, running: true, pending_task: task}
+        %{state | notifications: notifications, status: :running, pending_task: task}
       end)
 
       action_map = %{
@@ -456,7 +456,7 @@ defmodule Beamlens.CoordinatorTest do
 
       :sys.replace_state(pid, fn state ->
         notifications = %{notification.id => %{notification: notification, status: :unread}}
-        %{state | notifications: notifications, running: true, pending_task: task}
+        %{state | notifications: notifications, status: :running, pending_task: task}
       end)
 
       action_map = %{
@@ -491,7 +491,7 @@ defmodule Beamlens.CoordinatorTest do
           notification2.id => %{notification: notification2, status: :acknowledged}
         }
 
-        %{state | notifications: notifications, running: true, pending_task: task}
+        %{state | notifications: notifications, status: :running, pending_task: task}
       end)
 
       action_map = %{
@@ -521,7 +521,7 @@ defmodule Beamlens.CoordinatorTest do
 
       :sys.replace_state(pid, fn state ->
         notifications = %{notification.id => %{notification: notification, status: :acknowledged}}
-        %{state | notifications: notifications, running: true, pending_task: task}
+        %{state | notifications: notifications, status: :running, pending_task: task}
       end)
 
       action_map = %{
@@ -555,7 +555,7 @@ defmodule Beamlens.CoordinatorTest do
 
       :sys.replace_state(pid, fn state ->
         notifications = %{notification.id => %{notification: notification, status: :resolved}}
-        %{state | notifications: notifications, running: true, pending_task: task}
+        %{state | notifications: notifications, status: :running, pending_task: task}
       end)
 
       action_map = %{intent: "done"}
@@ -563,7 +563,7 @@ defmodule Beamlens.CoordinatorTest do
 
       state = :sys.get_state(pid)
 
-      assert state.running == false
+      assert state.status == :idle
 
       stop_coordinator(pid)
     end
@@ -593,7 +593,7 @@ defmodule Beamlens.CoordinatorTest do
         %{
           state
           | notifications: notifications,
-            running: true,
+            status: :running,
             pending_task: task,
             iteration: 5,
             client: blocking_client()
@@ -606,7 +606,7 @@ defmodule Beamlens.CoordinatorTest do
       assert_receive {:telemetry, :done_rejected, %{unread_count: 1}}, 1000
 
       state = :sys.get_state(pid)
-      assert state.running == true
+      assert state.status == :running
       assert state.iteration == 6
 
       stop_coordinator(pid)
@@ -646,7 +646,7 @@ defmodule Beamlens.CoordinatorTest do
         %{
           state
           | running_operators: running_operators,
-            running: true,
+            status: :running,
             pending_task: task,
             iteration: 5,
             client: blocking_client()
@@ -659,7 +659,7 @@ defmodule Beamlens.CoordinatorTest do
       assert_receive {:telemetry, :done_rejected, %{running_operator_count: 1}}, 1000
 
       state = :sys.get_state(pid)
-      assert state.running == true
+      assert state.status == :running
       assert state.iteration == 6
 
       Process.exit(fake_operator_pid, :kill)
@@ -688,7 +688,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       send(pid, {task.ref, {:error, :test_error}})
@@ -696,7 +696,7 @@ defmodule Beamlens.CoordinatorTest do
       assert_receive {:telemetry, :llm_error, %{reason: :test_error}}, 1000
 
       state = :sys.get_state(pid)
-      assert state.running == false
+      assert state.status == :idle
 
       stop_coordinator(pid)
       :telemetry.detach({ref, :llm_error})
@@ -721,7 +721,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       send(pid, {:DOWN, task.ref, :process, task.pid, :killed})
@@ -729,7 +729,7 @@ defmodule Beamlens.CoordinatorTest do
       assert_receive {:telemetry, :llm_error, %{reason: {:task_crashed, :killed}}}, 1000
 
       state = :sys.get_state(pid)
-      assert state.running == false
+      assert state.status == :idle
 
       stop_coordinator(pid)
       :telemetry.detach({ref, :llm_error})
@@ -775,7 +775,7 @@ defmodule Beamlens.CoordinatorTest do
       {:ok, pid} = start_coordinator()
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true}
+        %{state | status: :running}
       end)
 
       notification = build_test_notification()
@@ -838,7 +838,7 @@ defmodule Beamlens.CoordinatorTest do
         %{
           state
           | notifications: notifications,
-            running: true,
+            status: :running,
             pending_task: task,
             pending_trace_id: "test-trace"
         }
@@ -879,7 +879,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{intent: "done"}
@@ -969,6 +969,8 @@ defmodule Beamlens.CoordinatorTest do
 
   describe "handle_action - InvokeOperators" do
     setup do
+      start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
+
       :persistent_term.put(
         {Beamlens.Supervisor, :operators},
         [Beamlens.Skill.Beam, Beamlens.Skill.Ets, Beamlens.Skill.Gc]
@@ -998,7 +1000,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{
@@ -1022,7 +1024,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{intent: "invoke_operators", skills: ["Beamlens.Skill.Beam"]}
@@ -1045,7 +1047,13 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace", iteration: 0}
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "test-trace",
+            iteration: 0
+        }
       end)
 
       action_map = %{intent: "invoke_operators", skills: ["Beamlens.Skill.Beam"]}
@@ -1077,7 +1085,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{
@@ -1117,7 +1125,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{
@@ -1141,7 +1149,13 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace", iteration: 0}
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "test-trace",
+            iteration: 0
+        }
       end)
 
       action_map = %{
@@ -1165,7 +1179,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{
@@ -1214,7 +1228,7 @@ defmodule Beamlens.CoordinatorTest do
 
         %{
           state
-          | running: true,
+          | status: :running,
             pending_task: task,
             pending_trace_id: "test-trace",
             running_operators: running_operators
@@ -1250,7 +1264,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{intent: "get_operator_statuses"}
@@ -1285,7 +1299,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{intent: "get_operator_statuses"}
@@ -1320,7 +1334,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{intent: "get_operator_statuses"}
@@ -1339,7 +1353,13 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace", iteration: 0}
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "test-trace",
+            iteration: 0
+        }
       end)
 
       action_map = %{intent: "get_operator_statuses"}
@@ -1360,7 +1380,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{intent: "wait", ms: 50}
@@ -1395,7 +1415,7 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace"}
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
       end)
 
       action_map = %{intent: "wait", ms: 100}
@@ -1414,7 +1434,13 @@ defmodule Beamlens.CoordinatorTest do
       Task.await(task)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: true, pending_task: task, pending_trace_id: "test-trace", iteration: 0}
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "test-trace",
+            iteration: 0
+        }
       end)
 
       action_map = %{intent: "wait", ms: 10}
@@ -1570,7 +1596,7 @@ defmodule Beamlens.CoordinatorTest do
             started_at: DateTime.utc_now()
           })
 
-        %{state | running_operators: running_operators, running: true}
+        %{state | running_operators: running_operators, status: :running}
       end)
 
       send(pid, {:DOWN, operator_ref, :process, operator_pid, :killed})
@@ -1578,7 +1604,7 @@ defmodule Beamlens.CoordinatorTest do
       assert Process.alive?(pid)
 
       state = :sys.get_state(pid)
-      assert state.running == true
+      assert state.status == :running
 
       stop_coordinator(pid)
     end
@@ -1772,8 +1798,17 @@ defmodule Beamlens.CoordinatorTest do
           default: %Beamlens.Coordinator.Tools.Done{intent: "done"}
         )
 
+      {:ok, pid} =
+        Coordinator.start_link(
+          name: Beamlens.Coordinator,
+          puck_client: client,
+          operator_puck_client: operator_mock_client()
+        )
+
       assert {:ok, %{insights: [], operator_results: []}} =
-               Coordinator.run(%{}, puck_client: client, skills: [], timeout: 1_000)
+               Coordinator.run(%{}, skills: [], timeout: 1_000)
+
+      stop_coordinator(pid)
     end
   end
 
@@ -1922,6 +1957,63 @@ defmodule Beamlens.CoordinatorTest do
 
       state_after = :sys.get_state(pid)
       assert state_before.operator_results == state_after.operator_results
+
+      stop_coordinator(pid)
+    end
+  end
+
+  describe "invocation queue" do
+    test "queues concurrent requests and processes them in order" do
+      client =
+        Puck.Test.mock_client(
+          [%Beamlens.Coordinator.Tools.Done{intent: "done"}],
+          default: %Beamlens.Coordinator.Tools.Done{intent: "done"}
+        )
+
+      {:ok, pid} =
+        Coordinator.start_link(
+          name: :"test_coord_queue_#{:erlang.unique_integer([:positive])}",
+          puck_client: client,
+          operator_puck_client: operator_mock_client()
+        )
+
+      caller = self()
+
+      spawn(fn ->
+        result = Coordinator.run(pid, %{reason: "first"}, [])
+        send(caller, {:result1, result})
+      end)
+
+      spawn(fn ->
+        result = Coordinator.run(pid, %{reason: "second"}, [])
+        send(caller, {:result2, result})
+      end)
+
+      assert_receive {:result1, {:ok, _}}, 2_000
+      assert_receive {:result2, {:ok, _}}, 2_000
+
+      stop_coordinator(pid)
+    end
+
+    test "queued invocation resets state for fresh analysis" do
+      client =
+        Puck.Test.mock_client(
+          [%Beamlens.Coordinator.Tools.Done{intent: "done"}],
+          default: %Beamlens.Coordinator.Tools.Done{intent: "done"}
+        )
+
+      {:ok, pid} =
+        Coordinator.start_link(
+          name: :"test_coord_reset_#{:erlang.unique_integer([:positive])}",
+          puck_client: client,
+          operator_puck_client: operator_mock_client()
+        )
+
+      {:ok, result1} = Coordinator.run(pid, %{reason: "first"}, [])
+      {:ok, result2} = Coordinator.run(pid, %{reason: "second"}, [])
+
+      assert result1.insights == []
+      assert result2.insights == []
 
       stop_coordinator(pid)
     end

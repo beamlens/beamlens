@@ -9,13 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Google AI (Gemini) provider support for integration tests via `BEAMLENS_TEST_PROVIDER=google-ai`
+- Static supervision for Operator and Coordinator processes
+- `Operator.run_async/3` for async invocation with notification callbacks
+- Invocation queue for handling concurrent requests to static processes
+- Google AI (Gemini) provider support for integration tests
+
+### Changed
+
+- Operators and Coordinator now start as static, always-running supervised processes
+- `Operator.Supervisor` changed from DynamicSupervisor to static Supervisor
+
+### Removed
+
+- `Operator.Supervisor.start_operator/2` - operators are now configured statically
+- `Operator.Supervisor.stop_operator/2` - operators remain running
 
 ### Fixed
 
 - Unit tests no longer make LLM provider calls
-- Eval tests now respect `BEAMLENS_TEST_PROVIDER` configuration
-- `OperatorSupervisor.start_operator/2` test uses module-based skill identification
 
 ## [0.2.0] - 2026-01-14
 

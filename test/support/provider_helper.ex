@@ -109,6 +109,30 @@ defmodule Beamlens.TestSupport.Provider do
     end
   end
 
+  defp do_build_context("zai") do
+    case System.get_env("ZAI_API_KEY") do
+      nil ->
+        {:error, "ZAI_API_KEY not set. Set it or use BEAMLENS_TEST_PROVIDER=ollama"}
+
+      _key ->
+        model = System.get_env("BEAMLENS_TEST_MODEL", "glm-4.7-flash")
+
+        {:ok,
+         %{
+           client_registry: %{
+             primary: "Zai",
+             clients: [
+               %{
+                 name: "Zai",
+                 provider: "zai",
+                 options: %{model: model}
+               }
+             ]
+           }
+         }}
+    end
+  end
+
   defp do_build_context("mock") do
     responses = [
       %Beamlens.Operator.Tools.TakeSnapshot{intent: "take_snapshot"},
@@ -125,7 +149,8 @@ defmodule Beamlens.TestSupport.Provider do
   end
 
   defp do_build_context(provider) do
-    {:error, "Unknown provider: #{provider}. Use anthropic, openai, google-ai, ollama, or mock"}
+    {:error,
+     "Unknown provider: #{provider}. Use anthropic, openai, google-ai, zai, ollama, or mock"}
   end
 
   defp check_ollama_available do

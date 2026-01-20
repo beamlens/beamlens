@@ -1,16 +1,18 @@
 defmodule Beamlens.Operator.Supervisor do
   @moduledoc """
-  DynamicSupervisor for operator processes.
+  Supervisor for static operator processes.
 
-  Supervises operator processes started via `start_operator/3`.
+  Supervises operator processes as static, always-running children.
+  Operators wait in `:idle` status until invoked.
 
-  ## Starting Operators
+  ## Configuration
 
-      {:ok, pid} = Beamlens.Operator.Supervisor.start_operator(Beamlens.Skill.Beam)
+  Operators are configured via the `:operators` option passed from the
+  main supervisor:
 
-      {:ok, pid} = Beamlens.Operator.Supervisor.start_operator(
-        skill: MyApp.Skill.Custom
-      )
+      children = [
+        {Beamlens.Operator.Supervisor, operators: [Beamlens.Skill.Beam, Beamlens.Skill.Ets]}
+      ]
 
   ## Operator Specifications
 
@@ -28,7 +30,7 @@ defmodule Beamlens.Operator.Supervisor do
   For one-shot analysis, use `Beamlens.Operator.run/2`.
   """
 
-  use DynamicSupervisor
+  use Supervisor
 
   alias Beamlens.Operator
 
@@ -44,31 +46,33 @@ defmodule Beamlens.Operator.Supervisor do
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
-    DynamicSupervisor.start_link(__MODULE__, opts, name: name)
+    Supervisor.start_link(__MODULE__, opts, name: name)
   end
 
   @impl true
-  def init(_opts) do
-    DynamicSupervisor.init(strategy: :one_for_one)
+  def init(opts) do
+    operators = Keyword.get(opts, :operators, [])
+    client_registry = Keyword.get(opts, :client_registry)
+
+    children =
+      operators
+      |> Enum.map(&build_operator_child_spec(&1, client_registry))
+      |> Enum.reject(&is_nil/1)
+
+    Supervisor.init(children, strategy: :one_for_one)
   end
 
-  @doc """
-  Starts a single operator under the supervisor.
-  """
-  def start_operator(supervisor \\ __MODULE__, spec, client_registry \\ nil)
-
-  def start_operator(supervisor, skill_module, client_registry)
-      when is_atom(skill_module) and not is_nil(skill_module) do
+  defp build_operator_child_spec(skill_module, client_registry) when is_atom(skill_module) do
     case resolve_skill(skill_module) do
       {:ok, module} ->
-        start_operator(supervisor, [skill: module], client_registry)
+        build_operator_child_spec([skill: module], client_registry)
 
-      {:error, reason} ->
-        {:error, reason}
+      {:error, _reason} ->
+        nil
     end
   end
 
-  def start_operator(supervisor, opts, client_registry) when is_list(opts) do
+  defp build_operator_child_spec(opts, client_registry) when is_list(opts) do
     skill = Keyword.fetch!(opts, :skill)
 
     operator_opts =
@@ -86,48 +90,26 @@ defmodule Beamlens.Operator.Supervisor do
         operator_opts
       end
 
-    DynamicSupervisor.start_child(supervisor, {Operator, operator_opts})
-  end
-
-  @doc """
-  Stops an operator by name.
-  """
-  def stop_operator(supervisor \\ __MODULE__, name) do
-    case Registry.lookup(Beamlens.OperatorRegistry, name) do
-      [{pid, _}] ->
-        DynamicSupervisor.terminate_child(supervisor, pid)
-
-      [] ->
-        {:error, :not_found}
-    end
+    Supervisor.child_spec({Operator, operator_opts}, id: skill)
   end
 
   @doc """
   Lists all configured operators with their status.
 
-  Returns both running and stopped operators. Running operators include
-  their full status from the Operator process, while stopped operators
-  show `running: false`. All operators include `title` and `description`
+  All operators are now static and always running. Returns status
+  from each operator process including `title` and `description`
   from their skill module for frontend display.
   """
   def list_operators do
-    # Get running operators from registry
-    running_operators =
-      Registry.select(Beamlens.OperatorRegistry, [{{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}])
-      |> Map.new(fn {name, pid} ->
-        status = Operator.status(pid)
-        {name, Map.put(status, :name, name)}
-      end)
-
-    # Get all configured operator specs with skill modules
     configured_operator_specs()
     |> Enum.map(fn {name, skill_module} ->
       base_status =
-        case Map.fetch(running_operators, name) do
-          {:ok, status} ->
-            status
+        case Registry.lookup(Beamlens.OperatorRegistry, name) do
+          [{pid, _}] ->
+            status = Operator.status(pid)
+            Map.put(status, :name, name)
 
-          :error ->
+          [] ->
             %{
               operator: name,
               name: name,
@@ -137,7 +119,6 @@ defmodule Beamlens.Operator.Supervisor do
             }
         end
 
-      # Enrich with skill metadata
       Map.merge(base_status, %{
         title: skill_module.title(),
         description: skill_module.description()

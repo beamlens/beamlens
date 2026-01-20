@@ -19,10 +19,11 @@ graph TD
     S --> OR[OperatorRegistry]
     S --> LS[LogStore]
     S --> ES[ExceptionStore]
+    S --> C[Coordinator]
     S --> OS[Operator.Supervisor]
 ```
 
-Operators and Coordinators are started on-demand via `Beamlens.Operator.run/2` or `Beamlens.Coordinator.run/2`.
+Operators and Coordinator are static, always-running processes invoked via `Beamlens.Operator.run/2` or `Beamlens.Coordinator.run/2`.
 
 ## Inter-Process Communication
 

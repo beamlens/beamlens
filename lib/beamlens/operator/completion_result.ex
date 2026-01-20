@@ -1,6 +1,6 @@
 defmodule Beamlens.Operator.CompletionResult do
   @moduledoc """
-  Result sent to `notify_pid` when an on-demand operator completes.
+  Result sent to `notify_pid` when an operator completes analysis.
 
   Contains the final state and all collected data from the operator run.
   """

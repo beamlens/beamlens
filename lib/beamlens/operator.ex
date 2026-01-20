@@ -2,6 +2,11 @@ defmodule Beamlens.Operator do
   @moduledoc """
   Operator for LLM-driven BEAM monitoring.
 
+  ## Static Supervision
+
+  Operators are started as static, always-running supervised processes.
+  They wait in `:idle` status until invoked, then run their LLM loop.
+
   ## Running Analysis with `run/2`
 
   For scheduled or triggered analysis (e.g., Oban workers):
@@ -18,11 +23,17 @@ defmodule Beamlens.Operator do
 
   ## State Model
 
-  Operators maintain one of four states:
+  Operators maintain one of four health states:
   - `:healthy` - Everything is normal
   - `:observing` - Something looks off, gathering more data
   - `:warning` - Elevated concern, but not critical
   - `:critical` - Active issue requiring immediate attention
+
+  ## Status
+
+  Operators have a run status:
+  - `:idle` - Waiting for invocation
+  - `:running` - LLM loop is active
   """
 
   use GenServer
@@ -64,8 +75,9 @@ defmodule Beamlens.Operator do
     snapshots: [],
     iteration: 0,
     state: :healthy,
-    running: false,
-    llm_retry_count: 0
+    status: :idle,
+    llm_retry_count: 0,
+    invocation_queue: :queue.new()
   ]
 
   @doc """
@@ -131,7 +143,10 @@ defmodule Beamlens.Operator do
   end
 
   @doc """
-  Runs an on-demand analysis using the operator GenServer.
+  Runs analysis using the static operator for the given skill.
+
+  The operator must be configured in your Beamlens supervision tree.
+  Raises `ArgumentError` if the operator is not started.
 
   The LLM investigates and calls `done()` when finished, returning the
   notifications generated during analysis.
@@ -178,32 +193,42 @@ defmodule Beamlens.Operator do
     run(skill, context, [])
   end
 
+  @doc """
+  Invokes an existing operator process directly.
+
+  Use this when you have a reference to a static operator and want to run
+  analysis on it. The operator queues the request if already running.
+  """
+  def run(pid, context, opts) when is_pid(pid) and is_map(context) and is_list(opts) do
+    timeout = Keyword.get(opts, :timeout, :infinity)
+    GenServer.call(pid, {:invoke, context, opts}, timeout)
+  end
+
   def run(skill, context, opts) when is_map(context) and is_list(opts) do
-    {client_registry, opts} = Keyword.pop(opts, :client_registry, %{})
-    {puck_client, opts} = Keyword.pop(opts, :puck_client, nil)
-
     with {:ok, skill_module} <- resolve_skill(skill) do
-      opts =
-        opts
-        |> Keyword.put(:skill, skill_module)
-        |> Keyword.put(:client_registry, client_registry)
-        |> Keyword.put(:puck_client, puck_client)
-        |> Keyword.put(:context, context)
+      case Registry.lookup(Beamlens.OperatorRegistry, skill_module) do
+        [{pid, _}] ->
+          run(pid, context, opts)
 
-      timeout = Keyword.get(opts, :timeout, :infinity)
-
-      case start_link(opts) do
-        {:ok, pid} ->
-          try do
-            await(pid, timeout)
-          after
-            if Process.alive?(pid), do: stop(pid)
-          end
-
-        {:error, reason} ->
-          {:error, reason}
+        [] ->
+          raise ArgumentError,
+                "Operator for #{inspect(skill_module)} not started. " <>
+                  "Add it to the :operators list in your Beamlens config."
       end
     end
+  end
+
+  @doc """
+  Runs an operator asynchronously with notification callbacks.
+
+  The caller will receive messages:
+  - `{:operator_notification, pid, notification}` for each notification
+  - `{:operator_complete, pid, skill, completion_result}` when done
+
+  Returns `:ok` immediately after queuing the invocation.
+  """
+  def run_async(pid, context, opts \\ []) when is_pid(pid) do
+    GenServer.cast(pid, {:invoke_async, context, opts})
   end
 
   @doc """
@@ -215,6 +240,27 @@ defmodule Beamlens.Operator do
 
   defp resolve_skill(skill_module) when is_atom(skill_module) do
     Beamlens.Operator.Supervisor.resolve_skill(skill_module)
+  end
+
+  defp prepare_invocation(state, context, _opts, caller) do
+    run_context =
+      if is_map(context) and map_size(context) > 0 do
+        Context.new(metadata: %{iteration: 0})
+        |> Utils.add_result(%{context: context})
+      else
+        Context.new(metadata: %{iteration: 0})
+      end
+
+    %{
+      state
+      | context: run_context,
+        caller: caller,
+        notifications: [],
+        snapshots: [],
+        iteration: 0,
+        state: :healthy,
+        llm_retry_count: 0
+    }
   end
 
   @impl true
@@ -246,7 +292,7 @@ defmodule Beamlens.Operator do
       notify_pid: notify_pid,
       iteration: 0,
       state: :healthy,
-      running: start_loop
+      status: if(start_loop, do: :running, else: :idle)
     }
 
     emit_telemetry(:started, state)
@@ -280,9 +326,17 @@ defmodule Beamlens.Operator do
     context = %{state.context | metadata: Map.put(state.context.metadata, :trace_id, trace_id)}
 
     task =
-      Task.async(fn ->
-        Puck.call(state.client, input, context, output_schema: Tools.schema())
-      end)
+      case Process.whereis(Beamlens.TaskSupervisor) do
+        nil ->
+          Task.async(fn ->
+            Puck.call(state.client, input, context, output_schema: Tools.schema())
+          end)
+
+        _pid ->
+          Task.Supervisor.async_nolink(Beamlens.TaskSupervisor, fn ->
+            Puck.call(state.client, input, context, output_schema: Tools.schema())
+          end)
+      end
 
     {:noreply, %{state | pending_task: task, pending_trace_id: trace_id}}
   end
@@ -307,7 +361,7 @@ defmodule Beamlens.Operator do
   end
 
   def handle_info(:continue_loop, state) do
-    if state.running do
+    if state.status == :running do
       {:noreply, state, {:continue, :loop}}
     else
       {:noreply, state}
@@ -325,7 +379,7 @@ defmodule Beamlens.Operator do
       operator: state.skill,
       state: state.state,
       iteration: state.iteration,
-      running: state.running
+      running: state.status == :running
     }
 
     {:reply, status, state}
@@ -357,14 +411,37 @@ defmodule Beamlens.Operator do
     {:reply, {:error, :already_waiting}, state}
   end
 
-  def handle_call(:await, from, %{running: running} = state) do
+  def handle_call(:await, from, %{status: status} = state) do
     state = %{state | caller: from}
 
-    if running do
+    if status == :running do
       {:noreply, state}
     else
-      {:noreply, %{state | running: true}, {:continue, :loop}}
+      {:noreply, %{state | status: :running}, {:continue, :loop}}
     end
+  end
+
+  def handle_call({:invoke, context, opts}, from, %{status: :idle} = state) do
+    state = prepare_invocation(state, context, opts, from)
+    {:noreply, %{state | status: :running}, {:continue, :loop}}
+  end
+
+  def handle_call({:invoke, context, opts}, from, %{status: :running} = state) do
+    queue = :queue.in({from, context, opts}, state.invocation_queue)
+    {:noreply, %{state | invocation_queue: queue}}
+  end
+
+  @impl true
+  def handle_cast({:invoke_async, context, opts}, %{status: :idle} = state) do
+    notify_pid = Keyword.get(opts, :notify_pid)
+    state = prepare_invocation(state, context, opts, nil)
+    state = %{state | notify_pid: notify_pid}
+    {:noreply, %{state | status: :running}, {:continue, :loop}}
+  end
+
+  def handle_cast({:invoke_async, context, opts}, %{status: :running} = state) do
+    queue = :queue.in({nil, context, opts}, state.invocation_queue)
+    {:noreply, %{state | invocation_queue: queue}}
   end
 
   @impl true
@@ -396,7 +473,7 @@ defmodule Beamlens.Operator do
         state
         | pending_task: nil,
           pending_trace_id: nil,
-          running: false,
+          status: :idle,
           llm_retry_count: 0
       }
 
@@ -748,6 +825,32 @@ defmodule Beamlens.Operator do
       GenServer.reply(state.caller, result)
     end
 
-    {:stop, :normal, state}
+    case :queue.out(state.invocation_queue) do
+      {{:value, {next_caller, next_context, next_opts}}, remaining_queue} ->
+        notify_pid = Keyword.get(next_opts, :notify_pid)
+
+        new_state =
+          state
+          |> prepare_invocation(next_context, next_opts, next_caller)
+          |> Map.put(:invocation_queue, remaining_queue)
+          |> Map.put(:notify_pid, notify_pid)
+          |> Map.put(:status, :running)
+
+        {:noreply, new_state, {:continue, :loop}}
+
+      {:empty, _} ->
+        new_state = %{
+          state
+          | status: :idle,
+            caller: nil,
+            notify_pid: nil,
+            notifications: [],
+            snapshots: [],
+            iteration: 0,
+            state: :healthy
+        }
+
+        {:noreply, new_state}
+    end
   end
 end

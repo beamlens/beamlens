@@ -2,9 +2,10 @@ defmodule Beamlens.Coordinator do
   @moduledoc """
   GenServer that correlates notifications from operators into insights.
 
-  Receives notifications via direct message passing from operators and manages a
-  notification inbox with status tracking. Runs an LLM tool-calling loop to identify
-  patterns across notifications and emit insights.
+  ## Static Supervision
+
+  The Coordinator is started as a static, always-running supervised process.
+  It waits in `:idle` status until invoked, then runs its LLM loop.
 
   ## Notification States
 
@@ -14,14 +15,18 @@ defmodule Beamlens.Coordinator do
 
   ## Running Analysis with `run/2`
 
-  For one-shot analysis, use `run/2` which spawns a temporary coordinator,
-  invokes operators as needed, and returns results:
+  For one-shot analysis, use `run/2` which invokes the static coordinator:
 
       {:ok, result} = Beamlens.Coordinator.run(%{reason: "memory alert triggered"})
 
       # result contains:
       # %{insights: [...], operator_results: [...]}
 
+  ## Status
+
+  Coordinator has a run status:
+  - `:idle` - Waiting for invocation
+  - `:running` - LLM loop is active
   """
 
   use GenServer
@@ -48,20 +53,22 @@ defmodule Beamlens.Coordinator do
   alias Puck.Context
 
   defstruct [
+    :name,
     :client,
     :client_registry,
-    :operator_puck_client,
     :context,
     :pending_task,
     :pending_trace_id,
     :caller,
+    :skills,
     max_iterations: 10,
     notifications: %{},
     iteration: 0,
-    running: false,
+    status: :idle,
     insights: [],
     operator_results: [],
-    running_operators: %{}
+    running_operators: %{},
+    invocation_queue: :queue.new()
   ]
 
   @doc """
@@ -72,7 +79,6 @@ defmodule Beamlens.Coordinator do
     * `:name` - Optional process name for registration (default: `nil`, no registration)
     * `:client_registry` - Optional LLM provider configuration map
     * `:puck_client` - Optional `Puck.Client` to use instead of BAML
-    * `:operator_puck_client` - Optional `Puck.Client` to use for spawned operators
     * `:compaction_max_tokens` - Token threshold for compaction (default: 50_000)
     * `:compaction_keep_last` - Messages to keep verbatim after compaction (default: 5)
 
@@ -94,8 +100,8 @@ defmodule Beamlens.Coordinator do
   @doc """
   Runs a one-shot coordinator analysis and returns results.
 
-  Spawns a temporary coordinator, invokes operators as needed,
-  and blocks until analysis is complete.
+  Invokes the static coordinator and blocks until analysis is complete.
+  Raises `ArgumentError` if the coordinator is not started.
 
   ## Arguments
 
@@ -106,12 +112,10 @@ defmodule Beamlens.Coordinator do
 
     * `:context` - Map with context (alternative to first argument)
     * `:notifications` - List of `Notification` structs to analyze (default: `[]`)
-    * `:client_registry` - LLM provider configuration map (default: `%{}`)
     * `:puck_client` - Optional `Puck.Client` to use instead of BAML
-    * `:operator_puck_client` - Optional `Puck.Client` to use for spawned operators
     * `:max_iterations` - Maximum iterations before stopping (default: 10)
     * `:timeout` - Timeout for await in milliseconds (default: 300_000)
-    * `:skills` - List of skill atoms to make available (default: configured operators or all builtins)
+    * `:skills` - List of skill atoms to make available (default: configured operators)
 
   ## Returns
 
@@ -158,29 +162,26 @@ defmodule Beamlens.Coordinator do
     run(context, [])
   end
 
-  def run(context, opts) when is_map(context) and is_list(opts) do
+  @doc """
+  Invokes the static coordinator process directly.
+
+  Use this when you have a reference to the coordinator and want to run
+  analysis on it. The coordinator queues the request if already running.
+  """
+  def run(pid, context, opts) when is_pid(pid) and is_map(context) and is_list(opts) do
     {notifications, opts} = Keyword.pop(opts, :notifications, [])
-    {client_registry, opts} = Keyword.pop(opts, :client_registry, %{})
-    {puck_client, opts} = Keyword.pop(opts, :puck_client, nil)
-    {skills, opts} = Keyword.pop(opts, :skills, nil)
     timeout = Keyword.get(opts, :timeout, 300_000)
+    GenServer.call(pid, {:invoke, context, notifications, opts}, timeout)
+  end
 
-    coordinator_opts =
-      opts
-      |> Keyword.put(:client_registry, client_registry)
-      |> Keyword.put(:puck_client, puck_client)
-      |> Keyword.put(:initial_notifications, notifications)
-      |> Keyword.put(:context, context)
-      |> Keyword.put(:skills, skills)
-      |> Keyword.put(:start_loop, true)
-      |> Keyword.put_new(:name, nil)
+  def run(context, opts) when is_map(context) and is_list(opts) do
+    case Process.whereis(__MODULE__) do
+      nil ->
+        raise ArgumentError,
+              "Coordinator not started. Add Beamlens to your supervision tree."
 
-    {:ok, pid} = start_link(coordinator_opts)
-
-    try do
-      await(pid, timeout)
-    after
-      if Process.alive?(pid), do: GenServer.stop(pid, :normal)
+      pid ->
+        run(pid, context, opts)
     end
   end
 
@@ -213,13 +214,14 @@ defmodule Beamlens.Coordinator do
     start_loop = Keyword.get(opts, :start_loop, false)
 
     state = %__MODULE__{
+      name: Keyword.get(opts, :name),
       client: client,
       client_registry: Keyword.get(opts, :client_registry),
-      operator_puck_client: Keyword.get(opts, :operator_puck_client),
       max_iterations: Keyword.get(opts, :max_iterations, 10),
       notifications: initial_notifications,
       context: initial_context,
-      running: start_loop
+      skills: Keyword.get(opts, :skills),
+      status: if(start_loop, do: :running, else: :idle)
     }
 
     emit_telemetry(:started, state)
@@ -263,9 +265,21 @@ defmodule Beamlens.Coordinator do
     }
 
     task =
-      Task.async(fn ->
-        Puck.call(state.client, "Process notifications", context, output_schema: Tools.schema())
-      end)
+      case Process.whereis(Beamlens.TaskSupervisor) do
+        nil ->
+          Task.async(fn ->
+            Puck.call(state.client, "Process notifications", context,
+              output_schema: Tools.schema()
+            )
+          end)
+
+        _pid ->
+          Task.Supervisor.async_nolink(Beamlens.TaskSupervisor, fn ->
+            Puck.call(state.client, "Process notifications", context,
+              output_schema: Tools.schema()
+            )
+          end)
+      end
 
     {:noreply, %{state | pending_task: task, pending_trace_id: trace_id}}
   end
@@ -282,7 +296,7 @@ defmodule Beamlens.Coordinator do
 
       {:error, reason} ->
         emit_telemetry(:llm_error, state, %{trace_id: state.pending_trace_id, reason: reason})
-        {:noreply, %{state | running: false, pending_trace_id: nil}}
+        {:noreply, %{state | status: :idle, pending_trace_id: nil}}
     end
   end
 
@@ -292,7 +306,7 @@ defmodule Beamlens.Coordinator do
       reason: {:task_crashed, reason}
     })
 
-    {:noreply, %{state | pending_task: nil, pending_trace_id: nil, running: false}}
+    {:noreply, %{state | pending_task: nil, pending_trace_id: nil, status: :idle}}
   end
 
   def handle_info({:operator_notification, pid, notification}, state) do
@@ -314,10 +328,10 @@ defmodule Beamlens.Coordinator do
 
         new_state = %{state | notifications: new_notifications}
 
-        if state.running do
+        if state.status == :running do
           {:noreply, new_state}
         else
-          {:noreply, %{new_state | running: true}, {:continue, :loop}}
+          {:noreply, %{new_state | status: :running}, {:continue, :loop}}
         end
     end
   end
@@ -385,7 +399,7 @@ defmodule Beamlens.Coordinator do
   @impl true
   def handle_call(:status, _from, state) do
     status = %Status{
-      running: state.running,
+      running: state.status == :running,
       notification_count: map_size(state.notifications),
       unread_count: count_by_status(state.notifications, :unread),
       iteration: state.iteration
@@ -398,8 +412,24 @@ defmodule Beamlens.Coordinator do
     {:reply, {:error, :already_awaiting}, state}
   end
 
-  def handle_call(:await, from, state) do
-    {:noreply, %{state | caller: from}}
+  def handle_call(:await, from, %{status: status} = state) do
+    state = %{state | caller: from}
+
+    if status == :running do
+      {:noreply, state}
+    else
+      {:noreply, %{state | status: :running}, {:continue, :loop}}
+    end
+  end
+
+  def handle_call({:invoke, context, notifications, opts}, from, %{status: :idle} = state) do
+    state = prepare_invocation(state, context, notifications, opts, from)
+    {:noreply, %{state | status: :running}, {:continue, :loop}}
+  end
+
+  def handle_call({:invoke, context, notifications, opts}, from, %{status: :running} = state) do
+    queue = :queue.in({from, context, notifications, opts}, state.invocation_queue)
+    {:noreply, %{state | invocation_queue: queue}}
   end
 
   defp handle_action(%GetNotifications{status: status}, state, trace_id) do
@@ -571,7 +601,7 @@ defmodule Beamlens.Coordinator do
 
     new_running =
       Enum.reduce(skills, state.running_operators, fn skill, acc ->
-        start_operator(skill, context, state.client_registry, state.operator_puck_client, acc)
+        start_operator(skill, context, acc)
       end)
 
     started_count = map_size(new_running) - map_size(state.running_operators)
@@ -668,18 +698,60 @@ defmodule Beamlens.Coordinator do
     {:noreply, new_state}
   end
 
-  defp finish(%{caller: nil} = state) do
-    {:noreply, %{state | running: false, pending_trace_id: nil}}
+  defp finish(state) do
+    if state.caller do
+      result = %{
+        insights: Enum.reverse(state.insights),
+        operator_results: Enum.reverse(state.operator_results)
+      }
+
+      GenServer.reply(state.caller, {:ok, result})
+    end
+
+    case :queue.out(state.invocation_queue) do
+      {{:value, {next_caller, next_context, next_notifications, next_opts}}, remaining_queue} ->
+        new_state =
+          state
+          |> prepare_invocation(next_context, next_notifications, next_opts, next_caller)
+          |> Map.put(:invocation_queue, remaining_queue)
+          |> Map.put(:status, :running)
+
+        {:noreply, new_state, {:continue, :loop}}
+
+      {:empty, _} ->
+        new_state = %{
+          state
+          | status: :idle,
+            caller: nil,
+            notifications: %{},
+            insights: [],
+            operator_results: [],
+            running_operators: %{},
+            iteration: 0
+        }
+
+        {:noreply, new_state}
+    end
   end
 
-  defp finish(state) do
-    result = %{
-      insights: Enum.reverse(state.insights),
-      operator_results: Enum.reverse(state.operator_results)
-    }
+  defp prepare_invocation(state, context, notifications, _opts, caller) do
+    initial_notifications =
+      Enum.reduce(notifications, %{}, fn notification, acc ->
+        Map.put(acc, notification.id, %{notification: notification, status: :unread})
+      end)
 
-    GenServer.reply(state.caller, {:ok, result})
-    {:stop, :normal, %{state | caller: nil}}
+    initial_context = build_initial_context(context)
+
+    %{
+      state
+      | context: initial_context,
+        caller: caller,
+        notifications: initial_notifications,
+        insights: [],
+        operator_results: [],
+        running_operators: %{},
+        iteration: 0
+    }
   end
 
   defp merge_operator_notifications(notifications, operator_result) do
@@ -688,13 +760,7 @@ defmodule Beamlens.Coordinator do
     end)
   end
 
-  defp start_operator(
-         skill_string,
-         context,
-         client_registry,
-         operator_puck_client,
-         running_operators
-       ) do
+  defp start_operator(skill_string, context, running_operators) do
     skill_module = resolve_skill_module(skill_string)
 
     case skill_module && Operator.Supervisor.resolve_skill(skill_module) do
@@ -702,20 +768,10 @@ defmodule Beamlens.Coordinator do
         running_operators
 
       {:ok, ^skill_module} ->
-        run_opts =
-          [
-            skill: skill_module,
-            client_registry: client_registry,
-            start_loop: true,
-            notify_pid: self()
-          ]
-          |> maybe_add_operator_client(operator_puck_client)
-          |> maybe_add_operator_context(context)
-
-        case Operator.start_link(run_opts) do
-          {:ok, pid} ->
-            Process.link(pid)
+        case Registry.lookup(Beamlens.OperatorRegistry, skill_module) do
+          [{pid, _}] ->
             ref = Process.monitor(pid)
+            Operator.run_async(pid, %{reason: context}, notify_pid: self())
 
             Map.put(running_operators, pid, %{
               skill: skill_module,
@@ -723,7 +779,7 @@ defmodule Beamlens.Coordinator do
               started_at: DateTime.utc_now()
             })
 
-          {:error, _reason} ->
+          [] ->
             running_operators
         end
 
@@ -731,17 +787,6 @@ defmodule Beamlens.Coordinator do
         running_operators
     end
   end
-
-  defp maybe_add_operator_client(opts, nil), do: opts
-
-  defp maybe_add_operator_client(opts, %Puck.Client{} = client) do
-    Keyword.put(opts, :puck_client, client)
-  end
-
-  defp maybe_add_operator_context(opts, nil), do: opts
-
-  defp maybe_add_operator_context(opts, context),
-    do: Keyword.put(opts, :context, %{reason: context})
 
   defp resolve_skill_module(skill_string) do
     module = String.to_existing_atom("Elixir." <> skill_string)
@@ -928,7 +973,7 @@ defmodule Beamlens.Coordinator do
       %{system_time: System.system_time()},
       Map.merge(
         %{
-          running: state.running,
+          running: state.status == :running,
           notification_count: map_size(state.notifications)
         },
         extra

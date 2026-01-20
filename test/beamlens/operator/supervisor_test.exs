@@ -3,6 +3,7 @@ defmodule Beamlens.Operator.SupervisorTest do
 
   use ExUnit.Case
 
+  alias Beamlens.Operator
   alias Beamlens.Operator.Supervisor, as: OperatorSupervisor
 
   defmodule TestSkill do
@@ -55,83 +56,135 @@ defmodule Beamlens.Operator.SupervisorTest do
     def callback_docs, do: "Test skill 2 callbacks"
   end
 
-  setup do
-    :persistent_term.erase({Beamlens.Supervisor, :operators})
-    start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
-    {:ok, supervisor} = OperatorSupervisor.start_link(name: nil)
-
-    on_exit(fn ->
+  describe "init/1 with configured operators" do
+    setup do
       :persistent_term.erase({Beamlens.Supervisor, :operators})
-    end)
+      start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
 
-    {:ok, supervisor: supervisor}
-  end
+      on_exit(fn ->
+        :persistent_term.erase({Beamlens.Supervisor, :operators})
+      end)
 
-  describe "start_operator/2 with atom spec" do
-    test "returns error for unknown builtin skill", %{supervisor: supervisor} do
-      result = OperatorSupervisor.start_operator(supervisor, :unknown)
-
-      assert {:error, {:invalid_skill_module, :unknown}} = result
+      :ok
     end
-  end
 
-  describe "start_operator/2 with keyword spec" do
-    test "starts custom operator without loop", %{supervisor: supervisor} do
-      result =
-        OperatorSupervisor.start_operator(supervisor,
-          skill: TestSkill,
-          start_loop: false
+    test "starts operators as static children" do
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          operators: [TestSkill, TestSkill2]
         )
 
-      assert {:ok, pid} = result
+      children = Supervisor.which_children(supervisor)
+      assert length(children) == 2
+
+      skill_ids = Enum.map(children, fn {id, _pid, _type, _modules} -> id end)
+      assert TestSkill in skill_ids
+      assert TestSkill2 in skill_ids
+
+      Supervisor.stop(supervisor)
+    end
+
+    test "operators start in idle status" do
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          operators: [TestSkill]
+        )
+
+      [{TestSkill, pid, :worker, _}] = Supervisor.which_children(supervisor)
+
+      status = Operator.status(pid)
+      assert status.running == false
+      assert status.state == :healthy
+
+      Supervisor.stop(supervisor)
+    end
+
+    test "operators are registered in OperatorRegistry" do
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          operators: [TestSkill]
+        )
+
+      [{pid, _}] = Registry.lookup(Beamlens.OperatorRegistry, TestSkill)
       assert Process.alive?(pid)
-    end
-  end
 
-  describe "stop_operator/2" do
-    test "stops running operator", %{supervisor: supervisor} do
-      {:ok, pid} =
-        OperatorSupervisor.start_operator(supervisor,
-          skill: TestSkill,
-          start_loop: false
+      Supervisor.stop(supervisor)
+    end
+
+    test "passes client_registry to operators" do
+      client_registry = %{primary: "Test", clients: []}
+
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          operators: [TestSkill],
+          client_registry: client_registry
         )
 
-      ref = Process.monitor(pid)
-      result = OperatorSupervisor.stop_operator(supervisor, TestSkill)
+      [{TestSkill, pid, :worker, _}] = Supervisor.which_children(supervisor)
 
-      assert :ok = result
-      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+      state = :sys.get_state(pid)
+      assert state.client_registry == client_registry
+
+      Supervisor.stop(supervisor)
     end
 
-    test "returns error for non-existent operator", %{supervisor: supervisor} do
-      result = OperatorSupervisor.stop_operator(supervisor, :nonexistent)
+    test "handles keyword spec for operators" do
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          operators: [[skill: TestSkill]]
+        )
 
-      assert {:error, :not_found} = result
+      children = Supervisor.which_children(supervisor)
+      assert length(children) == 1
+
+      Supervisor.stop(supervisor)
+    end
+
+    test "skips invalid skill modules" do
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          operators: [TestSkill, :invalid_skill]
+        )
+
+      children = Supervisor.which_children(supervisor)
+      assert length(children) == 1
+
+      Supervisor.stop(supervisor)
     end
   end
 
   describe "list_operators/0" do
-    test "returns empty list when no operators", %{supervisor: _supervisor} do
-      assert OperatorSupervisor.list_operators() == []
+    setup do
+      :persistent_term.erase({Beamlens.Supervisor, :operators})
+      start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
+
+      on_exit(fn ->
+        :persistent_term.erase({Beamlens.Supervisor, :operators})
+      end)
+
+      :ok
     end
 
-    test "returns list of operator statuses", %{supervisor: supervisor} do
-      :persistent_term.put({Beamlens.Supervisor, :operators}, [
-        [skill: TestSkill],
-        [skill: TestSkill2]
-      ])
+    test "returns empty list when no operators configured" do
+      {:ok, supervisor} = OperatorSupervisor.start_link(name: nil, operators: [])
+      assert OperatorSupervisor.list_operators() == []
+      Supervisor.stop(supervisor)
+    end
 
-      on_exit(fn -> :persistent_term.erase({Beamlens.Supervisor, :operators}) end)
+    test "returns list of operator statuses" do
+      :persistent_term.put({Beamlens.Supervisor, :operators}, [TestSkill, TestSkill2])
 
-      OperatorSupervisor.start_operator(supervisor,
-        skill: TestSkill,
-        start_loop: false
-      )
-
-      OperatorSupervisor.start_operator(supervisor,
-        skill: TestSkill2,
-        start_loop: false
-      )
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          operators: [TestSkill, TestSkill2]
+        )
 
       operators = OperatorSupervisor.list_operators()
 
@@ -139,72 +192,75 @@ defmodule Beamlens.Operator.SupervisorTest do
       names = Enum.map(operators, & &1.name)
       assert TestSkill in names
       assert TestSkill2 in names
+
+      Supervisor.stop(supervisor)
     end
 
-    test "includes title and description from skill module", %{supervisor: supervisor} do
-      :persistent_term.put({Beamlens.Supervisor, :operators}, [
-        [skill: TestSkill]
-      ])
+    test "includes title and description from skill module" do
+      :persistent_term.put({Beamlens.Supervisor, :operators}, [TestSkill])
 
-      on_exit(fn -> :persistent_term.erase({Beamlens.Supervisor, :operators}) end)
-
-      OperatorSupervisor.start_operator(supervisor,
-        skill: TestSkill,
-        start_loop: false
-      )
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          operators: [TestSkill]
+        )
 
       [operator] = OperatorSupervisor.list_operators()
 
       assert operator.title == "Test Skill"
       assert operator.description == "Test skill for supervisor tests"
-    end
 
-    test "includes title and description for stopped operators", %{supervisor: _supervisor} do
-      :persistent_term.put({Beamlens.Supervisor, :operators}, [
-        [skill: TestSkill]
-      ])
-
-      on_exit(fn -> :persistent_term.erase({Beamlens.Supervisor, :operators}) end)
-
-      [operator] = OperatorSupervisor.list_operators()
-
-      assert operator.running == false
-      assert operator.title == "Test Skill"
-      assert operator.description == "Test skill for supervisor tests"
+      Supervisor.stop(supervisor)
     end
   end
 
   describe "operator_status/1" do
-    test "returns operator status", %{supervisor: supervisor} do
-      OperatorSupervisor.start_operator(supervisor,
-        skill: TestSkill,
-        start_loop: false
-      )
+    setup do
+      :persistent_term.erase({Beamlens.Supervisor, :operators})
+      start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
+
+      on_exit(fn ->
+        :persistent_term.erase({Beamlens.Supervisor, :operators})
+      end)
+
+      :ok
+    end
+
+    test "returns operator status" do
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          operators: [TestSkill]
+        )
 
       {:ok, status} = OperatorSupervisor.operator_status(TestSkill)
 
       assert status.operator == TestSkill
       assert status.state == :healthy
+
+      Supervisor.stop(supervisor)
     end
 
     test "returns error for non-existent operator" do
+      {:ok, supervisor} = OperatorSupervisor.start_link(name: nil, operators: [])
       assert {:error, :not_found} = OperatorSupervisor.operator_status(:nonexistent)
+      Supervisor.stop(supervisor)
     end
   end
 
-  describe "start_operator/3 with client_registry" do
-    test "passes client_registry to Operator", %{supervisor: supervisor} do
-      client_registry = %{primary: "Test", clients: []}
+  describe "resolve_skill/1" do
+    test "resolves valid skill module" do
+      assert {:ok, TestSkill} = OperatorSupervisor.resolve_skill(TestSkill)
+    end
 
-      {:ok, pid} =
-        OperatorSupervisor.start_operator(
-          supervisor,
-          [skill: TestSkill, start_loop: false],
-          client_registry
-        )
+    test "returns error for invalid skill module" do
+      assert {:error, {:invalid_skill_module, :unknown}} =
+               OperatorSupervisor.resolve_skill(:unknown)
+    end
 
-      state = :sys.get_state(pid)
-      assert state.client_registry == client_registry
+    test "resolves builtin skill atoms" do
+      assert {:ok, Beamlens.Skill.Beam} = OperatorSupervisor.resolve_skill(:beam)
+      assert {:ok, Beamlens.Skill.Ets} = OperatorSupervisor.resolve_skill(:ets)
     end
   end
 end

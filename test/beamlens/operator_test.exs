@@ -105,11 +105,11 @@ defmodule Beamlens.OperatorTest do
       Operator.stop(pid)
     end
 
-    test "starts with running reflecting start_loop option" do
+    test "starts with status reflecting start_loop option" do
       {:ok, pid} = start_operator_without_loop()
 
       state = :sys.get_state(pid)
-      assert state.running == false
+      assert state.status == :idle
 
       Operator.stop(pid)
     end
@@ -223,7 +223,7 @@ defmodule Beamlens.OperatorTest do
       {:ok, pid} = start_operator_without_loop()
 
       :sys.replace_state(pid, fn state ->
-        %{state | client: mock_client(), running: true}
+        %{state | client: mock_client(), status: :running}
       end)
 
       send(pid, :continue_loop)
@@ -252,7 +252,7 @@ defmodule Beamlens.OperatorTest do
       {:ok, pid} = start_operator_without_loop()
 
       :sys.replace_state(pid, fn state ->
-        %{state | client: mock_client(), running: true}
+        %{state | client: mock_client(), status: :running}
       end)
 
       send(pid, :continue_loop)
@@ -296,7 +296,7 @@ defmodule Beamlens.OperatorTest do
       {:ok, pid} = start_operator_without_loop()
 
       :sys.replace_state(pid, fn state ->
-        %{state | client: mock_client(), running: true, iteration: 5}
+        %{state | client: mock_client(), status: :running, iteration: 5}
       end)
 
       send(pid, :continue_loop)
@@ -537,6 +537,132 @@ defmodule Beamlens.OperatorTest do
       end
     catch
       :exit, _ -> :ok
+    end
+  end
+
+  describe "run_async/3" do
+    alias Beamlens.Operator.Tools.Done
+
+    test "sends operator_complete message to notify_pid" do
+      client = Puck.Test.mock_client([%Done{intent: "done"}])
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          name: :"test_async_#{:erlang.unique_integer([:positive])}",
+          start_loop: false,
+          puck_client: client
+        )
+
+      Operator.run_async(pid, %{reason: "test"}, notify_pid: self())
+
+      assert_receive {:operator_complete, ^pid, TestSkill,
+                      %Beamlens.Operator.CompletionResult{state: :healthy}},
+                     1_000
+
+      Operator.stop(pid)
+    end
+
+    test "sends operator_notification messages for each notification" do
+      alias Beamlens.Operator.Tools.{SendNotification, TakeSnapshot}
+
+      responses = [
+        %TakeSnapshot{intent: "take_snapshot"},
+        fn messages ->
+          snapshot_id =
+            messages
+            |> Enum.reverse()
+            |> Enum.find_value(fn
+              %{metadata: %{tool_result: true}, content: [%{text: json} | _]} ->
+                case Jason.decode(json) do
+                  {:ok, %{"id" => id}} -> id
+                  _ -> nil
+                end
+
+              _ ->
+                nil
+            end)
+
+          %SendNotification{
+            intent: "send_notification",
+            type: "test_alert",
+            summary: "Test notification",
+            severity: :info,
+            snapshot_ids: [snapshot_id]
+          }
+        end,
+        %Done{intent: "done"}
+      ]
+
+      client = Puck.Test.mock_client(responses)
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          name: :"test_async_notif_#{:erlang.unique_integer([:positive])}",
+          start_loop: false,
+          puck_client: client
+        )
+
+      Operator.run_async(pid, %{reason: "test"}, notify_pid: self())
+
+      assert_receive {:operator_notification, ^pid, %Beamlens.Operator.Notification{}}, 1_000
+      assert_receive {:operator_complete, ^pid, TestSkill, _result}, 1_000
+
+      Operator.stop(pid)
+    end
+  end
+
+  describe "invocation queue" do
+    alias Beamlens.Operator.Tools.Done
+
+    test "queues concurrent requests and processes them in order" do
+      client = Puck.Test.mock_client([%Done{intent: "done"}], default: %Done{intent: "done"})
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          name: :"test_operator_#{:erlang.unique_integer([:positive])}",
+          start_loop: false,
+          puck_client: client
+        )
+
+      caller1 = self()
+
+      spawn(fn ->
+        result = Operator.run(pid, %{reason: "first"}, [])
+        send(caller1, {:result1, result})
+      end)
+
+      spawn(fn ->
+        result = Operator.run(pid, %{reason: "second"}, [])
+        send(caller1, {:result2, result})
+      end)
+
+      assert_receive {:result1, {:ok, _}}, 2_000
+      assert_receive {:result2, {:ok, _}}, 2_000
+
+      Operator.stop(pid)
+    end
+
+    test "processes queued async invocations after current completes" do
+      client = Puck.Test.mock_client([%Done{intent: "done"}], default: %Done{intent: "done"})
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          name: :"test_operator_queue_#{:erlang.unique_integer([:positive])}",
+          start_loop: false,
+          puck_client: client
+        )
+
+      Operator.run_async(pid, %{reason: "first"}, notify_pid: self())
+      Operator.run_async(pid, %{reason: "second"}, notify_pid: self())
+
+      assert_receive {:operator_complete, ^pid, TestSkill, _}, 2_000
+      assert_receive {:operator_complete, ^pid, TestSkill, _}, 2_000
+
+      Operator.stop(pid)
     end
   end
 end

@@ -12,7 +12,17 @@ children = [
 ]
 ```
 
-This starts the supervision infrastructure. Operators are started on-demand via `Operator.run/2` or `Coordinator.run/2`.
+This starts a static supervision tree. Operators and Coordinator are always-running processes invoked via `Operator.run/2` or `Coordinator.run/2`.
+
+Configure which operators to start:
+
+```elixir
+children = [
+  {Beamlens,
+   client_registry: client_registry(),
+   operators: [Beamlens.Skill.Beam, Beamlens.Skill.Ets, MyApp.EctoSkill]}
+]
+```
 
 ## Scheduled Monitoring with Oban
 

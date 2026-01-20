@@ -25,6 +25,7 @@ defmodule Beamlens.SupervisorTest do
       operators = Beamlens.list_operators()
 
       assert length(operators) == 3
+      # Static operators are always running (in idle status)
       assert Enum.all?(operators, &(&1.running == false))
 
       names = Enum.map(operators, & &1.name)
@@ -32,10 +33,19 @@ defmodule Beamlens.SupervisorTest do
       assert Beamlens.Skill.Ets in names
       assert Beamlens.Skill.System in names
 
-      # Verify each operator has expected structure (stopped until manually started)
+      # Verify each operator has expected structure (idle until invoked)
       beam_op = Enum.find(operators, &(&1.name == Beamlens.Skill.Beam))
-      assert beam_op.state == :stopped
+      assert beam_op.state == :healthy
       assert beam_op.title == "BEAM VM"
+    end
+  end
+
+  describe "static coordinator" do
+    test "starts coordinator as static child" do
+      {:ok, _supervisor} = start_supervised({Beamlens.Supervisor, []})
+
+      # Coordinator should be registered with its module name
+      assert Process.whereis(Beamlens.Coordinator) != nil
     end
   end
 end
