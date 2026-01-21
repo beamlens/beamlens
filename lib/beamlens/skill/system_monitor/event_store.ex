@@ -101,6 +101,18 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
   end
 
   @doc """
+  Flushes all pending handle_info messages.
+
+  Returns :ok after processing all pending messages.
+  """
+  def flush(name \\ __MODULE__) do
+    case Process.whereis(name) do
+      nil -> :ok
+      _pid -> GenServer.call(name, :flush)
+    end
+  end
+
+  @doc """
   Returns system monitor statistics over the rolling window.
 
   Returns a map with:
@@ -129,6 +141,11 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
       nil -> []
       _pid -> GenServer.call(name, {:get_events, opts})
     end
+  end
+
+  @impl true
+  def handle_call(:flush, _from, state) do
+    {:reply, :ok, state}
   end
 
   @impl true
@@ -215,12 +232,15 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
       |> Enum.uniq()
       |> length()
 
+    max_gc = if gc_durations == [], do: 0, else: Enum.max(gc_durations)
+    max_sched = if sched_durations == [], do: 0, else: Enum.max(sched_durations)
+
     %{
       long_gc_count_5m: length(long_gc_entries),
       long_schedule_count_5m: length(long_schedule_entries),
       affected_process_count: affected_pids,
-      max_gc_duration_ms: max(gc_durations, 0),
-      max_schedule_duration_ms: max(sched_durations, 0)
+      max_gc_duration_ms: max_gc,
+      max_schedule_duration_ms: max_sched
     }
   end
 
