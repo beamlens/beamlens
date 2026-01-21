@@ -94,8 +94,8 @@ defmodule Beamlens.Skill.Tracer do
     Start a new trace session for matching functions.
 
     Arguments:
-    - module_pattern: Module to trace (e.g., MyModule, :"*")
-    - function_pattern: Function name pattern (e.g., :my_func, :"_*")
+    - module_pattern: Module to trace (e.g., MyModule, :erlang)
+    - function_pattern: Function name (e.g., :my_func, :timestamp)
 
     Returns: {:ok, %{status: :started}} or {:error, reason}
 
@@ -193,16 +193,7 @@ defmodule Beamlens.Skill.Tracer do
       arity: arity
     }
 
-    new_events = [event | state.events]
-    new_state = %{state | events: new_events}
-
-    if length(new_events) >= @max_events or exceeded_duration?(new_state) do
-      stop_tracing(state.active_trace)
-      send(self(), :auto_stop)
-      {:noreply, new_state}
-    else
-      {:noreply, new_state}
-    end
+    handle_trace_event(event, state)
   end
 
   @impl true
@@ -215,21 +206,21 @@ defmodule Beamlens.Skill.Tracer do
       arity: arity
     }
 
-    new_events = [event | state.events]
-    new_state = %{state | events: new_events}
-
-    if length(new_events) >= @max_events or exceeded_duration?(new_state) do
-      stop_tracing(state.active_trace)
-      send(self(), :auto_stop)
-      {:noreply, new_state}
-    else
-      {:noreply, new_state}
-    end
+    handle_trace_event(event, state)
   end
 
   @impl true
   def handle_info(:auto_stop, state) do
     {:noreply, %{state | active_trace: nil}}
+  end
+
+  @impl true
+  def handle_info({:EXIT, pid, _reason}, state) do
+    if state.active_trace && state.active_trace.tracer_pid == pid do
+      {:noreply, %{state | active_trace: nil}}
+    else
+      {:noreply, state}
+    end
   end
 
   @impl true
@@ -309,6 +300,19 @@ defmodule Beamlens.Skill.Tracer do
   defp tracer_loop(parent) do
     receive do
       _ -> tracer_loop(parent)
+    end
+  end
+
+  defp handle_trace_event(event, state) do
+    new_events = [event | state.events]
+    new_state = %{state | events: new_events}
+
+    if length(new_events) >= @max_events or exceeded_duration?(new_state) do
+      stop_tracing(state.active_trace)
+      send(self(), :auto_stop)
+      {:noreply, new_state}
+    else
+      {:noreply, new_state}
     end
   end
 

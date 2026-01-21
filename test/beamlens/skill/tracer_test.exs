@@ -117,5 +117,17 @@ defmodule Beamlens.Skill.TracerTest do
     test "trace_list returns empty when no active trace" do
       assert [] = Tracer.list_traces()
     end
+
+    test "handles tracer process exit gracefully" do
+      module_pattern = :erlang
+      function_pattern = :timestamp
+      assert {:ok, %{status: :started}} = Tracer.start_trace({module_pattern, function_pattern})
+
+      traces = Tracer.list_traces()
+      assert length(traces) == 1
+      assert hd(traces).module_pattern == :erlang
+
+      Tracer.stop_trace()
+    end
   end
 end
