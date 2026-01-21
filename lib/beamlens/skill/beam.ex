@@ -133,8 +133,7 @@ defmodule Beamlens.Skill.Beam do
       "beam_hot_functions" => &hot_functions_wrapper/2,
       "beam_atom_growth_rate" => &atom_growth_rate_wrapper/1,
       "beam_atom_leak_detected" => &atom_leak_detected_wrapper/0,
-      "beam_check_atom_safety" => &check_atom_safety_wrapper/0,
-      "beam_node_name_atoms" => &node_name_atoms_wrapper/0
+      "beam_check_atom_safety" => &check_atom_safety_wrapper/0
     }
   end
 
@@ -206,9 +205,6 @@ defmodule Beamlens.Skill.Beam do
 
     ### beam_check_atom_safety()
     Review common dangerous patterns that cause atom leaks. Returns warnings for unsafe operations along with safe alternatives. Use to identify code that needs refactoring.
-
-    ### beam_node_name_atoms()
-    Atom enumeration limitations and alternative monitoring approaches.
     """
   end
 
@@ -1260,19 +1256,6 @@ defmodule Beamlens.Skill.Beam do
         "binary_to_term/2 with :safe option - safe term parsing",
         "exml or erlsom - safe XML parsing libraries that don't create atoms"
       ]
-    }
-  end
-
-  defp node_name_atoms_wrapper do
-    node_name_atoms()
-  end
-
-  defp node_name_atoms do
-    %{
-      error: "cannot_enumerate_atoms",
-      note:
-        "Erlang has no BIF to list all atoms. Use :recon or external tools for atom enumeration.",
-      alternative: "Monitor atom growth rate with beam_atom_growth_rate to detect leaks"
     }
   end
 end

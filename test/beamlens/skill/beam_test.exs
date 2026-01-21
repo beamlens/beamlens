@@ -356,7 +356,6 @@ defmodule Beamlens.Skill.BeamTest do
       assert docs =~ "beam_atom_growth_rate"
       assert docs =~ "beam_atom_leak_detected"
       assert docs =~ "beam_check_atom_safety"
-      assert docs =~ "beam_node_name_atoms"
     end
   end
 
@@ -675,23 +674,6 @@ defmodule Beamlens.Skill.BeamTest do
         assert is_binary(alternative)
         assert String.length(alternative) > 0
       end)
-    end
-  end
-
-  describe "beam_node_name_atoms callback" do
-    test "returns information about atom enumeration limitations" do
-      result = Beam.callbacks()["beam_node_name_atoms"].()
-
-      assert is_binary(result.error)
-      assert is_binary(result.note)
-      assert is_binary(result.alternative)
-    end
-
-    test "explains why enumeration is not possible" do
-      result = Beam.callbacks()["beam_node_name_atoms"].()
-
-      assert result.error == "cannot_enumerate_atoms"
-      assert String.contains?(result.note, "no BIF")
     end
   end
 end
