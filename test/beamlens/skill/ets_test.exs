@@ -143,6 +143,74 @@ defmodule Beamlens.Skill.EtsTest do
       assert docs =~ "ets_list_tables"
       assert docs =~ "ets_table_info"
       assert docs =~ "ets_top_tables"
+      assert docs =~ "ets_growth_stats"
+      assert docs =~ "ets_leak_candidates"
+    end
+  end
+
+  describe "ets_growth_stats callback" do
+    setup do
+      start_supervised!({Beamlens.Skill.Ets.GrowthStore, [name: Beamlens.Skill.Ets.GrowthStore]})
+      :ok
+    end
+
+    test "returns fastest growing tables" do
+      result = Ets.callbacks()["ets_growth_stats"].(5)
+
+      assert is_map(result)
+      assert Map.has_key?(result, :fastest_growing_tables)
+      assert is_list(result.fastest_growing_tables)
+    end
+
+    test "table entries have expected fields" do
+      table = :ets.new(:test_growth_stats, [:named_table, :public])
+      :ets.insert(table, {:key1, :value1})
+      :ets.insert(table, {:key2, :value2})
+
+      result = Ets.callbacks()["ets_growth_stats"].(1)
+
+      if result.fastest_growing_tables != [] do
+        [table_stat | _] = result.fastest_growing_tables
+
+        assert Map.has_key?(table_stat, :name)
+        assert Map.has_key?(table_stat, :size_delta)
+        assert Map.has_key?(table_stat, :growth_pct)
+        assert Map.has_key?(table_stat, :current_size)
+        assert Map.has_key?(table_stat, :memory_mb)
+      end
+
+      :ets.delete(table)
+    end
+  end
+
+  describe "ets_leak_candidates callback" do
+    setup do
+      start_supervised!({Beamlens.Skill.Ets.GrowthStore, [name: Beamlens.Skill.Ets.GrowthStore]})
+      :ok
+    end
+
+    test "returns suspected leak candidates" do
+      result = Ets.callbacks()["ets_leak_candidates"].(50.0)
+
+      assert is_map(result)
+      assert Map.has_key?(result, :suspected_leaks)
+      assert is_list(result.suspected_leaks)
+    end
+
+    test "leak candidate entries have expected fields" do
+      result = Ets.callbacks()["ets_leak_candidates"].(50.0)
+
+      if result.suspected_leaks != [] do
+        [leak | _] = result.suspected_leaks
+
+        assert Map.has_key?(leak, :name)
+        assert Map.has_key?(leak, :growth_pct)
+        assert Map.has_key?(leak, :size_delta)
+        assert Map.has_key?(leak, :current_size)
+        assert Map.has_key?(leak, :memory_mb)
+        assert Map.has_key?(leak, :only_grows)
+        assert leak.only_grows == true
+      end
     end
   end
 end

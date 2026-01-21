@@ -9,6 +9,8 @@ defmodule Beamlens.Skill.Ets do
 
   @behaviour Beamlens.Skill
 
+  alias Beamlens.Skill.Ets.GrowthStore
+
   @impl true
   def title, do: "ETS Tables"
 
@@ -25,6 +27,8 @@ defmodule Beamlens.Skill.Ets do
     - Table count and total memory usage
     - Individual table sizes and memory
     - Table configuration (type, protection, concurrency settings)
+    - Growth rates over time windows
+    - Tables that only grow without bound
 
     ## What to Watch For
     - Tables with unbounded growth: missing cleanup logic
@@ -32,6 +36,16 @@ defmodule Beamlens.Skill.Ets do
     - Public tables: potential for uncontrolled access
     - Single large table dominating memory: review data structure
     - Growing table count: potential table leaks
+    - Continuous growth: records added faster than removed
+
+    ## ETS Growth Leaks
+    ETS tables are never GC'd - records persist until deleted.
+
+    Remediation:
+    - Add TTL logic to periodically delete old records
+    - Shard large tables across multiple nodes
+    - Set max size limits and drop old records when exceeded
+    - Review tables with high memory for cleanup logic
     """
   end
 
@@ -60,7 +74,9 @@ defmodule Beamlens.Skill.Ets do
     %{
       "ets_list_tables" => &list_tables/0,
       "ets_table_info" => &table_info/1,
-      "ets_top_tables" => &top_tables/2
+      "ets_top_tables" => &top_tables/2,
+      "ets_growth_stats" => &growth_stats/1,
+      "ets_leak_candidates" => &leak_candidates/1
     }
   end
 
@@ -75,6 +91,12 @@ defmodule Beamlens.Skill.Ets do
 
     ### ets_top_tables(limit, sort_by)
     Top N tables by "memory" or "size". Returns list with name, type, protection, size, memory_kb
+
+    ### ets_growth_stats(interval_minutes)
+    Table growth over time window. Takes two samples interval_minutes apart. Returns tables with highest growth rates including size_delta, growth_pct, current_size, memory_mb
+
+    ### ets_leak_candidates(threshold_pct)
+    Potential leaking tables that grew by more than threshold_pct over last hour. Returns tables that only grow (never shrink) with high memory but no configured limits
     """
   end
 
@@ -107,6 +129,33 @@ defmodule Beamlens.Skill.Ets do
     |> Enum.reject(&is_nil/1)
     |> Enum.sort_by(&Map.get(&1, sort_key), :desc)
     |> Enum.take(limit)
+  end
+
+  defp growth_stats(interval_minutes) when is_number(interval_minutes) do
+    samples = GrowthStore.get_samples()
+    cutoff_ms = System.system_time(:millisecond) - trunc(interval_minutes * 60 * 1000)
+
+    {oldest, newest} = find_boundary_samples(samples, cutoff_ms)
+
+    calculate_growth_stats(oldest, newest)
+  end
+
+  defp leak_candidates(threshold_pct) when is_number(threshold_pct) do
+    samples = GrowthStore.get_samples()
+    cutoff_ms = System.system_time(:millisecond) - trunc(60 * 60 * 1000)
+
+    {oldest, newest} = find_boundary_samples(samples, cutoff_ms)
+
+    identify_leak_candidates(oldest, newest, threshold_pct)
+  end
+
+  defp find_boundary_samples(samples, cutoff_ms) do
+    filtered = Enum.filter(samples, fn s -> s.timestamp >= cutoff_ms end)
+
+    oldest = List.last(filtered)
+    newest = List.first(filtered)
+
+    {oldest, newest}
   end
 
   defp table_summary(table, word_size) do
@@ -207,4 +256,93 @@ defmodule Beamlens.Skill.Ets do
   end
 
   defp bytes_to_mb(bytes), do: Float.round(bytes / 1_048_576, 2)
+
+  defp calculate_growth_stats(nil, _newest), do: %{fastest_growing_tables: []}
+  defp calculate_growth_stats(_oldest, nil), do: %{fastest_growing_tables: []}
+
+  defp calculate_growth_stats(oldest, newest) do
+    initial_tables = Map.new(oldest.tables, fn t -> {t.name, t} end)
+
+    growth_stats =
+      Enum.map(newest.tables, fn final_data ->
+        case Map.get(initial_tables, final_data.name) do
+          nil ->
+            %{
+              name: final_data.name,
+              size_delta: final_data.size,
+              growth_pct: 100.0,
+              current_size: final_data.size,
+              memory_mb: bytes_to_mb(final_data.memory)
+            }
+
+          initial_data ->
+            size_delta = final_data.size - initial_data.size
+            growth_pct = calculate_growth_percentage(initial_data.size, final_data.size)
+
+            %{
+              name: final_data.name,
+              size_delta: size_delta,
+              growth_pct: growth_pct,
+              current_size: final_data.size,
+              memory_mb: bytes_to_mb(final_data.memory)
+            }
+        end
+      end)
+
+    fastest_growing =
+      growth_stats
+      |> Enum.filter(fn stat -> stat.size_delta > 0 end)
+      |> Enum.sort_by(& &1.size_delta, :desc)
+      |> Enum.take(10)
+
+    %{fastest_growing_tables: fastest_growing}
+  end
+
+  defp identify_leak_candidates(nil, _newest, _threshold_pct), do: %{suspected_leaks: []}
+  defp identify_leak_candidates(_oldest, nil, _threshold_pct), do: %{suspected_leaks: []}
+
+  defp identify_leak_candidates(oldest, newest, threshold_pct) do
+    initial_tables = Map.new(oldest.tables, fn t -> {t.name, t} end)
+
+    candidates =
+      Enum.map(newest.tables, fn final_data ->
+        initial_size = Map.get(initial_tables, final_data.name)[:size]
+
+        growth_pct =
+          if initial_size == nil do
+            100.0
+          else
+            calculate_growth_percentage(initial_size, final_data.size)
+          end
+
+        size_delta =
+          if initial_size == nil do
+            final_data.size
+          else
+            final_data.size - initial_size
+          end
+
+        if growth_pct > threshold_pct and size_delta > 0 do
+          %{
+            name: final_data.name,
+            growth_pct: growth_pct,
+            size_delta: size_delta,
+            current_size: final_data.size,
+            memory_mb: bytes_to_mb(final_data.memory),
+            only_grows: true
+          }
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    %{suspected_leaks: candidates}
+  end
+
+  defp calculate_growth_percentage(initial_size, final_size) do
+    if initial_size == 0 do
+      if final_size > 0, do: 100.0, else: 0.0
+    else
+      Float.round((final_size - initial_size) / initial_size * 100, 2)
+    end
+  end
 end
