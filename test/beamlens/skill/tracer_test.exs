@@ -26,10 +26,14 @@ defmodule Beamlens.Skill.TracerTest do
 
   describe "snapshot/0" do
     test "returns a snapshot map" do
+      start_supervised({Tracer, []})
+
       snapshot = Tracer.snapshot()
       assert is_map(snapshot)
       assert Map.has_key?(snapshot, :active_trace_count)
+      assert Map.has_key?(snapshot, :event_count)
       assert snapshot.active_trace_count == 0
+      assert snapshot.event_count == 0
     end
   end
 
@@ -37,6 +41,8 @@ defmodule Beamlens.Skill.TracerTest do
     test "returns a map of callbacks" do
       callbacks = Tracer.callbacks()
       assert is_map(callbacks)
+      assert Map.has_key?(callbacks, "trace_start")
+      assert Map.has_key?(callbacks, "trace_stop")
       assert Map.has_key?(callbacks, "trace_list")
     end
   end
@@ -62,8 +68,40 @@ defmodule Beamlens.Skill.TracerTest do
 
     test "handle_info returns :noreply for unknown messages", %{pid: pid} do
       send(pid, :unknown_message)
-      # Should not crash
       assert Process.alive?(pid)
+    end
+  end
+
+  describe "trace operations" do
+    setup do
+      start_supervised({Tracer, []})
+      :ok
+    end
+
+    test "start_trace with valid patterns" do
+      module_pattern = :erlang
+      function_pattern = :timestamp
+      assert {:ok, %{status: :started}} = Tracer.start_trace({module_pattern, function_pattern})
+    end
+
+    test "start_trace rejects duplicate active trace" do
+      module_pattern = :erlang
+      function_pattern = :timestamp
+      assert {:ok, %{status: :started}} = Tracer.start_trace({module_pattern, function_pattern})
+
+      module_pattern2 = :lists
+      function_pattern2 = :reverse
+
+      assert {:error, :trace_already_active} =
+               Tracer.start_trace({module_pattern2, function_pattern2})
+    end
+
+    test "stop_trace when no active trace" do
+      assert {:error, :no_active_trace} = Tracer.stop_trace()
+    end
+
+    test "trace_list returns empty when no active trace" do
+      assert [] = Tracer.list_traces()
     end
   end
 end
