@@ -45,7 +45,8 @@ defmodule Beamlens.Operator.Supervisor do
     Beamlens.Skill.Logger,
     Beamlens.Skill.Ports,
     Beamlens.Skill.Sup,
-    Beamlens.Skill.System
+    Beamlens.Skill.System,
+    Beamlens.Skill.SystemMonitor
   ]
 
   def start_link(opts \\ []) do
@@ -220,6 +221,7 @@ defmodule Beamlens.Operator.Supervisor do
   defp normalize_skill(:ports), do: Beamlens.Skill.Ports
   defp normalize_skill(:sup), do: Beamlens.Skill.Sup
   defp normalize_skill(:system), do: Beamlens.Skill.System
+  defp normalize_skill(:system_monitor), do: Beamlens.Skill.SystemMonitor
   defp normalize_skill(:exception), do: Beamlens.Skill.Exception
   defp normalize_skill(skill_module), do: skill_module
 

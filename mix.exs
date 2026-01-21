@@ -168,7 +168,9 @@ defmodule Beamlens.MixProject do
           Beamlens.Skill.Logger.LogStore,
           Beamlens.Skill.Ports,
           Beamlens.Skill.Sup,
-          Beamlens.Skill.System
+          Beamlens.Skill.System,
+          Beamlens.Skill.SystemMonitor,
+          Beamlens.Skill.SystemMonitor.EventStore
         ],
         Telemetry: [
           Beamlens.Telemetry,

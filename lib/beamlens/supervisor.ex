@@ -8,6 +8,7 @@ defmodule Beamlens.Supervisor do
     * `Beamlens.OperatorRegistry` - Registry for operator processes
     * `Beamlens.Skill.Logger.LogStore` - Log buffer
     * `Beamlens.Skill.Exception.ExceptionStore` - Exception buffer (only if Tower is installed)
+    * `Beamlens.Skill.SystemMonitor.EventStore` - System monitor event buffer (only if SystemMonitor skill is enabled)
     * `Beamlens.Coordinator` - Static coordinator process
     * `Beamlens.Operator.Supervisor` - Supervisor for static operator processes
 
@@ -45,6 +46,7 @@ defmodule Beamlens.Supervisor do
         {Registry, keys: :unique, name: Beamlens.OperatorRegistry},
         LogStore,
         exception_store_child(),
+        system_monitor_child(skills),
         coordinator_child(client_registry),
         {OperatorSupervisor, skills: skills, client_registry: client_registry}
       ]
@@ -69,6 +71,14 @@ defmodule Beamlens.Supervisor do
   defp exception_store_child do
     if Code.ensure_loaded?(Beamlens.Skill.Exception.ExceptionStore) do
       [Beamlens.Skill.Exception.ExceptionStore]
+    else
+      []
+    end
+  end
+
+  defp system_monitor_child(skills) do
+    if Beamlens.Skill.SystemMonitor in skills do
+      [Beamlens.Skill.SystemMonitor.EventStore]
     else
       []
     end

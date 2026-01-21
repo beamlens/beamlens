@@ -65,7 +65,7 @@ defmodule Beamlens.SupervisorTest do
       {:ok, _} = start_supervised({Beamlens.Supervisor, []})
 
       operators = Beamlens.list_operators()
-      assert length(operators) == 7
+      assert length(operators) == 8
     end
   end
 end
