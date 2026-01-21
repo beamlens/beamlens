@@ -22,10 +22,9 @@ defmodule Beamlens.Skill.Tracer do
   - Module name, function name, arity
   - Event type (:call, :return_from)
 
-  Does NOT capture:
-  - Function arguments
-  - Return values
-  - Process state or mailbox contents
+  Function arguments and return values are never captured by design.
+  The tracing implementation only records function call metadata,
+  making it impossible for sensitive data to leak through traces.
   """
 
   use GenServer
