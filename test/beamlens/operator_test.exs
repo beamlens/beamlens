@@ -6,6 +6,17 @@ defmodule Beamlens.OperatorTest do
   alias Beamlens.Operator
   alias Beamlens.Operator.Snapshot
 
+  setup do
+    # Ensure Puck.Test.Ownership is started before async tests run
+    # to prevent race conditions when multiple tests call Puck.Test.mock_client concurrently
+    case Puck.Test.start_link() do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+    end
+
+    :ok
+  end
+
   defmodule TestSkill do
     @behaviour Beamlens.Skill
 
