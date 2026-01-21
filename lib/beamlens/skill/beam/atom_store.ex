@@ -74,7 +74,7 @@ defmodule Beamlens.Skill.Beam.AtomStore do
   end
 
   defp get_latest_sample(samples) do
-    case :queue.out(samples) do
+    case :queue.out_r(samples) do
       {{:value, latest}, _} -> latest
       {:empty, _} -> nil
     end

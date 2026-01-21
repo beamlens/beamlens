@@ -48,5 +48,14 @@ defmodule Beamlens.Skill.Ets.GrowthStoreTest do
       assert is_integer(latest.timestamp)
       assert is_list(latest.tables)
     end
+
+    test "returns newest sample not oldest" do
+      start_supervised!({GrowthStore, [name: GrowthStore]})
+
+      samples = GrowthStore.get_samples()
+      latest = GrowthStore.get_latest()
+
+      assert latest == List.last(samples)
+    end
   end
 end

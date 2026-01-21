@@ -50,5 +50,14 @@ defmodule Beamlens.Skill.Beam.AtomStoreTest do
       assert is_integer(latest.count)
       assert is_integer(latest.limit)
     end
+
+    test "returns newest sample not oldest" do
+      start_supervised!({AtomStore, [name: AtomStore]})
+
+      samples = AtomStore.get_samples()
+      latest = AtomStore.get_latest()
+
+      assert latest == List.last(samples)
+    end
   end
 end
