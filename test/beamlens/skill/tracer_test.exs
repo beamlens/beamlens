@@ -82,6 +82,18 @@ defmodule Beamlens.Skill.TracerTest do
       module_pattern = :erlang
       function_pattern = :timestamp
       assert {:ok, %{status: :started}} = Tracer.start_trace({module_pattern, function_pattern})
+
+      Tracer.stop_trace()
+    end
+
+    test "start_trace rejects wildcard module pattern" do
+      assert {:error, :wildcard_module_not_allowed} = Tracer.start_trace({:_, :some_func})
+      assert {:error, :wildcard_module_not_allowed} = Tracer.start_trace({:*, :some_func})
+    end
+
+    test "start_trace rejects wildcard function pattern" do
+      assert {:error, :wildcard_function_not_allowed} = Tracer.start_trace({:erlang, :_})
+      assert {:error, :wildcard_function_not_allowed} = Tracer.start_trace({:erlang, :*})
     end
 
     test "start_trace rejects duplicate active trace" do
@@ -94,6 +106,8 @@ defmodule Beamlens.Skill.TracerTest do
 
       assert {:error, :trace_already_active} =
                Tracer.start_trace({module_pattern2, function_pattern2})
+
+      Tracer.stop_trace()
     end
 
     test "stop_trace when no active trace" do

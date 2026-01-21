@@ -11,10 +11,21 @@ defmodule Beamlens.Skill.Tracer do
   - Message limit: max 100 total trace events
   - Time limit: max 5 minutes per trace session
   - Auto-shutoff: traces stop automatically when limits reached
-  - Specificity required: must specify module/function patterns
+  - Specificity required: must specify concrete module/function patterns
+  - Runtime enforcement: wildcard patterns rejected at setup time
 
-  No PII/PHI exposure: traces may contain function arguments and
-  return values, but operator should sanitize before analysis.
+  ## What Gets Traced
+
+  Traces capture metadata only:
+  - Timestamp (microsecond precision)
+  - Process identifier (PID)
+  - Module name, function name, arity
+  - Event type (:call, :return_from)
+
+  Does NOT capture:
+  - Function arguments
+  - Return values
+  - Process state or mailbox contents
   """
 
   use GenServer
@@ -43,8 +54,9 @@ defmodule Beamlens.Skill.Tracer do
     - Trace event capture (timestamp, pid, module, function, arity)
     - Zero-impact tracing (safe for production use)
 
-    ## Safety First
-    - NEVER trace all functions - always require specific patterns
+    ## How Tracing Works
+    - Specify concrete module and function names to trace
+    - Runtime validation prevents wildcard patterns (:"*", :_, etc.)
     - Message limits prevent node overload (100 events max)
     - Auto-shutoff when limits reached (100 events or 5 minutes)
     - Trace only what's needed for the specific investigation
@@ -54,6 +66,10 @@ defmodule Beamlens.Skill.Tracer do
     - Debugging production issues without redeployment
     - Understanding call patterns and sequences
     - Finding root cause of errors or performance issues
+
+    ## What Gets Captured
+    Each trace event contains: timestamp, pid, module, function, arity, event type
+    No function arguments or return values are captured.
     """
   end
 
@@ -116,20 +132,20 @@ defmodule Beamlens.Skill.Tracer do
     if state.active_trace do
       {:reply, {:error, :trace_already_active}, state}
     else
-      case setup_trace(module_pattern, function_pattern) do
-        {:ok, trace_pid} ->
-          new_state = %{
-            active_trace: %{
-              module_pattern: module_pattern,
-              function_pattern: function_pattern,
-              tracer_pid: trace_pid
-            },
-            events: [],
-            start_time: System.monotonic_time(:millisecond)
-          }
+      with :ok <- validate_patterns(module_pattern, function_pattern),
+           {:ok, trace_pid} <- setup_trace(module_pattern, function_pattern) do
+        new_state = %{
+          active_trace: %{
+            module_pattern: module_pattern,
+            function_pattern: function_pattern,
+            tracer_pid: trace_pid
+          },
+          events: [],
+          start_time: System.monotonic_time(:millisecond)
+        }
 
-          {:reply, {:ok, %{status: :started}}, new_state}
-
+        {:reply, {:ok, %{status: :started}}, new_state}
+      else
         {:error, reason} ->
           {:reply, {:error, reason}, state}
       end
@@ -240,6 +256,21 @@ defmodule Beamlens.Skill.Tracer do
   end
 
   ## Private Helpers
+
+  defp validate_patterns(module_pattern, function_pattern) do
+    forbidden_patterns = [:_, :*]
+
+    cond do
+      module_pattern in forbidden_patterns ->
+        {:error, :wildcard_module_not_allowed}
+
+      function_pattern in forbidden_patterns ->
+        {:error, :wildcard_function_not_allowed}
+
+      true ->
+        :ok
+    end
+  end
 
   defp setup_trace(module_pattern, function_pattern) do
     parent = self()
