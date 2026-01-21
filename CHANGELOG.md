@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Tracer skill skeleton for production-safe function call tracing
 - Atom table growth monitoring callbacks in Beam skill: `beam_atom_growth_rate/1`, `beam_atom_leak_detected/0`
 - AtomStore GenServer for periodic atom count sampling
 - Busy port detection monitoring in SystemMonitor skill: `busy_port` and `busy_dist_port` event tracking
