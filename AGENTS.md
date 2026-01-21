@@ -14,6 +14,8 @@ Always refer to this for guidance on copywriting: https://gist.githubusercontent
 - Never use non-critical comments
 - Avoid tautological or disjunctive assertions. Each test should assert exactly one expected outcome. If you're uncertain which outcome to expect, that indicates the test setup needs to be more specific, not that the assertion should be looser.
 - NEVER use case statements or any kind of conditional logic in test assertions where the conditional logic is meant to handle different outcomes.
+- **Avoid overly prescriptive documentation** - LLMs can infer from guidance and put together insights. Don't hard-code deterministic steps or enumerate every field. Document intent and patterns, not implementation details.
+- **Code smell: Hard-coded deterministic steps** - Only use determinism where inference is 100% not needed. Let LLMs synthesize information rather than following step-by-step recipes.
 
 ## Conventions
 
