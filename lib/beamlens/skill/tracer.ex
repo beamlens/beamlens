@@ -8,7 +8,6 @@ defmodule Beamlens.Skill.Tracer do
 
   ## Safety Guarantees
 
-  - Rate limiting: max 100 messages per second
   - Message limit: max 100 total trace events
   - Time limit: max 5 minutes per trace session
   - Auto-shutoff: traces stop automatically when limits reached
@@ -46,7 +45,7 @@ defmodule Beamlens.Skill.Tracer do
 
     ## Safety First
     - NEVER trace all functions - always require specific patterns
-    - Rate limiting prevents node overload (100 events max)
+    - Message limits prevent node overload (100 events max)
     - Auto-shutoff when limits reached (100 events or 5 minutes)
     - Trace only what's needed for the specific investigation
 
@@ -82,17 +81,17 @@ defmodule Beamlens.Skill.Tracer do
     - module_pattern: Module to trace (e.g., MyModule, :"*")
     - function_pattern: Function name pattern (e.g., :my_func, :"_*")
 
-    Returns: %{trace_id: id, status: :started}
+    Returns: {:ok, %{status: :started}} or {:error, reason}
 
     ### trace_stop()
     Stop the active trace session and collect results.
 
-    Returns: %{events: [...], status: :stopped}
+    Returns: {:ok, %{events: [...], status: :stopped}} or {:error, :no_active_trace}
 
     ### trace_list()
-    List all trace sessions.
+    List all active trace sessions.
 
-    Returns: list of trace session info
+    Returns: list of trace session info with module_pattern, function_pattern, event_count, duration_ms
     """
   end
 
