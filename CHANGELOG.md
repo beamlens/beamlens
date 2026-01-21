@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Process reduction profiling callbacks in Beam skill: `beam_top_reducers_window/2`, `beam_reduction_rate/2`, `beam_burst_detection/2`, `beam_hot_functions/2`
 - ETS table growth tracking callbacks in Ets skill (`ets_growth_stats`, `ets_leak_candidates`)
 - GrowthStore GenServer for periodic ETS table size sampling
 - SystemMonitor skill for tracking long_gc and long_schedule events

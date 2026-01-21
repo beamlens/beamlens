@@ -54,6 +54,19 @@ defmodule Beamlens.Skill.Beam do
     - Use scheduler_utilization, NOT OS CPU
     - Scheduler @ 95% but OS @ 40%: Normal, busy-wait expected
     - Scheduler @ 30% but OS @ 90%: NIFs or drivers
+
+    ## Reduction Profiling (Chapter 108)
+    - Reductions are the basic unit of work in BEAM (1 reduction ≈ one function call)
+    - High reduction count = high CPU usage, but total reductions can be misleading
+    - Sliding window finds CURRENT hogs (not all-time leaders)
+    - Reduction rate > 10_000/sec = CPU-intensive process
+    - Burst detection: sudden rate increases = event-triggered work
+    - Correlate with current_function to find hot code paths
+    - Use beam_top_reducers_window() to find processes working hardest NOW
+    - Use beam_reduction_rate() to track specific process work over time
+    - Use beam_burst_detection() to identify sudden work spikes
+    - Use beam_hot_functions() to find which functions consume most CPU
+    - Complement with scheduler_utilization for full CPU picture
     """
   end
 
@@ -103,7 +116,11 @@ defmodule Beamlens.Skill.Beam do
       "beam_queue_stats" => &queue_stats/0,
       "beam_scheduler_utilization" => &scheduler_utilization_wrapper/1,
       "beam_scheduler_capacity_available" => &scheduler_capacity_available_wrapper/0,
-      "beam_scheduler_health" => &scheduler_health_wrapper/0
+      "beam_scheduler_health" => &scheduler_health_wrapper/0,
+      "beam_top_reducers_window" => &top_reducers_window_wrapper/2,
+      "beam_reduction_rate" => &reduction_rate_wrapper/2,
+      "beam_burst_detection" => &burst_detection_wrapper/2,
+      "beam_hot_functions" => &hot_functions_wrapper/2
     }
   end
 
@@ -154,6 +171,18 @@ defmodule Beamlens.Skill.Beam do
 
     ### beam_scheduler_health()
     Overall scheduler health assessment with status (:healthy | :warning | :critical), imbalance factor, and recommendations.
+
+    ### beam_top_reducers_window(limit, window_ms)
+    Top N processes by reduction delta over a sliding window. Returns processes with highest reduction rates, including pid, name, reductions_delta, rate_per_sec, current_function. Use to identify current CPU hogs.
+
+    ### beam_reduction_rate(pid, window_ms)
+    Reduction rate for a specific process. Returns reductions_per_sec, reductions_delta, trend (:very_high | :high | :moderate | :low | :idle). Trend based on rate: >10_000/sec = very_high, >5_000 = high, >1_000 = moderate, >100 = low.
+
+    ### beam_burst_detection(baseline_window_ms, burst_threshold_pct)
+    Detect work bursts by comparing current reduction rates to baseline. Returns processes with reduction rate increase > threshold percentage from baseline. Use to identify event-triggered work spikes.
+
+    ### beam_hot_functions(limit, window_ms)
+    Profile hot functions by grouping reduction deltas by current_function. Returns functions sorted by avg_reductions with process_count. Use to identify CPU-intensive code paths.
     """
   end
 
@@ -768,5 +797,265 @@ defmodule Beamlens.Skill.Beam do
 
   defp generate_health_recommendations(_, _) do
     ["System healthy - headroom available"]
+  end
+
+  defp top_reducers_window_wrapper(limit, window_ms)
+       when is_number(limit) and is_number(window_ms) do
+    top_reducers_window(%{limit: limit, window_ms: window_ms})
+  end
+
+  defp reduction_rate_wrapper(pid_str, window_ms)
+       when is_binary(pid_str) and is_number(window_ms) do
+    pid = pid_to_pid(pid_str)
+    reduction_rate(%{pid: pid, window_ms: window_ms})
+  end
+
+  defp burst_detection_wrapper(baseline_window_ms, burst_threshold_pct)
+       when is_number(baseline_window_ms) and is_number(burst_threshold_pct) do
+    burst_detection(%{
+      baseline_window_ms: baseline_window_ms,
+      burst_threshold_pct: burst_threshold_pct
+    })
+  end
+
+  defp hot_functions_wrapper(limit, window_ms)
+       when is_number(limit) and is_number(window_ms) do
+    hot_functions(%{limit: limit, window_ms: window_ms})
+  end
+
+  defp top_reducers_window(opts) do
+    limit = min(Map.get(opts, :limit) || 10, 50)
+    window_ms = max(Map.get(opts, :window_ms) || 5000, 100)
+
+    snapshot1 = snapshot_reductions()
+
+    Process.sleep(window_ms)
+
+    snapshot2 = snapshot_reductions()
+
+    reducers =
+      Map.keys(snapshot2)
+      |> Stream.map(fn pid ->
+        initial = Map.get(snapshot1, pid, %{reductions: 0})
+        final = snapshot2[pid]
+
+        delta = final.reductions - initial.reductions
+
+        if delta > 0 do
+          rate_per_sec = Float.round(delta / (window_ms / 1000), 2)
+
+          %{
+            pid: inspect(pid),
+            name: final.name,
+            reductions_delta: delta,
+            rate_per_sec: rate_per_sec,
+            current_function: final.current_function
+          }
+        end
+      end)
+      |> Stream.reject(&is_nil/1)
+      |> Enum.sort_by(& &1.reductions_delta, :desc)
+      |> Enum.take(limit)
+
+    %{
+      window_ms: window_ms,
+      showing: length(reducers),
+      limit: limit,
+      processes: reducers
+    }
+  end
+
+  defp reduction_rate(opts) do
+    pid = opts.pid
+    window_ms = max(Map.get(opts, :window_ms, 1000), 100)
+
+    initial_reductions = get_process_reductions(pid)
+
+    if is_nil(initial_reductions) do
+      %{
+        pid: inspect(pid),
+        error: "process_not_found"
+      }
+    else
+      Process.sleep(window_ms)
+
+      final_reductions = get_process_reductions(pid)
+
+      if is_nil(final_reductions) do
+        %{
+          pid: inspect(pid),
+          error: "process_died"
+        }
+      else
+        delta = final_reductions - initial_reductions
+        rate_per_sec = Float.round(delta / (window_ms / 1000), 2)
+
+        trend = determine_rate_trend(rate_per_sec)
+
+        %{
+          pid: inspect(pid),
+          reductions_per_sec: rate_per_sec,
+          reductions_delta: delta,
+          window_ms: window_ms,
+          trend: trend
+        }
+      end
+    end
+  end
+
+  defp burst_detection(opts) do
+    baseline_window_ms = max(Map.get(opts, :baseline_window_ms, 5000), 100)
+    burst_threshold_pct = max(Map.get(opts, :burst_threshold_pct, 200), 100)
+
+    baseline_snapshot = snapshot_reductions()
+
+    Process.sleep(baseline_window_ms)
+
+    current_snapshot = snapshot_reductions()
+
+    bursts =
+      Map.keys(current_snapshot)
+      |> Enum.flat_map(fn pid ->
+        build_burst_entry(
+          pid,
+          baseline_snapshot,
+          current_snapshot,
+          baseline_window_ms,
+          burst_threshold_pct
+        )
+      end)
+      |> Enum.sort_by(& &1.burst_multiplier_pct, :desc)
+
+    %{
+      baseline_window_ms: baseline_window_ms,
+      burst_threshold_pct: burst_threshold_pct,
+      showing: length(bursts),
+      processes: bursts
+    }
+  end
+
+  defp hot_functions(opts) do
+    limit = min(Map.get(opts, :limit) || 10, 50)
+    window_ms = max(Map.get(opts, :window_ms) || 5000, 100)
+
+    snapshot1 = snapshot_reductions()
+
+    Process.sleep(window_ms)
+
+    snapshot2 = snapshot_reductions()
+
+    function_reductions =
+      Map.keys(snapshot2)
+      |> Enum.reduce(%{}, fn pid, acc ->
+        initial = Map.get(snapshot1, pid, %{reductions: 0, current_function: nil})
+        final = snapshot2[pid]
+
+        delta = final.reductions - initial.reductions
+
+        if delta > 0 and final.current_function do
+          Map.update(acc, final.current_function, [delta], &[delta | &1])
+        else
+          acc
+        end
+      end)
+
+    hot_functions =
+      function_reductions
+      |> Enum.map(fn {function, deltas} ->
+        avg_reductions =
+          deltas
+          |> Enum.sum()
+          |> Kernel.div(length(deltas))
+
+        %{
+          function: function,
+          avg_reductions: avg_reductions,
+          process_count: length(deltas)
+        }
+      end)
+      |> Enum.sort_by(& &1.avg_reductions, :desc)
+      |> Enum.take(limit)
+
+    %{
+      window_ms: window_ms,
+      showing: length(hot_functions),
+      limit: limit,
+      functions: hot_functions
+    }
+  end
+
+  defp snapshot_reductions do
+    Process.list()
+    |> Stream.map(fn pid ->
+      case Process.info(pid, [:reductions, :current_function, :registered_name, :dictionary]) do
+        nil ->
+          nil
+
+        info ->
+          %{
+            pid: pid,
+            reductions: info[:reductions],
+            current_function: format_mfa(info[:current_function]),
+            name: process_name(info)
+          }
+      end
+    end)
+    |> Stream.reject(&is_nil/1)
+    |> Map.new(fn info -> {info.pid, info} end)
+  end
+
+  defp get_process_reductions(pid) do
+    case Process.info(pid, :reductions) do
+      {:reductions, reductions} -> reductions
+      nil -> nil
+    end
+  end
+
+  defp pid_to_pid(pid_str) do
+    pid_str
+    |> String.replace_prefix("#PID", "")
+    |> String.to_charlist()
+    |> :erlang.list_to_pid()
+  end
+
+  defp determine_rate_trend(rate) when rate > 10_000, do: "very_high"
+  defp determine_rate_trend(rate) when rate > 5_000, do: "high"
+  defp determine_rate_trend(rate) when rate > 1_000, do: "moderate"
+  defp determine_rate_trend(rate) when rate > 100, do: "low"
+  defp determine_rate_trend(_), do: "idle"
+
+  defp build_burst_entry(
+         pid,
+         baseline_snapshot,
+         current_snapshot,
+         baseline_window_ms,
+         burst_threshold_pct
+       ) do
+    baseline = Map.get(baseline_snapshot, pid, %{reductions: 0, name: nil, current_function: nil})
+    current = Map.get(current_snapshot, pid, %{reductions: 0, name: nil, current_function: nil})
+
+    baseline_rate = baseline.reductions / (baseline_window_ms / 1000)
+    current_rate = current.reductions / (baseline_window_ms / 1000)
+
+    if baseline_rate > 0 do
+      burst_multiplier = Float.round((current_rate - baseline_rate) / baseline_rate * 100, 2)
+
+      if burst_multiplier >= burst_threshold_pct do
+        [
+          %{
+            pid: inspect(pid),
+            name: current.name,
+            baseline_rate: Float.round(baseline_rate, 2),
+            current_rate: Float.round(current_rate, 2),
+            burst_multiplier_pct: burst_multiplier,
+            current_function: current.current_function
+          }
+        ]
+      else
+        []
+      end
+    else
+      []
+    end
   end
 end

@@ -65,6 +65,10 @@ defmodule Beamlens.Skill.BeamTest do
       assert Map.has_key?(callbacks, "beam_top_processes")
       assert Map.has_key?(callbacks, "beam_binary_leak")
       assert Map.has_key?(callbacks, "beam_binary_top_memory")
+      assert Map.has_key?(callbacks, "beam_top_reducers_window")
+      assert Map.has_key?(callbacks, "beam_reduction_rate")
+      assert Map.has_key?(callbacks, "beam_burst_detection")
+      assert Map.has_key?(callbacks, "beam_hot_functions")
     end
 
     test "callbacks are functions" do
@@ -79,6 +83,10 @@ defmodule Beamlens.Skill.BeamTest do
       assert is_function(callbacks["beam_top_processes"], 2)
       assert is_function(callbacks["beam_binary_leak"], 1)
       assert is_function(callbacks["beam_binary_top_memory"], 1)
+      assert is_function(callbacks["beam_top_reducers_window"], 2)
+      assert is_function(callbacks["beam_reduction_rate"], 2)
+      assert is_function(callbacks["beam_burst_detection"], 2)
+      assert is_function(callbacks["beam_hot_functions"], 2)
     end
   end
 
@@ -340,6 +348,130 @@ defmodule Beamlens.Skill.BeamTest do
       assert docs =~ "beam_scheduler_utilization"
       assert docs =~ "beam_scheduler_capacity_available"
       assert docs =~ "beam_scheduler_health"
+      assert docs =~ "beam_top_reducers_window"
+      assert docs =~ "beam_reduction_rate"
+      assert docs =~ "beam_burst_detection"
+      assert docs =~ "beam_hot_functions"
+    end
+  end
+
+  describe "beam_top_reducers_window callback" do
+    test "returns top reducers over a window" do
+      result = Beam.callbacks()["beam_top_reducers_window"].(5, 200)
+
+      assert is_integer(result.window_ms)
+      assert result.window_ms == 200
+      assert is_integer(result.showing)
+      assert is_integer(result.limit)
+      assert result.limit == 5
+      assert is_list(result.processes)
+    end
+
+    test "processes have expected fields" do
+      result = Beam.callbacks()["beam_top_reducers_window"].(3, 150)
+
+      Enum.each(result.processes, fn process ->
+        assert is_binary(process.pid)
+        assert is_integer(process.reductions_delta)
+        assert is_float(process.rate_per_sec)
+        assert process.reductions_delta >= 0
+        assert process.rate_per_sec >= 0
+      end)
+    end
+
+    test "respects limit parameter" do
+      result = Beam.callbacks()["beam_top_reducers_window"].(2, 100)
+
+      assert length(result.processes) <= 2
+    end
+  end
+
+  describe "beam_reduction_rate callback" do
+    test "returns reduction rate for current process" do
+      pid_str = inspect(self())
+
+      result = Beam.callbacks()["beam_reduction_rate"].(pid_str, 100)
+
+      assert result.pid == pid_str
+      assert is_float(result.reductions_per_sec)
+      assert is_integer(result.reductions_delta)
+      assert result.reductions_delta >= 0
+      assert result.window_ms == 100
+      assert result.trend in ["very_high", "high", "moderate", "low", "idle"]
+    end
+
+    test "returns error for non-existent process" do
+      fake_pid = "#PID<0.9999.0>"
+
+      result = Beam.callbacks()["beam_reduction_rate"].(fake_pid, 100)
+
+      assert result.pid == fake_pid
+      assert result.error == "process_not_found"
+    end
+  end
+
+  describe "beam_burst_detection callback" do
+    test "returns burst detection results" do
+      result = Beam.callbacks()["beam_burst_detection"].(200, 200)
+
+      assert is_integer(result.baseline_window_ms)
+      assert result.baseline_window_ms == 200
+      assert is_integer(result.burst_threshold_pct)
+      assert result.burst_threshold_pct == 200
+      assert is_integer(result.showing)
+      assert is_list(result.processes)
+    end
+
+    test "burst entries have expected fields" do
+      result = Beam.callbacks()["beam_burst_detection"].(150, 300)
+
+      Enum.each(result.processes, fn process ->
+        assert is_binary(process.pid)
+        assert is_float(process.baseline_rate)
+        assert is_float(process.current_rate)
+        assert is_float(process.burst_multiplier_pct)
+        assert process.burst_multiplier_pct >= 300
+      end)
+    end
+  end
+
+  describe "beam_hot_functions callback" do
+    test "returns hot functions over a window" do
+      result = Beam.callbacks()["beam_hot_functions"].(5, 200)
+
+      assert is_integer(result.window_ms)
+      assert result.window_ms == 200
+      assert is_integer(result.showing)
+      assert is_integer(result.limit)
+      assert result.limit == 5
+      assert is_list(result.functions)
+    end
+
+    test "functions have expected fields" do
+      result = Beam.callbacks()["beam_hot_functions"].(3, 150)
+
+      Enum.each(result.functions, fn function ->
+        assert is_binary(function.function)
+        assert is_integer(function.avg_reductions)
+        assert function.avg_reductions >= 0
+        assert is_integer(function.process_count)
+        assert function.process_count >= 0
+      end)
+    end
+
+    test "functions are sorted by avg_reductions descending" do
+      result = Beam.callbacks()["beam_hot_functions"].(10, 200)
+
+      if length(result.functions) > 1 do
+        reductions = Enum.map(result.functions, & &1.avg_reductions)
+        assert reductions == Enum.sort(reductions, :desc)
+      end
+    end
+
+    test "respects limit parameter" do
+      result = Beam.callbacks()["beam_hot_functions"].(2, 100)
+
+      assert length(result.functions) <= 2
     end
   end
 end
