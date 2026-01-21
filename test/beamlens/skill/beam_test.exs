@@ -50,6 +50,13 @@ defmodule Beamlens.Skill.BeamTest do
       assert snapshot.process_utilization_pct >= 0
       assert snapshot.process_utilization_pct <= 100
     end
+
+    test "includes binary memory in snapshot" do
+      snapshot = Beam.snapshot()
+
+      assert is_float(snapshot.binary_memory_mb)
+      assert snapshot.binary_memory_mb >= 0
+    end
   end
 
   describe "callbacks/0" do
@@ -66,6 +73,7 @@ defmodule Beamlens.Skill.BeamTest do
       assert Map.has_key?(callbacks, "beam_top_processes")
       assert Map.has_key?(callbacks, "beam_binary_leak")
       assert Map.has_key?(callbacks, "beam_binary_top_memory")
+      assert Map.has_key?(callbacks, "beam_binary_info")
       assert Map.has_key?(callbacks, "beam_top_reducers_window")
       assert Map.has_key?(callbacks, "beam_reduction_rate")
       assert Map.has_key?(callbacks, "beam_burst_detection")
@@ -84,6 +92,7 @@ defmodule Beamlens.Skill.BeamTest do
       assert is_function(callbacks["beam_top_processes"], 2)
       assert is_function(callbacks["beam_binary_leak"], 1)
       assert is_function(callbacks["beam_binary_top_memory"], 1)
+      assert is_function(callbacks["beam_binary_info"], 1)
       assert is_function(callbacks["beam_top_reducers_window"], 2)
       assert is_function(callbacks["beam_reduction_rate"], 2)
       assert is_function(callbacks["beam_burst_detection"], 2)
@@ -243,6 +252,17 @@ defmodule Beamlens.Skill.BeamTest do
 
       assert result.limit == 50
     end
+
+    test "rate limits GC calls to once per minute" do
+      result1 = Beam.callbacks()["beam_binary_leak"].(10)
+
+      refute Map.has_key?(result1, :error)
+
+      result2 = Beam.callbacks()["beam_binary_leak"].(10)
+
+      assert result2.error == "rate_limited"
+      assert result2.message =~ "GC can only be run once per minute"
+    end
   end
 
   describe "beam_binary_top_memory callback" do
@@ -264,6 +284,36 @@ defmodule Beamlens.Skill.BeamTest do
       result = Beam.callbacks()["beam_binary_top_memory"].(100)
 
       assert result.limit == 50
+    end
+  end
+
+  describe "beam_binary_info callback" do
+    test "returns detailed binary info for process" do
+      pid_str = inspect(self())
+      result = Beam.callbacks()["beam_binary_info"].(pid_str)
+
+      assert result.pid == pid_str
+      assert is_integer(result.binary_count)
+      assert is_integer(result.binary_memory_kb)
+      assert is_list(result.binaries)
+    end
+
+    test "binaries list has expected structure" do
+      pid_str = inspect(self())
+      result = Beam.callbacks()["beam_binary_info"].(pid_str)
+
+      Enum.each(result.binaries, fn binary ->
+        assert is_binary(binary.id)
+        assert is_integer(binary.size_bytes)
+        assert is_integer(binary.refcount)
+      end)
+    end
+
+    test "returns error for non-existent process" do
+      fake_pid = "#PID<0.9999.0>"
+      result = Beam.callbacks()["beam_binary_info"].(fake_pid)
+
+      assert result.error == "process_not_found"
     end
   end
 
@@ -346,6 +396,7 @@ defmodule Beamlens.Skill.BeamTest do
       assert docs =~ "beam_top_processes"
       assert docs =~ "beam_binary_leak"
       assert docs =~ "beam_binary_top_memory"
+      assert docs =~ "beam_binary_info"
       assert docs =~ "beam_scheduler_utilization"
       assert docs =~ "beam_scheduler_capacity_available"
       assert docs =~ "beam_scheduler_health"
