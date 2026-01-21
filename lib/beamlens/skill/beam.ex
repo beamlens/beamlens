@@ -55,7 +55,7 @@ defmodule Beamlens.Skill.Beam do
     - Scheduler @ 95% but OS @ 40%: Normal, busy-wait expected
     - Scheduler @ 30% but OS @ 90%: NIFs or drivers
 
-    ## Reduction Profiling (Chapter 108)
+    ## Reduction Profiling
     - Reductions are the basic unit of work in BEAM (1 reduction ≈ one function call)
     - High reduction count = high CPU usage, but total reductions can be misleading
     - Sliding window finds CURRENT hogs (not all-time leaders)
