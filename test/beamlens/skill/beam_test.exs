@@ -63,6 +63,8 @@ defmodule Beamlens.Skill.BeamTest do
       assert Map.has_key?(callbacks, "beam_get_system")
       assert Map.has_key?(callbacks, "beam_get_persistent_terms")
       assert Map.has_key?(callbacks, "beam_top_processes")
+      assert Map.has_key?(callbacks, "beam_binary_leak")
+      assert Map.has_key?(callbacks, "beam_binary_top_memory")
     end
 
     test "callbacks are functions" do
@@ -75,6 +77,8 @@ defmodule Beamlens.Skill.BeamTest do
       assert is_function(callbacks["beam_get_system"], 0)
       assert is_function(callbacks["beam_get_persistent_terms"], 0)
       assert is_function(callbacks["beam_top_processes"], 2)
+      assert is_function(callbacks["beam_binary_leak"], 1)
+      assert is_function(callbacks["beam_binary_top_memory"], 1)
     end
   end
 
@@ -210,6 +214,50 @@ defmodule Beamlens.Skill.BeamTest do
     end
   end
 
+  describe "beam_binary_leak callback" do
+    test "returns leak detection results" do
+      result = Beam.callbacks()["beam_binary_leak"].(10)
+
+      assert is_integer(result.total_processes)
+      assert is_integer(result.limit)
+      assert is_list(result.processes)
+    end
+
+    test "respects limit parameter" do
+      result = Beam.callbacks()["beam_binary_leak"].(5)
+
+      assert result.limit == 5
+    end
+
+    test "caps limit at 50" do
+      result = Beam.callbacks()["beam_binary_leak"].(100)
+
+      assert result.limit == 50
+    end
+  end
+
+  describe "beam_binary_top_memory callback" do
+    test "returns top binary memory consumers" do
+      result = Beam.callbacks()["beam_binary_top_memory"].(10)
+
+      assert is_integer(result.total_processes)
+      assert is_integer(result.limit)
+      assert is_list(result.processes)
+    end
+
+    test "respects limit parameter" do
+      result = Beam.callbacks()["beam_binary_top_memory"].(5)
+
+      assert result.limit == 5
+    end
+
+    test "caps limit at 50" do
+      result = Beam.callbacks()["beam_binary_top_memory"].(100)
+
+      assert result.limit == 50
+    end
+  end
+
   describe "callback_docs/0" do
     test "returns non-empty string" do
       docs = Beam.callback_docs()
@@ -228,6 +276,8 @@ defmodule Beamlens.Skill.BeamTest do
       assert docs =~ "beam_get_system"
       assert docs =~ "beam_get_persistent_terms"
       assert docs =~ "beam_top_processes"
+      assert docs =~ "beam_binary_leak"
+      assert docs =~ "beam_binary_top_memory"
     end
   end
 end

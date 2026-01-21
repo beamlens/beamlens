@@ -35,6 +35,12 @@ defmodule Beamlens.Skill.Beam do
     - Run queue > 2x schedulers: scheduler contention
     - Binary memory growth: potential memory leak from large binaries
     - Message queue buildup: processes falling behind
+
+    ## Binary Memory Leaks
+    - Binary memory growing > 50MB/hour without load increase: potential leak
+    - Router/proxy processes with high binary counts: hold refs unnecessarily
+    - Use beam_binary_leak(10) to identify processes holding refs after GC
+    - Remediation: binary:copy/1 for small fragments, hibernation, temporary worker processes
     """
   end
 
@@ -76,7 +82,9 @@ defmodule Beamlens.Skill.Beam do
       "beam_get_atoms" => &atom_stats/0,
       "beam_get_system" => &system_info/0,
       "beam_get_persistent_terms" => &persistent_terms/0,
-      "beam_top_processes" => &top_processes_wrapper/2
+      "beam_top_processes" => &top_processes_wrapper/2,
+      "beam_binary_leak" => &binary_leak_wrapper/1,
+      "beam_binary_top_memory" => &binary_top_memory_wrapper/1
     }
   end
 
@@ -103,6 +111,12 @@ defmodule Beamlens.Skill.Beam do
 
     ### beam_top_processes(limit, sort_by)
     Top N processes by "memory", "message_queue", or "reductions". Returns: total_processes, showing, offset, limit, sort_by, processes list with pid, name, memory_kb, message_queue, reductions, current_function
+
+    ### beam_binary_leak(limit)
+    Detects binary memory leaks by forcing global GC and measuring binary reference deltas. Returns top N processes by binary_delta (positive delta = potential leak). Includes: total_processes, showing, processes list with pid, name, binary_delta, binary_count, binary_memory_kb, current_function. **Note: Forces garbage collection on all processes.**
+
+    ### beam_binary_top_memory(limit)
+    Returns top N processes by current binary memory usage. Includes: total_processes, showing, processes list with pid, name, binary_count, binary_memory_kb, current_function. Does not force GC.
     """
   end
 
@@ -245,5 +259,92 @@ defmodule Beamlens.Skill.Beam do
   defp top_processes_wrapper(limit, sort_by)
        when is_number(limit) and is_binary(sort_by) do
     top_processes(%{limit: limit, sort_by: sort_by})
+  end
+
+  defp binary_leak_wrapper(limit) when is_number(limit) do
+    binary_leak(%{limit: limit})
+  end
+
+  defp binary_top_memory_wrapper(limit) when is_number(limit) do
+    binary_top_memory(%{limit: limit})
+  end
+
+  defp binary_leak(opts) do
+    limit = min(Map.get(opts, :limit) || 10, 50)
+
+    before = Enum.map(Process.list(), &binary_info/1)
+
+    :erlang.garbage_collect()
+
+    after_gc = Enum.map(Process.list(), &binary_info/1)
+
+    deltas =
+      Enum.zip([before, after_gc])
+      |> Enum.map(fn {before_proc, after_proc} ->
+        delta =
+          if is_nil(before_proc) || is_nil(after_proc) do
+            0
+          else
+            (after_proc[:binary_count] || 0) - (before_proc[:binary_count] || 0)
+          end
+
+        Map.merge(after_proc || %{}, %{
+          binary_delta: delta
+        })
+      end)
+      |> Enum.filter(fn proc -> proc[:binary_delta] && proc[:binary_delta] > 0 end)
+      |> Enum.sort_by(& &1[:binary_delta], :desc)
+      |> Enum.take(limit)
+
+    %{
+      total_processes: :erlang.system_info(:process_count),
+      showing: length(deltas),
+      limit: limit,
+      processes: deltas
+    }
+  end
+
+  defp binary_top_memory(opts) do
+    limit = min(Map.get(opts, :limit) || 10, 50)
+
+    processes =
+      Process.list()
+      |> Stream.map(&binary_info/1)
+      |> Stream.reject(&is_nil/1)
+      |> Enum.sort_by(& &1[:binary_memory_kb], :desc)
+      |> Enum.take(limit)
+
+    %{
+      total_processes: :erlang.system_info(:process_count),
+      showing: length(processes),
+      limit: limit,
+      processes: processes
+    }
+  end
+
+  @binary_keys [:binary, :current_function, :registered_name, :dictionary]
+
+  defp binary_info(pid) do
+    case Process.info(pid, @binary_keys) do
+      nil ->
+        nil
+
+      info ->
+        binaries = info[:binary] || []
+
+        binary_memory_kb =
+          binaries
+          |> Enum.map(fn {_id, size, _count} -> size end)
+          |> Enum.sum()
+          |> Kernel.div(1024)
+
+        %{
+          pid: inspect(pid),
+          name: process_name(info),
+          binary_count: length(binaries),
+          binary_memory_kb: binary_memory_kb,
+          current_function: format_mfa(info[:current_function])
+        }
+    end
   end
 end

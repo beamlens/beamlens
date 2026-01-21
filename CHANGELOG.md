@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Binary memory leak detection callbacks in Beam skill (`beam_binary_leak`, `beam_binary_top_memory`)
 - Operators and Coordinator are now always-running supervised processes
 - New `Operator.run_async/3` for running analysis in the background with progress notifications
 - Multiple analysis requests to the same operator are queued and processed in order

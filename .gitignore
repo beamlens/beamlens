@@ -37,3 +37,7 @@ Thumbs.db
 /.hex-docs/
 
 /.sprite
+
+# Ralph agent artifacts
+.ralph_memory.md
+PROMPT.md
