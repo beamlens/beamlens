@@ -41,6 +41,19 @@ defmodule Beamlens.Skill.Beam do
     - Router/proxy processes with high binary counts: hold refs unnecessarily
     - Use beam_binary_leak(10) to identify processes holding refs after GC
     - Remediation: binary:copy/1 for small fragments, hibernation, temporary worker processes
+
+    ## Scheduler Utilization (Wall Time)
+    - OS CPU ≠ Scheduler utilization! OS includes busy-wait spin time
+    - Utilization < 70%: Headroom available
+    - Utilization > 90%: Near capacity, scale out
+    - Imbalance (some 90%, others <10%): Bottleneck
+    - Use beam_scheduler_health() for overall assessment
+    - Use beam_scheduler_utilization(1000) for detailed metrics
+
+    ## Capacity Planning
+    - Use scheduler_utilization, NOT OS CPU
+    - Scheduler @ 95% but OS @ 40%: Normal, busy-wait expected
+    - Scheduler @ 30% but OS @ 90%: NIFs or drivers
     """
   end
 
@@ -87,7 +100,10 @@ defmodule Beamlens.Skill.Beam do
       "beam_binary_top_memory" => &binary_top_memory_wrapper/1,
       "beam_queue_processes" => &queue_processes_wrapper/1,
       "beam_queue_growth" => &queue_growth_wrapper/2,
-      "beam_queue_stats" => &queue_stats/0
+      "beam_queue_stats" => &queue_stats/0,
+      "beam_scheduler_utilization" => &scheduler_utilization_wrapper/1,
+      "beam_scheduler_capacity_available" => &scheduler_capacity_available_wrapper/0,
+      "beam_scheduler_health" => &scheduler_health_wrapper/0
     }
   end
 
@@ -129,6 +145,15 @@ defmodule Beamlens.Skill.Beam do
 
     ### beam_queue_stats()
     Aggregate queue health: total_queued_messages, processes_with_large_queues (>1000), processes_with_critical_queues (>10000), max_queue_size, max_queue_process
+
+    ### beam_scheduler_utilization(sample_ms)
+    Measures scheduler wall time utilization over sample_ms milliseconds (minimum 100, recommended 1000). Returns per-scheduler and aggregate utilization percentages. **Note: Enables scheduler_wall_time flag for measurement.**
+
+    ### beam_scheduler_capacity_available()
+    Quick check for system capacity. Returns true if average scheduler utilization < 70%, false otherwise.
+
+    ### beam_scheduler_health()
+    Overall scheduler health assessment with status (:healthy | :warning | :critical), imbalance factor, and recommendations.
     """
   end
 
@@ -522,5 +547,226 @@ defmodule Beamlens.Skill.Beam do
         name: process_name(info)
       }
     end
+  end
+
+  defp scheduler_utilization_wrapper(sample_ms) when is_number(sample_ms) do
+    scheduler_utilization(%{sample_ms: sample_ms})
+  end
+
+  defp scheduler_capacity_available_wrapper do
+    scheduler_capacity_available()
+  end
+
+  defp scheduler_health_wrapper do
+    scheduler_health()
+  end
+
+  defp scheduler_utilization(opts) do
+    sample_ms = max(Map.get(opts, :sample_ms) || 1000, 100)
+
+    try do
+      was_enabled = :erlang.system_flag(:scheduler_wall_time, true)
+
+      before = :erlang.statistics(:scheduler_wall_time)
+
+      Process.sleep(sample_ms)
+
+      after_sample = :erlang.statistics(:scheduler_wall_time)
+
+      utilization = calculate_scheduler_utilization(before, after_sample)
+
+      unless was_enabled do
+        :erlang.system_flag(:scheduler_wall_time, false)
+      end
+
+      utilization
+    rescue
+      ArgumentError ->
+        %{
+          schedulers: [],
+          avg_utilization_pct: 0.0,
+          max_utilization_pct: 0.0,
+          min_utilization_pct: 0.0,
+          imbalanced: false,
+          error: "scheduler_wall_time not supported on this OTP version"
+        }
+    end
+  end
+
+  defp calculate_scheduler_utilization(before, after_sample) do
+    utilizations =
+      Enum.zip([before, after_sample])
+      |> Enum.map(fn {{_id1, total_before, active_before}, {_id2, total_after, active_after}} ->
+        total_delta = total_after - total_before
+        active_delta = active_after - active_before
+
+        utilization_pct =
+          if total_delta > 0 do
+            Float.round(active_delta / total_delta * 100, 2)
+          else
+            0.0
+          end
+
+        utilization_pct
+      end)
+
+    avg_utilization = calculate_avg_utilization(utilizations)
+    max_utilization = calculate_max_utilization(utilizations)
+    min_utilization = calculate_min_utilization(utilizations)
+
+    imbalanced = detect_imbalance(utilizations, max_utilization, min_utilization)
+
+    schedulers_with_ids =
+      utilizations
+      |> Enum.with_index(1)
+      |> Enum.map(fn {util, id} -> %{id: id, utilization_pct: util} end)
+
+    %{
+      schedulers: schedulers_with_ids,
+      avg_utilization_pct: avg_utilization,
+      max_utilization_pct: max_utilization,
+      min_utilization_pct: min_utilization,
+      imbalanced: imbalanced
+    }
+  end
+
+  defp calculate_avg_utilization([]), do: 0.0
+
+  defp calculate_avg_utilization(utilizations) do
+    Float.round(Enum.sum(utilizations) / length(utilizations), 2)
+  end
+
+  defp calculate_max_utilization([]), do: 0.0
+  defp calculate_max_utilization(utilizations), do: Enum.max(utilizations)
+
+  defp calculate_min_utilization([]), do: 0.0
+  defp calculate_min_utilization(utilizations), do: Enum.min(utilizations)
+
+  defp detect_imbalance(utilizations, max_util, min_util) when length(utilizations) > 1 do
+    max_util - min_util > 50.0
+  end
+
+  defp detect_imbalance(_, _, _), do: false
+
+  defp scheduler_capacity_available do
+    sample_ms = 1000
+
+    try do
+      was_enabled = :erlang.system_flag(:scheduler_wall_time, true)
+
+      before = :erlang.statistics(:scheduler_wall_time)
+
+      Process.sleep(sample_ms)
+
+      after_sample = :erlang.statistics(:scheduler_wall_time)
+
+      %{avg_utilization_pct: avg_utilization} =
+        calculate_scheduler_utilization(before, after_sample)
+
+      unless was_enabled do
+        :erlang.system_flag(:scheduler_wall_time, false)
+      end
+
+      avg_utilization < 70.0
+    rescue
+      ArgumentError -> true
+    end
+  end
+
+  defp scheduler_health do
+    sample_ms = 1000
+
+    try do
+      was_enabled = :erlang.system_flag(:scheduler_wall_time, true)
+
+      before = :erlang.statistics(:scheduler_wall_time)
+
+      Process.sleep(sample_ms)
+
+      after_sample = :erlang.statistics(:scheduler_wall_time)
+
+      utilization = calculate_scheduler_utilization(before, after_sample)
+
+      unless was_enabled do
+        :erlang.system_flag(:scheduler_wall_time, false)
+      end
+
+      build_health_result(utilization)
+    rescue
+      ArgumentError ->
+        %{
+          status: :healthy,
+          avg_utilization_pct: 0.0,
+          max_utilization_pct: 0.0,
+          min_utilization_pct: 0.0,
+          imbalance_factor: 0.0,
+          imbalanced: false,
+          recommendations: ["scheduler_wall_time not supported on this OTP version"],
+          error: "scheduler_wall_time not supported"
+        }
+    end
+  end
+
+  defp build_health_result(utilization) do
+    avg_util = utilization.avg_utilization_pct
+    max_util = utilization.max_utilization_pct
+    min_util = utilization.min_utilization_pct
+
+    status = determine_health_status(avg_util)
+    imbalance_factor = calculate_imbalance_factor(utilization.imbalanced, max_util, min_util)
+    recommendations = generate_health_recommendations(avg_util, utilization.imbalanced)
+
+    %{
+      status: status,
+      avg_utilization_pct: avg_util,
+      max_utilization_pct: max_util,
+      min_utilization_pct: min_util,
+      imbalance_factor: imbalance_factor,
+      imbalanced: utilization.imbalanced,
+      recommendations: recommendations
+    }
+  end
+
+  defp determine_health_status(avg_util) when avg_util > 90, do: :critical
+  defp determine_health_status(avg_util) when avg_util > 70, do: :warning
+  defp determine_health_status(_), do: :healthy
+
+  defp calculate_imbalance_factor(true, max_util, min_util), do: max_util - min_util
+  defp calculate_imbalance_factor(false, _, _), do: 0.0
+
+  defp generate_health_recommendations(avg_util, true) when avg_util > 90 do
+    [
+      "System at capacity - scale out immediately",
+      "Scheduler imbalance detected - some schedulers overloaded",
+      "Review long-running operations blocking schedulers",
+      "Check for NIFs or ports consuming CPU time"
+    ]
+  end
+
+  defp generate_health_recommendations(avg_util, _) when avg_util > 90 do
+    [
+      "System at capacity - scale out immediately",
+      "Review long-running operations blocking schedulers",
+      "Check for NIFs or ports consuming CPU time"
+    ]
+  end
+
+  defp generate_health_recommendations(avg_util, _) when avg_util > 70 do
+    [
+      "Approaching capacity - monitor closely",
+      "Investigate scheduler imbalance if present"
+    ]
+  end
+
+  defp generate_health_recommendations(_, true) do
+    [
+      "Scheduler imbalance detected - some schedulers overloaded",
+      "Check for single-process bottlenecks",
+      "Consider adding more worker processes"
+    ]
+  end
+
+  defp generate_health_recommendations(_, _) do
+    ["System healthy - headroom available"]
   end
 end
