@@ -63,8 +63,9 @@ defmodule Beamlens.Skill.BeamTest do
       assert Map.has_key?(callbacks, "beam_get_system")
       assert Map.has_key?(callbacks, "beam_get_persistent_terms")
       assert Map.has_key?(callbacks, "beam_top_processes")
-      assert Map.has_key?(callbacks, "beam_binary_leak")
-      assert Map.has_key?(callbacks, "beam_binary_top_memory")
+      assert Map.has_key?(callbacks, "beam_queue_processes")
+      assert Map.has_key?(callbacks, "beam_queue_growth")
+      assert Map.has_key?(callbacks, "beam_queue_stats")
     end
 
     test "callbacks are functions" do
@@ -77,8 +78,9 @@ defmodule Beamlens.Skill.BeamTest do
       assert is_function(callbacks["beam_get_system"], 0)
       assert is_function(callbacks["beam_get_persistent_terms"], 0)
       assert is_function(callbacks["beam_top_processes"], 2)
-      assert is_function(callbacks["beam_binary_leak"], 1)
-      assert is_function(callbacks["beam_binary_top_memory"], 1)
+      assert is_function(callbacks["beam_queue_processes"], 1)
+      assert is_function(callbacks["beam_queue_growth"], 2)
+      assert is_function(callbacks["beam_queue_stats"], 0)
     end
   end
 
@@ -214,50 +216,6 @@ defmodule Beamlens.Skill.BeamTest do
     end
   end
 
-  describe "beam_binary_leak callback" do
-    test "returns leak detection results" do
-      result = Beam.callbacks()["beam_binary_leak"].(10)
-
-      assert is_integer(result.total_processes)
-      assert is_integer(result.limit)
-      assert is_list(result.processes)
-    end
-
-    test "respects limit parameter" do
-      result = Beam.callbacks()["beam_binary_leak"].(5)
-
-      assert result.limit == 5
-    end
-
-    test "caps limit at 50" do
-      result = Beam.callbacks()["beam_binary_leak"].(100)
-
-      assert result.limit == 50
-    end
-  end
-
-  describe "beam_binary_top_memory callback" do
-    test "returns top binary memory consumers" do
-      result = Beam.callbacks()["beam_binary_top_memory"].(10)
-
-      assert is_integer(result.total_processes)
-      assert is_integer(result.limit)
-      assert is_list(result.processes)
-    end
-
-    test "respects limit parameter" do
-      result = Beam.callbacks()["beam_binary_top_memory"].(5)
-
-      assert result.limit == 5
-    end
-
-    test "caps limit at 50" do
-      result = Beam.callbacks()["beam_binary_top_memory"].(100)
-
-      assert result.limit == 50
-    end
-  end
-
   describe "callback_docs/0" do
     test "returns non-empty string" do
       docs = Beam.callback_docs()
@@ -276,8 +234,128 @@ defmodule Beamlens.Skill.BeamTest do
       assert docs =~ "beam_get_system"
       assert docs =~ "beam_get_persistent_terms"
       assert docs =~ "beam_top_processes"
-      assert docs =~ "beam_binary_leak"
-      assert docs =~ "beam_binary_top_memory"
+      assert docs =~ "beam_queue_processes"
+      assert docs =~ "beam_queue_growth"
+      assert docs =~ "beam_queue_stats"
+    end
+  end
+
+  describe "beam_queue_processes callback" do
+    test "returns processes with queue data" do
+      result = Beam.callbacks()["beam_queue_processes"].(0)
+
+      assert is_integer(result.threshold)
+      assert is_integer(result.count)
+      assert is_list(result.processes)
+    end
+
+    test "filters by threshold" do
+      result = Beam.callbacks()["beam_queue_processes"].(1000)
+
+      assert result.threshold == 1000
+
+      Enum.each(result.processes, fn proc ->
+        assert proc.message_queue > 1000
+      end)
+    end
+
+    test "processes have expected fields" do
+      result = Beam.callbacks()["beam_queue_processes"].(0)
+
+      Enum.each(result.processes, fn proc ->
+        assert Map.has_key?(proc, :pid)
+        assert Map.has_key?(proc, :message_queue)
+        assert Map.has_key?(proc, :current_function)
+      end)
+    end
+
+    test "sorts by queue size descending" do
+      result = Beam.callbacks()["beam_queue_processes"].(0)
+
+      if length(result.processes) > 1 do
+        queue_sizes = Enum.map(result.processes, & &1.message_queue)
+        assert queue_sizes == Enum.sort(queue_sizes, :desc)
+      end
+    end
+  end
+
+  describe "beam_queue_growth callback" do
+    test "returns growth data over interval" do
+      result = Beam.callbacks()["beam_queue_growth"].(10, 5)
+
+      assert is_integer(result.interval_ms)
+      assert result.interval_ms == 10
+      assert is_integer(result.showing)
+      assert is_integer(result.limit)
+      assert result.limit == 5
+      assert is_list(result.processes)
+    end
+
+    test "processes have growth fields" do
+      result = Beam.callbacks()["beam_queue_growth"].(5, 3)
+
+      Enum.each(result.processes, fn proc ->
+        assert Map.has_key?(proc, :pid)
+        assert is_integer(proc.queue_growth)
+        assert proc.queue_growth > 0
+        assert is_integer(proc.initial_queue)
+        assert is_integer(proc.final_queue)
+        assert proc.final_queue > proc.initial_queue
+      end)
+    end
+
+    test "respects limit" do
+      result = Beam.callbacks()["beam_queue_growth"].(5, 2)
+
+      assert result.showing <= 2
+      assert result.limit == 2
+    end
+
+    test "sorts by growth rate descending" do
+      result = Beam.callbacks()["beam_queue_growth"].(5, 10)
+
+      if length(result.processes) > 1 do
+        growth_rates = Enum.map(result.processes, & &1.queue_growth)
+        assert growth_rates == Enum.sort(growth_rates, :desc)
+      end
+    end
+  end
+
+  describe "beam_queue_stats callback" do
+    test "returns aggregate queue statistics" do
+      stats = Beam.callbacks()["beam_queue_stats"].()
+
+      assert is_integer(stats.total_queued_messages)
+      assert is_integer(stats.processes_with_large_queues)
+      assert is_integer(stats.processes_with_critical_queues)
+      assert is_integer(stats.max_queue_size)
+    end
+
+    test "total queued messages is non-negative" do
+      stats = Beam.callbacks()["beam_queue_stats"].()
+
+      assert stats.total_queued_messages >= 0
+    end
+
+    test "large queue count is non-negative" do
+      stats = Beam.callbacks()["beam_queue_stats"].()
+
+      assert stats.processes_with_large_queues >= 0
+    end
+
+    test "critical queue count is non-negative" do
+      stats = Beam.callbacks()["beam_queue_stats"].()
+
+      assert stats.processes_with_critical_queues >= 0
+    end
+
+    test "max_queue_size matches max process queue when present" do
+      stats = Beam.callbacks()["beam_queue_stats"].()
+
+      if stats.max_queue_process do
+        assert Map.has_key?(stats.max_queue_process, :pid)
+        assert Map.has_key?(stats.max_queue_process, :name)
+      end
     end
   end
 end

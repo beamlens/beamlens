@@ -84,7 +84,10 @@ defmodule Beamlens.Skill.Beam do
       "beam_get_persistent_terms" => &persistent_terms/0,
       "beam_top_processes" => &top_processes_wrapper/2,
       "beam_binary_leak" => &binary_leak_wrapper/1,
-      "beam_binary_top_memory" => &binary_top_memory_wrapper/1
+      "beam_binary_top_memory" => &binary_top_memory_wrapper/1,
+      "beam_queue_processes" => &queue_processes_wrapper/1,
+      "beam_queue_growth" => &queue_growth_wrapper/2,
+      "beam_queue_stats" => &queue_stats/0
     }
   end
 
@@ -117,6 +120,15 @@ defmodule Beamlens.Skill.Beam do
 
     ### beam_binary_top_memory(limit)
     Returns top N processes by current binary memory usage. Includes: total_processes, showing, processes list with pid, name, binary_count, binary_memory_kb, current_function. Does not force GC.
+
+    ### beam_queue_processes(threshold)
+    All processes with message_queue_len > threshold. Returns processes list with pid, name, message_queue, current_function, sorted by queue size (largest first)
+
+    ### beam_queue_growth(interval_ms, limit)
+    Fastest-growing message queues over interval_ms. Returns interval_ms, processes list with pid, name, queue_growth, initial_queue, final_queue, current_function
+
+    ### beam_queue_stats()
+    Aggregate queue health: total_queued_messages, processes_with_large_queues (>1000), processes_with_critical_queues (>10000), max_queue_size, max_queue_process
     """
   end
 
@@ -269,6 +281,15 @@ defmodule Beamlens.Skill.Beam do
     binary_top_memory(%{limit: limit})
   end
 
+  defp queue_processes_wrapper(threshold) when is_number(threshold) do
+    queue_processes(threshold)
+  end
+
+  defp queue_growth_wrapper(interval_ms, limit)
+       when is_number(interval_ms) and is_number(limit) do
+    queue_growth(interval_ms, limit)
+  end
+
   defp binary_leak(opts) do
     limit = min(Map.get(opts, :limit) || 10, 50)
 
@@ -322,6 +343,20 @@ defmodule Beamlens.Skill.Beam do
     }
   end
 
+  defp queue_processes(threshold) do
+    processes =
+      Process.list()
+      |> Stream.map(&queue_process_entry(&1, threshold))
+      |> Stream.reject(&is_nil/1)
+      |> Enum.sort_by(& &1.message_queue, :desc)
+
+    %{
+      threshold: threshold,
+      count: length(processes),
+      processes: processes
+    }
+  end
+
   @binary_keys [:binary, :current_function, :registered_name, :dictionary]
 
   defp binary_info(pid) do
@@ -345,6 +380,147 @@ defmodule Beamlens.Skill.Beam do
           binary_memory_kb: binary_memory_kb,
           current_function: format_mfa(info[:current_function])
         }
+    end
+  end
+
+  defp queue_process_entry(pid, threshold) do
+    case Process.info(pid, [
+           :message_queue_len,
+           :current_function,
+           :registered_name,
+           :dictionary
+         ]) do
+      nil -> nil
+      info -> build_queue_entry(pid, info, threshold)
+    end
+  end
+
+  defp build_queue_entry(pid, info, threshold) do
+    queue_len = info[:message_queue_len]
+
+    if queue_len > threshold do
+      %{
+        pid: inspect(pid),
+        name: process_name(info),
+        message_queue: queue_len,
+        current_function: format_mfa(info[:current_function])
+      }
+    end
+  end
+
+  defp queue_growth(interval_ms, limit) do
+    initial_snapshot =
+      Process.list()
+      |> Stream.map(fn pid ->
+        case Process.info(pid, :message_queue_len) do
+          {:message_queue_len, len} -> {pid, len}
+          nil -> nil
+        end
+      end)
+      |> Stream.reject(&is_nil/1)
+      |> Map.new()
+
+    :timer.sleep(interval_ms)
+
+    final_snapshot =
+      Process.list()
+      |> Stream.map(fn pid ->
+        case Process.info(pid, :message_queue_len) do
+          {:message_queue_len, len} -> {pid, len}
+          nil -> nil
+        end
+      end)
+      |> Stream.reject(&is_nil/1)
+      |> Map.new()
+
+    growth_data =
+      Map.keys(final_snapshot)
+      |> Stream.map(fn pid ->
+        initial = Map.get(initial_snapshot, pid, 0)
+        final = final_snapshot[pid]
+        growth = final - initial
+
+        case Process.info(pid, [:current_function, :registered_name, :dictionary]) do
+          nil ->
+            nil
+
+          info when growth > 0 ->
+            %{
+              pid: inspect(pid),
+              name: process_name(info),
+              queue_growth: growth,
+              initial_queue: initial,
+              final_queue: final,
+              current_function: format_mfa(info[:current_function])
+            }
+
+          _ ->
+            nil
+        end
+      end)
+      |> Stream.reject(&is_nil/1)
+      |> Enum.sort_by(& &1.queue_growth, :desc)
+      |> Enum.take(limit)
+
+    %{
+      interval_ms: interval_ms,
+      showing: length(growth_data),
+      limit: limit,
+      processes: growth_data
+    }
+  end
+
+  defp queue_stats do
+    queue_lengths =
+      Process.list()
+      |> Stream.map(fn pid ->
+        case Process.info(pid, :message_queue_len) do
+          {:message_queue_len, len} -> len
+          nil -> 0
+        end
+      end)
+      |> Enum.to_list()
+
+    total_messages = Enum.sum(queue_lengths)
+    large_queue_count = Enum.count(queue_lengths, &(&1 > 1000))
+    critical_queue_count = Enum.count(queue_lengths, &(&1 > 10_000))
+
+    max_queue_size =
+      if Enum.empty?(queue_lengths), do: 0, else: Enum.max(queue_lengths)
+
+    max_queue_process = find_max_queue_process(max_queue_size)
+
+    %{
+      total_queued_messages: total_messages,
+      processes_with_large_queues: large_queue_count,
+      processes_with_critical_queues: critical_queue_count,
+      max_queue_size: max_queue_size,
+      max_queue_process: max_queue_process
+    }
+  end
+
+  defp find_max_queue_process(0), do: nil
+
+  defp find_max_queue_process(max_queue_size) do
+    Process.list()
+    |> Enum.find_value(fn pid -> find_max_queue_entry(pid, max_queue_size) end)
+  end
+
+  defp find_max_queue_entry(pid, max_queue_size) do
+    case Process.info(pid, [:message_queue_len, :registered_name, :dictionary]) do
+      nil -> nil
+      info -> build_max_queue_entry(pid, info, max_queue_size)
+    end
+  end
+
+  defp build_max_queue_entry(pid, info, max_queue_size) do
+    queue_len = info[:message_queue_len]
+
+    if queue_len == max_queue_size do
+      %{
+        pid: inspect(pid),
+        name: process_name(info)
+      }
     end
   end
 end
