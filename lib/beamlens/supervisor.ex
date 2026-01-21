@@ -10,6 +10,7 @@ defmodule Beamlens.Supervisor do
     * `Beamlens.Skill.Exception.ExceptionStore` - Exception buffer (only if Tower is installed)
     * `Beamlens.Skill.SystemMonitor.EventStore` - System monitor event buffer (only if SystemMonitor skill is enabled)
     * `Beamlens.Skill.Ets.GrowthStore` - ETS growth tracking buffer (only if Ets skill is enabled)
+    * `Beamlens.Skill.Beam.AtomStore` - Atom growth tracking buffer (only if Beam skill is enabled)
     * `Beamlens.Coordinator` - Static coordinator process
     * `Beamlens.Operator.Supervisor` - Supervisor for static operator processes
 
@@ -49,6 +50,7 @@ defmodule Beamlens.Supervisor do
         exception_store_child(),
         system_monitor_child(skills),
         ets_growth_store_child(skills),
+        beam_atom_store_child(skills),
         coordinator_child(client_registry),
         {OperatorSupervisor, skills: skills, client_registry: client_registry}
       ]
@@ -89,6 +91,14 @@ defmodule Beamlens.Supervisor do
   defp ets_growth_store_child(skills) do
     if Beamlens.Skill.Ets in skills do
       [{Beamlens.Skill.Ets.GrowthStore, [name: Beamlens.Skill.Ets.GrowthStore]}]
+    else
+      []
+    end
+  end
+
+  defp beam_atom_store_child(skills) do
+    if Beamlens.Skill.Beam in skills do
+      [{Beamlens.Skill.Beam.AtomStore, [name: Beamlens.Skill.Beam.AtomStore]}]
     else
       []
     end

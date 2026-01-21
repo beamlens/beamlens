@@ -11,6 +11,8 @@ defmodule Beamlens.Skill.Beam do
 
   @behaviour Beamlens.Skill
 
+  alias Beamlens.Skill.Beam.AtomStore
+
   @impl true
   def title, do: "BEAM VM"
 
@@ -67,6 +69,17 @@ defmodule Beamlens.Skill.Beam do
     - Use beam_burst_detection() to identify sudden work spikes
     - Use beam_hot_functions() to find which functions consume most CPU
     - Complement with scheduler_utilization for full CPU picture
+
+    ## Atom Table Growth (CRITICAL)
+    - Atoms are NEVER garbage collected - the atom table only grows
+    - Atom exhaustion crashes the VM irrecoverably
+    - Utilization > 50%: investigate immediately
+    - Growth rate > 10 atoms/minute: potential leak
+    - Use beam_atom_growth_rate() to track growth over time
+    - Use beam_atom_leak_detected() to check for suspected leaks
+    - Use beam_check_atom_safety() to review dangerous patterns
+    - DANGEROUS: binary_to_atom, list_to_atom, xmerl with user input
+    - SAFE: binary_to_existing_atom, list_to_existing_atom, exml/erlsom for XML
     """
   end
 
@@ -120,7 +133,11 @@ defmodule Beamlens.Skill.Beam do
       "beam_top_reducers_window" => &top_reducers_window_wrapper/2,
       "beam_reduction_rate" => &reduction_rate_wrapper/2,
       "beam_burst_detection" => &burst_detection_wrapper/2,
-      "beam_hot_functions" => &hot_functions_wrapper/2
+      "beam_hot_functions" => &hot_functions_wrapper/2,
+      "beam_atom_growth_rate" => &atom_growth_rate_wrapper/1,
+      "beam_atom_leak_detected" => &atom_leak_detected_wrapper/0,
+      "beam_check_atom_safety" => &check_atom_safety_wrapper/0,
+      "beam_node_name_atoms" => &node_name_atoms_wrapper/0
     }
   end
 
@@ -183,6 +200,18 @@ defmodule Beamlens.Skill.Beam do
 
     ### beam_hot_functions(limit, window_ms)
     Profile hot functions by grouping reduction deltas by current_function. Returns functions sorted by avg_reductions with process_count. Use to identify CPU-intensive code paths.
+
+    ### beam_atom_growth_rate(minutes_back)
+    Atom table growth rate over time. Returns current_count, limit, utilization_pct, atoms_per_minute, atoms_per_hour, hours_until_exhausted, urgency, and time_window_minutes. Urgency levels: :healthy, :monitoring, :concerning, :warning, :critical. Requires historical samples from AtomStore.
+
+    ### beam_atom_leak_detected()
+    Detects potential atom leaks based on growth rate and utilization. Returns suspected_leak (boolean), growth_rate, hours_until_full, current_utilization_pct, and recommendation. Suspected leak when utilization > 50% and growth > 10 atoms/minute.
+
+    ### beam_check_atom_safety()
+    Returns safety warnings for common atom leak patterns including binary_to_atom, list_to_atom, xmerl, and dynamic_node_names. Includes safe alternatives for each pattern.
+
+    ### beam_node_name_atoms()
+    Returns information about atom enumeration limitations. Atoms cannot be enumerated directly in Erlang. Suggests using beam_atom_growth_rate for leak detection instead.
     """
   end
 
@@ -1057,5 +1086,167 @@ defmodule Beamlens.Skill.Beam do
     else
       []
     end
+  end
+
+  defp atom_growth_rate_wrapper(minutes_back) when is_number(minutes_back) do
+    atom_growth_rate(%{minutes_back: minutes_back})
+  end
+
+  defp atom_growth_rate(opts) do
+    minutes_back = max(Map.get(opts, :minutes_back, 10), 1)
+
+    current_count = :erlang.system_info(:atom_count)
+    limit = :erlang.system_info(:atom_limit)
+
+    cutoff_ms = System.system_time(:millisecond) - minutes_back * 60 * 1000
+
+    samples =
+      try do
+        AtomStore.get_samples()
+      rescue
+        _ -> []
+      end
+
+    historical = Enum.filter(samples, fn sample -> sample.timestamp >= cutoff_ms end)
+
+    if length(historical) < 2 do
+      %{
+        current_count: current_count,
+        limit: limit,
+        utilization_pct: Float.round(current_count / limit * 100, 2),
+        atoms_per_minute: nil,
+        atoms_per_hour: nil,
+        hours_until_exhausted: nil,
+        urgency: :insufficient_history,
+        time_window_minutes: minutes_back,
+        samples_count: length(historical)
+      }
+    else
+      oldest = List.first(historical)
+      newest = List.last(historical)
+
+      time_window_minutes = (newest.timestamp - oldest.timestamp) / (60 * 1000)
+      atoms_per_minute = (newest.count - oldest.count) / time_window_minutes
+      atoms_per_hour = atoms_per_minute * 60
+
+      hours_until_exhausted =
+        if atoms_per_minute > 0 do
+          (limit - current_count) / (atoms_per_minute * 60)
+        else
+          :infinity
+        end
+
+      urgency =
+        classify_urgency(current_count, limit, hours_until_exhausted, atoms_per_minute)
+
+      %{
+        current_count: current_count,
+        limit: limit,
+        utilization_pct: Float.round(current_count / limit * 100, 2),
+        atoms_per_minute: Float.round(atoms_per_minute, 2),
+        atoms_per_hour: Float.round(atoms_per_hour, 2),
+        hours_until_exhausted: hours_until_exhausted,
+        urgency: urgency,
+        time_window_minutes: Float.round(time_window_minutes, 2),
+        samples_count: length(historical)
+      }
+    end
+  end
+
+  defp classify_urgency(count, limit, _hours, _rate) when count > limit * 0.9, do: :critical
+  defp classify_urgency(count, limit, _hours, _rate) when count > limit * 0.8, do: :warning
+  defp classify_urgency(_count, _limit, :infinity, _rate), do: :healthy
+  defp classify_urgency(_count, _limit, hours, _rate) when hours > 168, do: :monitoring
+  defp classify_urgency(_count, _limit, hours, _rate) when hours > 24, do: :concerning
+  defp classify_urgency(_count, _limit, _hours, _rate), do: :critical
+
+  defp atom_leak_detected_wrapper do
+    atom_leak_detected()
+  end
+
+  defp atom_leak_detected do
+    growth = atom_growth_rate(%{minutes_back: 10})
+
+    suspected_leak =
+      growth.utilization_pct > 50 and growth.atoms_per_minute != nil and
+        growth.atoms_per_minute > 10
+
+    %{
+      suspected_leak: suspected_leak,
+      growth_rate: growth.atoms_per_minute,
+      hours_until_full: growth.hours_until_exhausted,
+      current_utilization_pct: growth.utilization_pct,
+      recommendation: get_atom_leak_recommendation(growth)
+    }
+  end
+
+  defp get_atom_leak_recommendation(growth) do
+    cond do
+      growth.hours_until_exhausted != nil and growth.hours_until_exhausted < 24 ->
+        "CRITICAL: Atom exhaustion in < 24 hours. Immediate investigation required."
+
+      growth.atoms_per_minute != nil and growth.atoms_per_minute > 100 ->
+        "SEVERE: Creating #{Float.round(growth.atoms_per_minute)} atoms/minute. Check for: binary_to_atom, list_to_atom, xmerl, dynamic node names"
+
+      growth.atoms_per_minute != nil and growth.atoms_per_minute > 10 ->
+        "WARNING: Atom growth rate elevated. Review atom creation patterns."
+
+      true ->
+        "Monitor atom growth. Normal rate is < 1-2 atoms/minute."
+    end
+  end
+
+  defp check_atom_safety_wrapper do
+    check_atom_safety()
+  end
+
+  defp check_atom_safety do
+    %{
+      warnings: [
+        %{
+          pattern: "binary_to_atom",
+          severity: "high",
+          description: "Creates new atoms from binaries - never garbage collected",
+          recommendation: "Use binary_to_existing_atom/1 instead"
+        },
+        %{
+          pattern: "list_to_atom",
+          severity: "high",
+          description: "Creates new atoms from lists - never garbage collected",
+          recommendation: "Use list_to_existing_atom/1 instead"
+        },
+        %{
+          pattern: "xmerl",
+          severity: "medium",
+          description: "XML parsing library that creates atoms from user input",
+          recommendation: "Use exml or erlsom for XML parsing instead"
+        },
+        %{
+          pattern: "dynamic_node_names",
+          severity: "medium",
+          description: "Random node names create atoms that never get GC'd",
+          recommendation: "Use fixed set of node names instead of random generation"
+        }
+      ],
+      safe_alternatives: [
+        "binary_to_existing_atom/1 - only uses existing atoms, raises if missing",
+        "list_to_existing_atom/1 - only uses existing atoms, raises if missing",
+        "binary_to_term/2 with :safe option - safe term parsing",
+        "exml or erlsom - safe XML parsing libraries that don't create atoms"
+      ]
+    }
+  end
+
+  defp node_name_atoms_wrapper do
+    node_name_atoms()
+  end
+
+  defp node_name_atoms do
+    %{
+      error: "cannot_enumerate_atoms",
+      note:
+        "Erlang has no BIF to list all atoms. Use :recon or external tools for atom enumeration.",
+      alternative: "Monitor atom growth rate with beam_atom_growth_rate to detect leaks"
+    }
   end
 end

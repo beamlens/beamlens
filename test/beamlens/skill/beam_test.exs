@@ -352,6 +352,10 @@ defmodule Beamlens.Skill.BeamTest do
       assert docs =~ "beam_reduction_rate"
       assert docs =~ "beam_burst_detection"
       assert docs =~ "beam_hot_functions"
+      assert docs =~ "beam_atom_growth_rate"
+      assert docs =~ "beam_atom_leak_detected"
+      assert docs =~ "beam_check_atom_safety"
+      assert docs =~ "beam_node_name_atoms"
     end
   end
 
@@ -472,6 +476,122 @@ defmodule Beamlens.Skill.BeamTest do
       result = Beam.callbacks()["beam_hot_functions"].(2, 100)
 
       assert length(result.functions) <= 2
+    end
+  end
+
+  describe "beam_atom_growth_rate callback" do
+    setup do
+      start_supervised!({Beamlens.Skill.Beam.AtomStore, [name: Beamlens.Skill.Beam.AtomStore]})
+      :ok
+    end
+
+    test "returns atom growth metrics" do
+      result = Beam.callbacks()["beam_atom_growth_rate"].(10)
+
+      assert is_integer(result.current_count)
+      assert is_integer(result.limit)
+      assert is_float(result.utilization_pct)
+      assert result.time_window_minutes == 10
+      assert is_integer(result.samples_count)
+    end
+
+    test "returns urgency classification" do
+      result = Beam.callbacks()["beam_atom_growth_rate"].(5)
+
+      assert result.urgency in [
+               :healthy,
+               :monitoring,
+               :concerning,
+               :warning,
+               :critical,
+               :insufficient_history
+             ]
+    end
+
+    test "handles insufficient history gracefully" do
+      result = Beam.callbacks()["beam_atom_growth_rate"].(1000)
+
+      assert result.urgency in [:insufficient_history, :healthy]
+      assert result.samples_count >= 0
+    end
+  end
+
+  describe "beam_atom_leak_detected callback" do
+    setup do
+      start_supervised!({Beamlens.Skill.Beam.AtomStore, [name: Beamlens.Skill.Beam.AtomStore]})
+      :ok
+    end
+
+    test "returns leak detection results" do
+      result = Beam.callbacks()["beam_atom_leak_detected"].()
+
+      assert is_boolean(result.suspected_leak)
+      assert is_number(result.growth_rate) or is_nil(result.growth_rate)
+      assert result.current_utilization_pct >= 0
+      assert is_binary(result.recommendation)
+    end
+
+    test "provides actionable recommendation" do
+      result = Beam.callbacks()["beam_atom_leak_detected"].()
+
+      assert String.length(result.recommendation) > 0
+      assert is_binary(result.recommendation)
+    end
+  end
+
+  describe "beam_check_atom_safety callback" do
+    test "returns safety warnings" do
+      result = Beam.callbacks()["beam_check_atom_safety"].()
+
+      assert is_list(result.warnings)
+      assert is_list(result.safe_alternatives)
+    end
+
+    test "warnings have expected structure" do
+      result = Beam.callbacks()["beam_check_atom_safety"].()
+
+      Enum.each(result.warnings, fn warning ->
+        assert is_binary(warning.pattern)
+        assert is_binary(warning.severity)
+        assert is_binary(warning.description)
+        assert is_binary(warning.recommendation)
+      end)
+    end
+
+    test "includes known dangerous patterns" do
+      result = Beam.callbacks()["beam_check_atom_safety"].()
+
+      patterns = Enum.map(result.warnings, & &1.pattern)
+
+      assert "binary_to_atom" in patterns
+      assert "list_to_atom" in patterns
+      assert "xmerl" in patterns
+    end
+
+    test "provides safe alternatives" do
+      result = Beam.callbacks()["beam_check_atom_safety"].()
+
+      Enum.each(result.safe_alternatives, fn alternative ->
+        assert is_binary(alternative)
+        assert String.length(alternative) > 0
+      end)
+    end
+  end
+
+  describe "beam_node_name_atoms callback" do
+    test "returns information about atom enumeration limitations" do
+      result = Beam.callbacks()["beam_node_name_atoms"].()
+
+      assert is_binary(result.error)
+      assert is_binary(result.note)
+      assert is_binary(result.alternative)
+    end
+
+    test "explains why enumeration is not possible" do
+      result = Beam.callbacks()["beam_node_name_atoms"].()
+
+      assert result.error == "cannot_enumerate_atoms"
+      assert String.contains?(result.note, "no BIF")
     end
   end
 end
