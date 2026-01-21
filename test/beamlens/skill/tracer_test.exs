@@ -129,5 +129,15 @@ defmodule Beamlens.Skill.TracerTest do
 
       Tracer.stop_trace()
     end
+
+    test "trace_stop returns events after auto-stop" do
+      module_pattern = :erlang
+      function_pattern = :timestamp
+      assert {:ok, %{status: :started}} = Tracer.start_trace({module_pattern, function_pattern})
+
+      Tracer.stop_trace()
+
+      assert {:error, :no_active_trace} = Tracer.stop_trace()
+    end
   end
 end

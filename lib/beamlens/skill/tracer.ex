@@ -23,8 +23,6 @@ defmodule Beamlens.Skill.Tracer do
   - Event type (:call, :return_from)
 
   Function arguments and return values are never captured by design.
-  The trace flags use `:timestamp` instead of capturing return values,
-  and the match spec explicitly excludes argument binding.
   This makes it impossible for sensitive data to leak through traces
   at the Erlang VM level.
   """
@@ -70,9 +68,8 @@ defmodule Beamlens.Skill.Tracer do
 
     ## What Gets Captured
     Each trace event contains: timestamp, pid, module, function, event type
-    Function arguments and return values are never captured by design.
-    The tracing implementation uses Erlang's `:timestamp` flag which excludes
-    return values entirely, making it impossible for sensitive data to leak.
+    Function arguments and return values are never captured by design,
+    ensuring sensitive data cannot leak through traces.
     """
   end
 
