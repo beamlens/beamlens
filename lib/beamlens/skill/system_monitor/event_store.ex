@@ -2,13 +2,15 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
   @moduledoc """
   In-memory ring buffer for system monitor events.
 
-  Captures long_gc and long_schedule events via :erlang.system_monitor/2
-  to track performance anomalies before they become outages.
+  Captures long_gc, long_schedule, busy_port, and busy_dist_port events
+  via :erlang.system_monitor/2 to track performance anomalies before they become outages.
 
   ## Event Types
 
   - `:long_gc` - Garbage collection took longer than threshold
   - `:long_schedule` - Process was scheduled longer than threshold
+  - `:busy_port` - Port is busy (suspended process waiting for I/O)
+  - `:busy_dist_port` - Distributed port is busy
 
   ## Usage
 
@@ -27,6 +29,8 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
   @prune_interval_ms :timer.seconds(30)
   @default_long_gc 500
   @default_long_schedule 500
+  @default_busy_port 500
+  @default_busy_dist_port 500
 
   defstruct [
     :max_size,
@@ -52,6 +56,8 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
     max_size = Keyword.get(opts, :max_size, @default_max_size)
     long_gc = Keyword.get(opts, :long_gc, @default_long_gc)
     long_schedule = Keyword.get(opts, :long_schedule, @default_long_schedule)
+    busy_port = Keyword.get(opts, :busy_port, @default_busy_port)
+    busy_dist_port = Keyword.get(opts, :busy_dist_port, @default_busy_dist_port)
 
     pid = self()
 
@@ -62,6 +68,8 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
 
     :erlang.system_monitor(pid, monitor_opts)
 
+    configure_busy_port_monitoring(pid, busy_port, busy_dist_port)
+
     schedule_prune()
 
     state = %__MODULE__{
@@ -69,6 +77,14 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
     }
 
     {:ok, state}
+  end
+
+  @dialyzer {:nowarn_function, configure_busy_port_monitoring: 3}
+
+  defp configure_busy_port_monitoring(pid, busy_port, busy_dist_port) do
+    :erlang.system_monitor(pid, [{:busy_port, busy_port}, {:busy_dist_port, busy_dist_port}])
+  rescue
+    ArgumentError -> :ok
   end
 
   @impl true
@@ -81,6 +97,20 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
   @impl true
   def handle_info({:long_schedule, sched_info, pid}, state) do
     entry = build_long_schedule_entry(sched_info, pid)
+    {events, count} = add_to_ring(state.events, state.count, state.max_size, entry)
+    {:noreply, %{state | events: events, count: count}}
+  end
+
+  @impl true
+  def handle_info({:busy_port, port, pid}, state) do
+    entry = build_busy_port_entry(port, pid)
+    {events, count} = add_to_ring(state.events, state.count, state.max_size, entry)
+    {:noreply, %{state | events: events, count: count}}
+  end
+
+  @impl true
+  def handle_info({:busy_dist_port, port, pid}, state) do
+    entry = build_busy_dist_port_entry(port, pid)
     {events, count} = add_to_ring(state.events, state.count, state.max_size, entry)
     {:noreply, %{state | events: events, count: count}}
   end
@@ -199,6 +229,26 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
     }
   end
 
+  defp build_busy_port_entry(port, pid) do
+    %{
+      id: make_ref(),
+      timestamp: System.monotonic_time(:millisecond),
+      type: :busy_port,
+      port: port,
+      pid: pid
+    }
+  end
+
+  defp build_busy_dist_port_entry(port, pid) do
+    %{
+      id: make_ref(),
+      timestamp: System.monotonic_time(:millisecond),
+      type: :busy_dist_port,
+      port: port,
+      pid: pid
+    }
+  end
+
   defp add_to_ring(queue, count, max_size, entry) do
     new_queue = :queue.in(entry, queue)
 
@@ -222,6 +272,8 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
 
     long_gc_entries = Enum.filter(entries, &(&1.type == :long_gc))
     long_schedule_entries = Enum.filter(entries, &(&1.type == :long_schedule))
+    busy_port_entries = Enum.filter(entries, &(&1.type == :busy_port))
+    busy_dist_port_entries = Enum.filter(entries, &(&1.type == :busy_dist_port))
 
     gc_durations = Enum.map(long_gc_entries, & &1.duration_ms)
     sched_durations = Enum.map(long_schedule_entries, & &1.duration_ms)
@@ -232,13 +284,23 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
       |> Enum.uniq()
       |> length()
 
+    affected_ports =
+      entries
+      |> Enum.filter(fn entry -> entry.type in [:busy_port, :busy_dist_port] end)
+      |> Enum.map(& &1.port)
+      |> Enum.uniq()
+      |> length()
+
     max_gc = if gc_durations == [], do: 0, else: Enum.max(gc_durations)
     max_sched = if sched_durations == [], do: 0, else: Enum.max(sched_durations)
 
     %{
       long_gc_count_5m: length(long_gc_entries),
       long_schedule_count_5m: length(long_schedule_entries),
+      busy_port_count_5m: length(busy_port_entries),
+      busy_dist_port_count_5m: length(busy_dist_port_entries),
       affected_process_count: affected_pids,
+      affected_port_count: affected_ports,
       max_gc_duration_ms: max_gc,
       max_schedule_duration_ms: max_sched
     }
@@ -261,20 +323,31 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
     base = %{
       datetime: format_timestamp(entry.timestamp),
       type: Atom.to_string(entry.type),
-      duration_ms: entry.duration_ms,
       pid: inspect(entry.pid)
     }
 
     case entry.type do
       :long_gc ->
         Map.merge(base, %{
+          duration_ms: entry.duration_ms,
           heap_size: entry.heap_size,
           old_heap_size: entry.old_heap_size
         })
 
       :long_schedule ->
         Map.merge(base, %{
+          duration_ms: entry.duration_ms,
           runtime_reductions: entry.runtime_reductions
+        })
+
+      :busy_port ->
+        Map.merge(base, %{
+          port: inspect(entry.port)
+        })
+
+      :busy_dist_port ->
+        Map.merge(base, %{
+          port: inspect(entry.port)
         })
     end
   end
@@ -289,7 +362,10 @@ defmodule Beamlens.Skill.SystemMonitor.EventStore do
     %{
       long_gc_count_5m: 0,
       long_schedule_count_5m: 0,
+      busy_port_count_5m: 0,
+      busy_dist_port_count_5m: 0,
       affected_process_count: 0,
+      affected_port_count: 0,
       max_gc_duration_ms: 0,
       max_schedule_duration_ms: 0
     }

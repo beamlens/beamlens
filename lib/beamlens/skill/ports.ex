@@ -26,6 +26,7 @@ defmodule Beamlens.Skill.Ports do
     - I/O throughput per port (bytes in/out)
     - Port memory usage
     - Connected processes
+    - Busy port events (ports causing process suspension)
 
     ## What to Watch For
     - Port utilization > 70%: risk of exhausting file descriptors
@@ -33,6 +34,11 @@ defmodule Beamlens.Skill.Ports do
     - Ports with growing queue sizes: I/O backpressure
     - Orphaned ports: connected process may have died
     - Sudden port count increases: potential leak
+    - Busy port events: processes suspended waiting for port I/O
+
+    Correlate with:
+    - System Monitor skill: busy_port and busy_dist_port events
+    - Process info: identify suspended processes and their state
     """
   end
 
@@ -50,10 +56,18 @@ defmodule Beamlens.Skill.Ports do
 
   @impl true
   def callbacks do
+    alias Beamlens.Skill.SystemMonitor.EventStore
+
     %{
       "ports_list" => &list_ports/0,
       "ports_info" => &port_info/1,
-      "ports_top" => &top_ports/2
+      "ports_top" => &top_ports/2,
+      "ports_busy_events" => fn ->
+        EventStore.get_events(EventStore, type: "busy_port", limit: 50)
+      end,
+      "ports_busy_dist_events" => fn ->
+        EventStore.get_events(EventStore, type: "busy_dist_port", limit: 50)
+      end
     }
   end
 
@@ -68,6 +82,12 @@ defmodule Beamlens.Skill.Ports do
 
     ### ports_top(limit, sort_by)
     Top N ports by "input", "output", or "memory". Returns list with id, name, input_bytes, output_bytes, memory_kb
+
+    ### ports_busy_events()
+    Recent busy_port events from system monitor. Returns: datetime, type, port, pid
+
+    ### ports_busy_dist_events()
+    Recent busy_dist_port events from system monitor. Returns: datetime, type, port, pid
     """
   end
 

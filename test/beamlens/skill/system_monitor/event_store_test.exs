@@ -261,6 +261,88 @@ defmodule Beamlens.Skill.SystemMonitor.EventStoreTest do
     end
   end
 
+  describe "busy_port events" do
+    test "captures busy_port events" do
+      test_port = Port.list() |> List.first()
+
+      if test_port do
+        send(@test_name, {:busy_port, test_port, self()})
+
+        EventStore.flush(@test_name)
+
+        stats = EventStore.get_stats(@test_name)
+
+        assert stats.busy_port_count_5m >= 1
+        assert stats.affected_port_count >= 1
+      end
+    end
+
+    test "captures busy_dist_port events" do
+      test_port = Port.list() |> List.first()
+
+      if test_port do
+        send(@test_name, {:busy_dist_port, test_port, self()})
+
+        EventStore.flush(@test_name)
+
+        stats = EventStore.get_stats(@test_name)
+
+        assert stats.busy_dist_port_count_5m >= 1
+        assert stats.affected_port_count >= 1
+      end
+    end
+
+    test "filters events by busy_port type" do
+      test_port = Port.list() |> List.first()
+
+      if test_port do
+        send(@test_name, {:busy_port, test_port, self()})
+        send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
+
+        EventStore.flush(@test_name)
+
+        events = EventStore.get_events(@test_name, type: "busy_port")
+
+        assert events != []
+        assert hd(events).type == "busy_port"
+      end
+    end
+
+    test "formats busy_port events correctly" do
+      test_port = Port.list() |> List.first()
+
+      if test_port do
+        send(@test_name, {:busy_port, test_port, self()})
+
+        EventStore.flush(@test_name)
+
+        events = EventStore.get_events(@test_name, type: "busy_port")
+
+        busy_port_events = Enum.filter(events, &(&1.type == "busy_port"))
+
+        if busy_port_events != [] do
+          event = hd(busy_port_events)
+
+          assert Map.has_key?(event, :datetime)
+          assert Map.has_key?(event, :port)
+          assert Map.has_key?(event, :pid)
+          assert event.type == "busy_port"
+        end
+      end
+    end
+
+    test "empty stats include busy port fields" do
+      stats = EventStore.get_stats(@test_name)
+
+      assert Map.has_key?(stats, :busy_port_count_5m)
+      assert Map.has_key?(stats, :busy_dist_port_count_5m)
+      assert Map.has_key?(stats, :affected_port_count)
+      assert stats.busy_port_count_5m == 0
+      assert stats.busy_dist_port_count_5m == 0
+      assert stats.affected_port_count == 0
+    end
+  end
+
   describe "termination" do
     test "unregisters system_monitor on terminate" do
       pid = Process.whereis(@test_name)

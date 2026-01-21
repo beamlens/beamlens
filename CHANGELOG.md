@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Atom table growth monitoring callbacks in Beam skill: `beam_atom_growth_rate/1`, `beam_atom_leak_detected/0`
 - AtomStore GenServer for periodic atom count sampling
+- Busy port detection monitoring in SystemMonitor skill: `busy_port` and `busy_dist_port` event tracking
+- Ports skill callbacks: `ports_busy_events` and `ports_busy_dist_events` for querying busy port events
 - Process reduction profiling callbacks in Beam skill: `beam_top_reducers_window/2`, `beam_reduction_rate/2`, `beam_burst_detection/2`, `beam_hot_functions/2`
 - ETS table growth tracking callbacks in Ets skill (`ets_growth_stats`, `ets_leak_candidates`)
 - GrowthStore GenServer for periodic ETS table size sampling
