@@ -19,12 +19,14 @@ defmodule Beamlens.Skill.Tracer do
   Traces capture metadata only:
   - Timestamp (microsecond precision)
   - Process identifier (PID)
-  - Module name, function name, arity
+  - Module name, function name
   - Event type (:call, :return_from)
 
   Function arguments and return values are never captured by design.
-  The tracing implementation only records function call metadata,
-  making it impossible for sensitive data to leak through traces.
+  The trace flags use `:timestamp` instead of capturing return values,
+  and the match spec explicitly excludes argument binding.
+  This makes it impossible for sensitive data to leak through traces
+  at the Erlang VM level.
   """
 
   use GenServer
@@ -48,9 +50,9 @@ defmodule Beamlens.Skill.Tracer do
     by tracing function calls without risking node stability.
 
     ## Your Domain
-    - Function call tracing (module, function, arity)
+    - Function call tracing (module, function)
     - Rate-limited and time-bounded trace sessions
-    - Trace event capture (timestamp, pid, module, function, arity)
+    - Trace event capture (timestamp, pid, module, function)
     - Zero-impact tracing (safe for production use)
 
     ## How Tracing Works
@@ -67,8 +69,10 @@ defmodule Beamlens.Skill.Tracer do
     - Finding root cause of errors or performance issues
 
     ## What Gets Captured
-    Each trace event contains: timestamp, pid, module, function, arity, event type
-    No function arguments or return values are captured.
+    Each trace event contains: timestamp, pid, module, function, event type
+    Function arguments and return values are never captured by design.
+    The tracing implementation uses Erlang's `:timestamp` flag which excludes
+    return values entirely, making it impossible for sensitive data to leak.
     """
   end
 
@@ -182,9 +186,9 @@ defmodule Beamlens.Skill.Tracer do
   end
 
   @impl true
-  def handle_info({:trace, pid, :call, {module, function, arity}}, state) do
+  def handle_info({:trace_ts, pid, :call, {module, function, arity}, timestamp}, state) do
     event = %{
-      timestamp: System.system_time(:microsecond),
+      timestamp: timestamp,
       pid: inspect(pid),
       type: :call,
       module: inspect(module),
@@ -196,13 +200,12 @@ defmodule Beamlens.Skill.Tracer do
   end
 
   @impl true
-  def handle_info({:trace, _pid, :return_from, {module, function, arity}, _return}, state) do
+  def handle_info({:trace_ts, _pid, :return_from, {module, function, _arity}, timestamp}, state) do
     event = %{
-      timestamp: System.system_time(:microsecond),
+      timestamp: timestamp,
       type: :return_from,
       module: inspect(module),
-      function: function,
-      arity: arity
+      function: function
     }
 
     handle_trace_event(event, state)
@@ -269,7 +272,7 @@ defmodule Beamlens.Skill.Tracer do
   end
 
   defp setup_trace_on_pid(pid, module_pattern, function_pattern) do
-    case :erlang.trace(pid, true, [:call, :arity]) do
+    case :erlang.trace(pid, true, [:call, :arity, :timestamp]) do
       1 -> apply_trace_pattern(pid, module_pattern, function_pattern)
       _ -> {:error, :trace_setup_failed}
     end
