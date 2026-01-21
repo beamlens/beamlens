@@ -76,7 +76,6 @@ defmodule Beamlens.Skill.Beam do
     - Monitor utilization and growth rates to detect leaks early
     - Use beam_atom_growth_rate() to track patterns over time
     - Use beam_atom_leak_detected() to check for suspected leaks
-    - Use beam_check_atom_safety() to identify dangerous patterns
     """
   end
 
@@ -132,8 +131,7 @@ defmodule Beamlens.Skill.Beam do
       "beam_burst_detection" => &burst_detection_wrapper/2,
       "beam_hot_functions" => &hot_functions_wrapper/2,
       "beam_atom_growth_rate" => &atom_growth_rate_wrapper/1,
-      "beam_atom_leak_detected" => &atom_leak_detected_wrapper/0,
-      "beam_check_atom_safety" => &check_atom_safety_wrapper/0
+      "beam_atom_leak_detected" => &atom_leak_detected_wrapper/0
     }
   end
 
@@ -202,9 +200,6 @@ defmodule Beamlens.Skill.Beam do
 
     ### beam_atom_leak_detected()
     Detect potential atom leaks by analyzing growth rate and utilization patterns. Returns leak suspicion status with supporting metrics and actionable recommendations.
-
-    ### beam_check_atom_safety()
-    Review common dangerous patterns that cause atom leaks. Returns warnings for unsafe operations along with safe alternatives. Use to identify code that needs refactoring.
     """
   end
 
@@ -1216,46 +1211,5 @@ defmodule Beamlens.Skill.Beam do
       true ->
         "Monitor atom growth. Normal rate is < 1-2 atoms/minute."
     end
-  end
-
-  defp check_atom_safety_wrapper do
-    check_atom_safety()
-  end
-
-  defp check_atom_safety do
-    %{
-      warnings: [
-        %{
-          pattern: "binary_to_atom",
-          severity: "high",
-          description: "Creates new atoms from binaries - never garbage collected",
-          recommendation: "Use binary_to_existing_atom/1 instead"
-        },
-        %{
-          pattern: "list_to_atom",
-          severity: "high",
-          description: "Creates new atoms from lists - never garbage collected",
-          recommendation: "Use list_to_existing_atom/1 instead"
-        },
-        %{
-          pattern: "xmerl",
-          severity: "medium",
-          description: "XML parsing library that creates atoms from user input",
-          recommendation: "Use exml or erlsom for XML parsing instead"
-        },
-        %{
-          pattern: "dynamic_node_names",
-          severity: "medium",
-          description: "Random node names create atoms that never get GC'd",
-          recommendation: "Use fixed set of node names instead of random generation"
-        }
-      ],
-      safe_alternatives: [
-        "binary_to_existing_atom/1 - only uses existing atoms, raises if missing",
-        "list_to_existing_atom/1 - only uses existing atoms, raises if missing",
-        "binary_to_term/2 with :safe option - safe term parsing",
-        "exml or erlsom - safe XML parsing libraries that don't create atoms"
-      ]
-    }
   end
 end

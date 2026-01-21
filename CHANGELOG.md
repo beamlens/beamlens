@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Atom table growth monitoring callbacks in Beam skill: `beam_atom_growth_rate/1`, `beam_atom_leak_detected/0`, `beam_check_atom_safety/0`
+- Atom table growth monitoring callbacks in Beam skill: `beam_atom_growth_rate/1`, `beam_atom_leak_detected/0`
 - AtomStore GenServer for periodic atom count sampling
 - Process reduction profiling callbacks in Beam skill: `beam_top_reducers_window/2`, `beam_reduction_rate/2`, `beam_burst_detection/2`, `beam_hot_functions/2`
 - ETS table growth tracking callbacks in Ets skill (`ets_growth_stats`, `ets_leak_candidates`)
@@ -23,10 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New `Operator.run_async/3` for running analysis in the background with progress notifications
 - Multiple analysis requests to the same operator are queued and processed in order
 - Google AI (Gemini) provider support for integration tests
-
-### Fixed
-
-- Division by zero edge case in `beam_atom_growth_rate/1` when historical samples have identical timestamps
 
 ### Changed
 
