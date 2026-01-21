@@ -1123,32 +1123,61 @@ defmodule Beamlens.Skill.Beam do
       newest = List.last(historical)
 
       time_window_minutes = (newest.timestamp - oldest.timestamp) / (60 * 1000)
-      atoms_per_minute = (newest.count - oldest.count) / time_window_minutes
-      atoms_per_hour = atoms_per_minute * 60
 
-      hours_until_exhausted =
-        if atoms_per_minute > 0 do
-          (limit - current_count) / (atoms_per_minute * 60)
-        else
-          :infinity
-        end
-
-      urgency =
-        classify_urgency(current_count, limit, hours_until_exhausted, atoms_per_minute)
-
-      %{
-        current_count: current_count,
-        limit: limit,
-        utilization_pct: Float.round(current_count / limit * 100, 2),
-        atoms_per_minute: Float.round(atoms_per_minute, 2),
-        atoms_per_hour: Float.round(atoms_per_hour, 2),
-        hours_until_exhausted: hours_until_exhausted,
-        urgency: urgency,
-        time_window_minutes: Float.round(time_window_minutes, 2),
-        samples_count: length(historical)
-      }
+      build_growth_result(current_count, limit, historical, oldest, newest, time_window_minutes)
     end
   end
+
+  defp build_growth_result(
+         current_count,
+         limit,
+         historical,
+         _oldest,
+         _newest,
+         time_window_minutes
+       )
+       when time_window_minutes == 0.0 do
+    %{
+      current_count: current_count,
+      limit: limit,
+      utilization_pct: Float.round(current_count / limit * 100, 2),
+      atoms_per_minute: nil,
+      atoms_per_hour: nil,
+      hours_until_exhausted: nil,
+      urgency: :insufficient_history,
+      time_window_minutes: 0.0,
+      samples_count: length(historical)
+    }
+  end
+
+  defp build_growth_result(current_count, limit, historical, oldest, newest, time_window_minutes) do
+    atoms_per_minute = (newest.count - oldest.count) / time_window_minutes
+    atoms_per_hour = atoms_per_minute * 60
+
+    hours_until_exhausted =
+      calculate_hours_until_exhausted(atoms_per_minute, limit, current_count)
+
+    urgency = classify_urgency(current_count, limit, hours_until_exhausted, atoms_per_minute)
+
+    %{
+      current_count: current_count,
+      limit: limit,
+      utilization_pct: Float.round(current_count / limit * 100, 2),
+      atoms_per_minute: Float.round(atoms_per_minute, 2),
+      atoms_per_hour: Float.round(atoms_per_hour, 2),
+      hours_until_exhausted: hours_until_exhausted,
+      urgency: urgency,
+      time_window_minutes: Float.round(time_window_minutes, 2),
+      samples_count: length(historical)
+    }
+  end
+
+  defp calculate_hours_until_exhausted(atoms_per_minute, limit, current_count)
+       when atoms_per_minute > 0 do
+    (limit - current_count) / (atoms_per_minute * 60)
+  end
+
+  defp calculate_hours_until_exhausted(_, _, _), do: :infinity
 
   defp classify_urgency(count, limit, _hours, _rate) when count > limit * 0.9, do: :critical
   defp classify_urgency(count, limit, _hours, _rate) when count > limit * 0.8, do: :warning

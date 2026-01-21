@@ -4,6 +4,7 @@ defmodule Beamlens.Skill.BeamTest do
   use ExUnit.Case, async: true
 
   alias Beamlens.Skill.Beam
+  alias Beamlens.Skill.Beam.AtomStore
 
   describe "title/0" do
     test "returns a non-empty string" do
@@ -514,7 +515,106 @@ defmodule Beamlens.Skill.BeamTest do
       assert result.urgency in [:insufficient_history, :healthy]
       assert result.samples_count >= 0
     end
+
+    test "handles zero time window without division by zero" do
+      samples = AtomStore.get_samples()
+
+      if length(samples) >= 2 do
+        timestamp = hd(samples).timestamp
+
+        modified_samples =
+          Enum.map(samples, fn sample ->
+            %{sample | timestamp: timestamp}
+          end)
+
+        result =
+          beam_growth_rate_with_samples(modified_samples, 10)
+
+        assert result.urgency == :insufficient_history
+        assert result.time_window_minutes == 0.0
+        assert is_nil(result.atoms_per_minute)
+        assert is_nil(result.atoms_per_hour)
+      end
+    end
   end
+
+  defp beam_growth_rate_with_samples(samples, minutes_back) do
+    cutoff_ms = System.system_time(:millisecond) - minutes_back * 60 * 1000
+    historical = Enum.filter(samples, fn sample -> sample.timestamp >= cutoff_ms end)
+
+    if length(historical) < 2 do
+      build_insufficient_history_result(minutes_back, length(historical))
+    else
+      oldest = List.first(historical)
+      newest = List.last(historical)
+      time_window_minutes = (newest.timestamp - oldest.timestamp) / (60 * 1000)
+
+      build_growth_result_from_samples(historical, oldest, newest, time_window_minutes)
+    end
+  end
+
+  defp build_insufficient_history_result(minutes_back, samples_count) do
+    %{
+      current_count: :erlang.system_info(:atom_count),
+      limit: :erlang.system_info(:atom_limit),
+      utilization_pct: 0.0,
+      atoms_per_minute: nil,
+      atoms_per_hour: nil,
+      hours_until_exhausted: nil,
+      urgency: :insufficient_history,
+      time_window_minutes: minutes_back,
+      samples_count: samples_count
+    }
+  end
+
+  defp build_growth_result_from_samples(historical, _oldest, _newest, time_window_minutes)
+       when time_window_minutes == 0.0 do
+    %{
+      current_count: :erlang.system_info(:atom_count),
+      limit: :erlang.system_info(:atom_limit),
+      utilization_pct:
+        Float.round(
+          :erlang.system_info(:atom_count) / :erlang.system_info(:atom_limit) * 100,
+          2
+        ),
+      atoms_per_minute: nil,
+      atoms_per_hour: nil,
+      hours_until_exhausted: nil,
+      urgency: :insufficient_history,
+      time_window_minutes: 0.0,
+      samples_count: length(historical)
+    }
+  end
+
+  defp build_growth_result_from_samples(_historical, oldest, newest, time_window_minutes) do
+    atoms_per_minute = (newest.count - oldest.count) / time_window_minutes
+    atoms_per_hour = atoms_per_minute * 60
+
+    hours_until_exhausted = calculate_test_hours_until_exhausted(atoms_per_minute)
+
+    %{
+      current_count: :erlang.system_info(:atom_count),
+      limit: :erlang.system_info(:atom_limit),
+      utilization_pct:
+        Float.round(
+          :erlang.system_info(:atom_count) / :erlang.system_info(:atom_limit) * 100,
+          2
+        ),
+      atoms_per_minute: Float.round(atoms_per_minute, 2),
+      atoms_per_hour: Float.round(atoms_per_hour, 2),
+      hours_until_exhausted: hours_until_exhausted,
+      urgency: :healthy,
+      time_window_minutes: Float.round(time_window_minutes, 2),
+      samples_count: 2
+    }
+  end
+
+  defp calculate_test_hours_until_exhausted(atoms_per_minute) when atoms_per_minute > 0 do
+    (:erlang.system_info(:atom_limit) - :erlang.system_info(:atom_count)) /
+      (atoms_per_minute * 60)
+  end
+
+  defp calculate_test_hours_until_exhausted(_), do: :infinity
 
   describe "beam_atom_leak_detected callback" do
     setup do
