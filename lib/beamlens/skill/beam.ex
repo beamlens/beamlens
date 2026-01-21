@@ -73,13 +73,10 @@ defmodule Beamlens.Skill.Beam do
     ## Atom Table Growth (CRITICAL)
     - Atoms are NEVER garbage collected - the atom table only grows
     - Atom exhaustion crashes the VM irrecoverably
-    - Utilization > 50%: investigate immediately
-    - Growth rate > 10 atoms/minute: potential leak
-    - Use beam_atom_growth_rate() to track growth over time
+    - Monitor utilization and growth rates to detect leaks early
+    - Use beam_atom_growth_rate() to track patterns over time
     - Use beam_atom_leak_detected() to check for suspected leaks
-    - Use beam_check_atom_safety() to review dangerous patterns
-    - DANGEROUS: binary_to_atom, list_to_atom, xmerl with user input
-    - SAFE: binary_to_existing_atom, list_to_existing_atom, exml/erlsom for XML
+    - Use beam_check_atom_safety() to identify dangerous patterns
     """
   end
 
@@ -202,16 +199,16 @@ defmodule Beamlens.Skill.Beam do
     Profile hot functions by grouping reduction deltas by current_function. Returns functions sorted by avg_reductions with process_count. Use to identify CPU-intensive code paths.
 
     ### beam_atom_growth_rate(minutes_back)
-    Atom table growth rate over time. Returns current_count, limit, utilization_pct, atoms_per_minute, atoms_per_hour, hours_until_exhausted, urgency, and time_window_minutes. Urgency levels: :healthy, :monitoring, :concerning, :warning, :critical. Requires historical samples from AtomStore.
+    Analyze atom table growth patterns over time using historical samples. Returns metrics including current utilization, growth rates, projected exhaustion time, and urgency classification. Use to detect leaks before they become critical.
 
     ### beam_atom_leak_detected()
-    Detects potential atom leaks based on growth rate and utilization. Returns suspected_leak (boolean), growth_rate, hours_until_full, current_utilization_pct, and recommendation. Suspected leak when utilization > 50% and growth > 10 atoms/minute.
+    Detect potential atom leaks by analyzing growth rate and utilization patterns. Returns leak suspicion status with supporting metrics and actionable recommendations.
 
     ### beam_check_atom_safety()
-    Returns safety warnings for common atom leak patterns including binary_to_atom, list_to_atom, xmerl, and dynamic_node_names. Includes safe alternatives for each pattern.
+    Review common dangerous patterns that cause atom leaks. Returns warnings for unsafe operations along with safe alternatives. Use to identify code that needs refactoring.
 
     ### beam_node_name_atoms()
-    Returns information about atom enumeration limitations. Atoms cannot be enumerated directly in Erlang. Suggests using beam_atom_growth_rate for leak detection instead.
+    Atom enumeration limitations and alternative monitoring approaches.
     """
   end
 
