@@ -64,7 +64,7 @@ defmodule Beamlens.Skill.SystemMonitor.EventStoreTest do
 
     test "counts unique affected processes" do
       pid1 = self()
-      pid2 = spawn(fn -> Process.sleep(1000) end)
+      pid2 = spawn(fn -> receive do: (_ -> :ok) end)
 
       send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, pid1})
       send(@test_name, {:long_schedule, {150, 1000}, pid1})
