@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- ETS table growth tracking callbacks in Ets skill (`ets_growth_stats`, `ets_leak_candidates`)
+- GrowthStore GenServer for periodic ETS table size sampling
 - SystemMonitor skill for tracking long_gc and long_schedule events
 - Scheduler utilization (wall time) tracking callbacks in Beam skill (`beam_scheduler_utilization`, `beam_scheduler_capacity_available`, `beam_scheduler_health`)
 - Message queue overload detection callbacks in Beam skill
