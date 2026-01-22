@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Overload skill for message queue overload analysis and adaptive response recommendations
+- Overload classification: transient (burst), sustained (capacity exceeded), critical (cascade)
+- Bottleneck detection identifying downstream blocking, CPU-bound, or contention issues
+- Cascading failure detection across multiple subsystems
+- Remediation recommendations based on overload type and bottleneck location
 - Process relationship monitoring in Sup skill: `sup_unlinked_processes`, `sup_orphaned_processes`, `sup_tree_integrity`, `sup_zombie_children`
 - Unlinked process detection for finding processes with no links or monitors (potential leaks)
 - Orphaned process detection for finding processes whose parent/ancestor has died
