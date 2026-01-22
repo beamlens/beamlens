@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Memory allocator monitoring in Allocator skill: `allocator_summary`, `allocator_by_type`, `allocator_fragmentation`, `allocator_problematic`
+- Allocator metrics: carrier utilization, block efficiency, fragmentation detection for long-running nodes
 - Inet port monitoring callbacks in Ports skill: `ports_list_inet`, `ports_top_by_buffer`, `ports_inet_stats`
 - Socket state tracking for TCP/UDP/SCTP ports with local/remote addresses
 - Buffer size monitoring for detecting backpressure and connection issues
