@@ -415,15 +415,11 @@ defmodule Beamlens.Skill.Overload do
   defp max_or_zero(list), do: Enum.max(list)
 
   defp get_fastest_growing_queues(limit) do
-    initial_snapshot = snapshot_queue_sizes()
-
-    Process.sleep(1000)
-
-    final_snapshot = snapshot_queue_sizes()
+    queue_data = collect_queue_data()
 
     growth_data =
-      Map.keys(final_snapshot)
-      |> Enum.map(&build_growth_entry(&1, initial_snapshot, final_snapshot))
+      queue_data
+      |> Enum.map(&build_growth_proxy(&1))
       |> Enum.reject(&is_nil/1)
       |> Enum.sort_by(& &1.queue_growth, :desc)
       |> Enum.take(limit)
@@ -431,44 +427,31 @@ defmodule Beamlens.Skill.Overload do
     growth_data
   end
 
-  defp build_growth_entry(pid, initial_snapshot, final_snapshot) do
-    initial = Map.get(initial_snapshot, pid, 0)
-    final = final_snapshot[pid]
-    growth = final - initial
+  defp build_growth_proxy(process) do
+    growth_score = calculate_growth_score(process)
 
-    if growth > 0 do
-      build_process_growth_entry(pid, growth, initial, final)
+    if growth_score > 0 do
+      %{
+        pid: process.pid,
+        name: process.name,
+        queue_growth: growth_score,
+        initial_queue: process.message_queue,
+        final_queue: process.message_queue,
+        current_function: process.current_function
+      }
     end
   end
 
-  defp build_process_growth_entry(pid, growth, initial, final) do
-    case Process.info(pid, [:current_function, :registered_name, :dictionary]) do
-      nil -> nil
-      info -> build_growth_map(pid, info, growth, initial, final)
+  defp calculate_growth_score(process) do
+    queue_size = process.message_queue
+
+    cond do
+      queue_size > 50_000 -> queue_size * 2
+      queue_size > 10_000 -> queue_size
+      queue_size > 1_000 -> div(queue_size, 10)
+      queue_size > 100 -> div(queue_size, 100)
+      true -> 0
     end
-  end
-
-  defp build_growth_map(pid, info, growth, initial, final) do
-    %{
-      pid: inspect(pid),
-      name: process_name(info),
-      queue_growth: growth,
-      initial_queue: initial,
-      final_queue: final,
-      current_function: format_mfa(info[:current_function])
-    }
-  end
-
-  defp snapshot_queue_sizes do
-    Process.list()
-    |> Stream.map(fn pid ->
-      case Process.info(pid, :message_queue_len) do
-        {:message_queue_len, len} -> {pid, len}
-        nil -> nil
-      end
-    end)
-    |> Stream.reject(&is_nil/1)
-    |> Map.new()
   end
 
   defp classify_overload_duration(queue_lengths) do
@@ -631,54 +614,31 @@ defmodule Beamlens.Skill.Overload do
   end
 
   defp analyze_scheduler_utilization do
-    was_enabled = :erlang.system_flag(:scheduler_wall_time, true)
+    process_count = length(Process.list())
+    scheduler_count = :erlang.system_info(:schedulers_online)
 
-    before = :erlang.statistics(:scheduler_wall_time)
+    total_reductions =
+      Process.list()
+      |> Enum.map(fn pid ->
+        case Process.info(pid, :reductions) do
+          {:reductions, red} when is_integer(red) -> red
+          _ -> 0
+        end
+      end)
+      |> Enum.sum()
 
-    Process.sleep(100)
+    avg_reductions_per_process =
+      if process_count > 0, do: div(total_reductions, process_count), else: 0
 
-    after_sample = :erlang.statistics(:scheduler_wall_time)
-
-    utilization = calculate_scheduler_utilization(before, after_sample)
-
-    unless was_enabled do
-      :erlang.system_flag(:scheduler_wall_time, false)
-    end
+    overloaded = avg_reductions_per_process > 1_000_000 and process_count > scheduler_count * 100
 
     %{
       name: :schedulers,
-      overloaded: utilization.avg_utilization_pct > 90,
-      avg_utilization_pct: utilization.avg_utilization_pct
+      overloaded: overloaded,
+      process_count: process_count,
+      scheduler_count: scheduler_count,
+      avg_reductions_per_process: avg_reductions_per_process
     }
-  rescue
-    _ -> %{name: :schedulers, overloaded: false, error: "scheduler_wall_time not supported"}
-  end
-
-  defp calculate_scheduler_utilization(before, after_sample) do
-    utilizations =
-      Enum.zip([before, after_sample])
-      |> Enum.map(fn {{_id1, total_before, active_before}, {_id2, total_after, active_after}} ->
-        total_delta = total_after - total_before
-        active_delta = active_after - active_before
-
-        if total_delta > 0 do
-          Float.round(active_delta / total_delta * 100, 2)
-        else
-          0.0
-        end
-      end)
-
-    avg_utilization = calculate_avg_utilization(utilizations)
-
-    %{
-      avg_utilization_pct: Float.round(avg_utilization, 2)
-    }
-  end
-
-  def calculate_avg_utilization([]), do: 0.0
-
-  def calculate_avg_utilization(utilizations) do
-    Enum.sum(utilizations) / Enum.count(utilizations)
   end
 
   defp detect_failure_relationships(subsystems) do

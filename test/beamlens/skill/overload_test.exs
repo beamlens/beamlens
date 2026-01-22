@@ -173,15 +173,6 @@ defmodule Beamlens.Skill.OverloadTest do
   end
 
   describe "helper functions" do
-    test "calculate_avg_utilization with empty list" do
-      assert Overload.calculate_avg_utilization([]) == 0.0
-    end
-
-    test "calculate_avg_utilization with values" do
-      result = Overload.calculate_avg_utilization([50.0, 60.0, 70.0])
-      assert result == 60.0
-    end
-
     test "majority_bottleneck? returns correct result" do
       types = [:downstream_blocking, :downstream_blocking, :cpu_bound]
       refute Overload.majority_bottleneck?(types, 3, :cpu_bound)
