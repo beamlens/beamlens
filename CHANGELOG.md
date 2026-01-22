@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Process relationship monitoring in Sup skill: `sup_unlinked_processes`, `sup_orphaned_processes`, `sup_tree_integrity`, `sup_zombie_children`
+- Unlinked process detection for finding processes with no links or monitors (potential leaks)
+- Orphaned process detection for finding processes whose parent/ancestor has died
+- Supervision tree integrity checking with anomaly detection (crash loops, high undefined ratios, large supervisors)
+- Zombie children detection for finding children of dead supervisors
 - GC pattern analysis callbacks: `gc_find_spiky_processes`, `gc_find_lazy_gc_processes`, `gc_calculate_efficiency`, `gc_recommend_hibernation`, `gc_get_long_gcs`
 - Memory variance detection for spiky process memory usage patterns
 - Lazy GC process identification for memory hoarding detection
