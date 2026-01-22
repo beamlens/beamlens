@@ -18,9 +18,9 @@ defmodule Beamlens.Skill.Monitor.MetricStoreTest do
     end
 
     test "stores samples with unique timestamps", %{store: store} do
-      :ok = MetricStore.add_sample(store, :beam, :memory_mb, 100.0)
-      Process.sleep(2)
-      :ok = MetricStore.add_sample(store, :beam, :memory_mb, 110.0)
+      base_time = System.system_time(:millisecond)
+      :ok = MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 100.0, base_time)
+      :ok = MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 110.0, base_time + 1)
 
       samples = MetricStore.get_samples(store, :beam, :memory_mb, 60_000)
       assert length(samples) == 2
@@ -48,11 +48,10 @@ defmodule Beamlens.Skill.Monitor.MetricStoreTest do
     end
 
     test "sorts samples by timestamp", %{store: store} do
-      MetricStore.add_sample(store, :beam, :memory_mb, 100.0)
-      Process.sleep(2)
-      MetricStore.add_sample(store, :beam, :memory_mb, 110.0)
-      Process.sleep(2)
-      MetricStore.add_sample(store, :beam, :memory_mb, 105.0)
+      base_time = System.system_time(:millisecond)
+      MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 100.0, base_time)
+      MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 110.0, base_time + 1)
+      MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 105.0, base_time + 2)
 
       samples = MetricStore.get_samples(store, :beam, :memory_mb, 60_000)
       timestamps = Enum.map(samples, & &1.timestamp)
@@ -129,11 +128,12 @@ defmodule Beamlens.Skill.Monitor.MetricStoreTest do
     test "prunes old samples based on history configuration" do
       {:ok, store} = MetricStore.start_link(history_minutes: 0, sample_interval_ms: 100)
 
-      MetricStore.add_sample(store, :beam, :memory_mb, 100.0)
+      base_time = System.system_time(:millisecond)
 
-      Process.sleep(150)
+      MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 100.0, base_time - 200)
+      MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 110.0, base_time)
 
-      MetricStore.add_sample(store, :beam, :memory_mb, 110.0)
+      GenServer.call(store, :prune)
 
       samples = MetricStore.get_samples(store, :beam, :memory_mb, 60_000)
 

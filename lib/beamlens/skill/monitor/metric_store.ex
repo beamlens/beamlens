@@ -63,18 +63,12 @@ defmodule Beamlens.Skill.Monitor.MetricStore do
   @impl true
   def handle_call({:add_sample, skill, metric, value}, _from, state) do
     timestamp = System.system_time(:millisecond)
-    key = {skill, metric, timestamp}
+    do_add_sample_with_timestamp(skill, metric, value, timestamp, state)
+  end
 
-    sample = %{
-      timestamp: timestamp,
-      skill: skill,
-      metric: metric,
-      value: value
-    }
-
-    :ets.insert(state.ets_table, {key, sample})
-
-    {:reply, :ok, state}
+  @impl true
+  def handle_call({:add_sample_with_timestamp, skill, metric, value, timestamp}, _from, state) do
+    do_add_sample_with_timestamp(skill, metric, value, timestamp, state)
   end
 
   @impl true
@@ -112,6 +106,28 @@ defmodule Beamlens.Skill.Monitor.MetricStore do
       |> Enum.map(fn {_key, sample} -> sample end)
 
     {:reply, all_samples, state}
+  end
+
+  @impl true
+  def handle_call(:prune, _from, state) do
+    cutoff = System.system_time(:millisecond) - state.max_samples * @default_sample_interval_ms
+    prune_old_samples(state.ets_table, cutoff)
+    {:reply, :ok, state}
+  end
+
+  defp do_add_sample_with_timestamp(skill, metric, value, timestamp, state) do
+    key = {skill, metric, timestamp}
+
+    sample = %{
+      timestamp: timestamp,
+      skill: skill,
+      metric: metric,
+      value: value
+    }
+
+    :ets.insert(state.ets_table, {key, sample})
+
+    {:reply, :ok, state}
   end
 
   defp prune_old_samples(ets_table, cutoff_ms) do
@@ -171,5 +187,14 @@ defmodule Beamlens.Skill.Monitor.MetricStore do
   """
   def get_all_samples(store \\ __MODULE__) do
     GenServer.call(store, :get_all_samples)
+  end
+
+  @doc """
+  Add a metric sample with a specific timestamp (for testing).
+
+  Allows deterministic tests without Process.sleep by controlling timestamps explicitly.
+  """
+  def add_sample_with_timestamp(store \\ __MODULE__, skill, metric, value, timestamp) do
+    GenServer.call(store, {:add_sample_with_timestamp, skill, metric, value, timestamp})
   end
 end
