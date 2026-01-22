@@ -397,13 +397,18 @@ Compaction events are emitted via telemetry: `[:beamlens, :compaction, :start]` 
 
 | Module | Description |
 |--------|-------------|
+| `Beamlens.Skill.Allocator` | Memory allocator monitoring (mbuf, binary, driver, etc.) |
 | `Beamlens.Skill.Beam` | BEAM VM metrics (memory, processes, schedulers, atoms) |
 | `Beamlens.Skill.Ets` | ETS table monitoring |
 | `Beamlens.Skill.Gc` | Garbage collection statistics |
 | `Beamlens.Skill.Logger` | Application log monitoring |
+| `Beamlens.Skill.Monitor` | Statistical anomaly detection with auto-trigger |
+| `Beamlens.Skill.Overload` | Message queue overload analysis and bottleneck detection |
 | `Beamlens.Skill.Ports` | Port monitoring (file descriptors, sockets) |
 | `Beamlens.Skill.Sup` | Supervisor tree monitoring |
 | `Beamlens.Skill.System` | OS-level metrics (CPU, memory, disk via os_mon) |
+| `Beamlens.Skill.SystemMonitor` | System event monitoring (long GC, large heap) |
+| `Beamlens.Skill.Tracer` | Process tracing for debugging |
 
 ### BEAM Skill (`Beamlens.Skill.Beam`)
 
@@ -536,6 +541,113 @@ Monitors OS-level system health via Erlang's os_mon application.
 | `system_get_cpu()` | CPU load averages and process count |
 | `system_get_memory()` | System memory stats |
 | `system_get_disks()` | Disk usage per mount point |
+
+### Monitor Skill (`Beamlens.Skill.Monitor`)
+
+Statistical anomaly detection with automatic triggering based on learned baselines.
+
+> **Opt-in:** The Monitor skill requires explicit `enabled: true` configuration and starts a separate supervisor with detector, metric store, and baseline store processes.
+
+**Configuration:**
+
+```elixir
+{Beamlens, [
+  skills: [Beamlens.Skill.Monitor],
+  monitor: [
+    enabled: true,
+    collection_interval_ms: 60_000,
+    learning_duration_ms: 300_000,
+    z_threshold: 3.0,
+    consecutive_required: 3,
+    cooldown_duration_ms: 900_000
+  ]
+]}
+```
+
+**Snapshot Metrics:**
+- Current state (learning, active, cooldown)
+- Baseline statistics (mean, std_dev, percentiles)
+- Anomaly count
+- Metrics collected
+
+**Lua Callbacks:**
+
+| Callback | Description |
+|----------|-------------|
+| `monitor_get_state()` | Current detector state and configuration |
+| `monitor_get_baseline(skill, metric)` | Statistical baseline for specific metric |
+| `monitor_get_anomalies()` | Current detected anomalies |
+
+### Overload Skill (`Beamlens.Skill.Overload`)
+
+Message queue overload detection, bottleneck analysis, and cascade detection.
+
+**Snapshot Metrics:**
+- Total queue size
+- Processes with queue > 1000
+- Processes with queue > 10000
+- Max queue size
+
+**Lua Callbacks:**
+
+| Callback | Description |
+|----------|-------------|
+| `overload_get_queue_status()` | Overall queue health and severity |
+| `overload_get_overloaded_processes()` | Processes with large queues |
+| `overload_detect_bottlenecks()` | Identify blocked processes and causes |
+| `overload_detect_cascades()` | Detect cascading queue failures |
+| `overload_predict_growth()` | Predict queue saturation times |
+
+### SystemMonitor Skill (`Beamlens.Skill.SystemMonitor`)
+
+Monitors OS-level system events via Erlang's :system_monitor.
+
+**Snapshot Metrics:**
+- Long GC count
+- Large heap count
+- Busy port count
+
+**Lua Callbacks:**
+
+| Callback | Description |
+|----------|-------------|
+| `system_monitor_get_events()` | Recent system monitor events |
+| `system_monitor_get_long_gc()` | Long garbage collection events |
+| `system_monitor_get_large_heap()` | Large heap allocation events |
+| `system_monitor_get_busy_ports()` | Busy port events |
+
+### Tracer Skill (`Beamlens.Skill.Tracer`)
+
+Process tracing for debugging and investigation.
+
+**Snapshot Metrics:**
+- Trace count
+- Active trace count
+
+**Lua Callbacks:**
+
+| Callback | Description |
+|----------|-------------|
+| `tracer_trace(pid_spec, flags)` | Start tracing processes |
+| `tracer_stop(pid_spec)` | Stop tracing processes |
+| `tracer_get_traces()` | Get collected traces |
+| `tracer_clear()` | Clear all traces |
+
+### Allocator Skill (`Beamlens.Skill.Allocator`)
+
+Memory allocator monitoring (mbuf, binary, driver, etc.).
+
+**Snapshot Metrics:**
+- Allocator types
+- Memory usage by allocator type
+
+**Lua Callbacks:**
+
+| Callback | Description |
+|----------|-------------|
+| `allocator_get_info()` | Allocator information by type |
+| `allocator_get_mbuf()` | Mbuf allocator stats |
+| `allocator_get_binary()` | Binary allocator stats |
 
 ### Ecto Skill (`Beamlens.Skill.Ecto`)
 
