@@ -7,6 +7,50 @@ defmodule Beamlens.Skill.Monitor.DetectorTest do
 
   @skill_beam Beamlens.Skill.Beam
 
+  defmodule TestSkill do
+    @moduledoc false
+    @behaviour Beamlens.Skill
+    def title, do: "Test Skill"
+    def description, do: "Test skill"
+    def system_prompt, do: ""
+    def snapshot, do: %{metric_a: 50.0, metric_b: 100.0}
+    def callbacks, do: %{}
+    def callback_docs, do: ""
+  end
+
+  defmodule TestSkill2 do
+    @moduledoc false
+    @behaviour Beamlens.Skill
+    def title, do: "Test Skill 2"
+    def description, do: "Second test skill"
+    def system_prompt, do: ""
+    def snapshot, do: %{metric_x: 25.0, metric_y: 75.0, metric_z: 150.0}
+    def callbacks, do: %{}
+    def callback_docs, do: ""
+  end
+
+  defmodule TestSkillControllable do
+    @moduledoc false
+    @behaviour Beamlens.Skill
+    def title, do: "Controllable"
+    def description, do: "Controllable test skill"
+    def system_prompt, do: ""
+    def snapshot, do: Agent.get(__MODULE__, & &1)
+    def callbacks, do: %{}
+    def callback_docs, do: ""
+  end
+
+  defmodule TestSkillControllableReset do
+    @moduledoc false
+    @behaviour Beamlens.Skill
+    def title, do: "Controllable Reset"
+    def description, do: "Controllable test skill for reset test"
+    def system_prompt, do: ""
+    def snapshot, do: Agent.get(__MODULE__, & &1)
+    def callbacks, do: %{}
+    def callback_docs, do: ""
+  end
+
   setup do
     metric_store =
       start_supervised!(
@@ -276,6 +320,328 @@ defmodule Beamlens.Skill.Monitor.DetectorTest do
       _ = :sys.get_state(pid)
 
       assert :active = Detector.get_state(:test_detector_cooldown)
+    end
+  end
+
+  describe "multi-skill collection" do
+    test "collects metrics from multiple skills" do
+      start_supervised!(
+        {MetricStore,
+         [
+           name: :test_metric_store_multi,
+           sample_interval_ms: 1000,
+           history_minutes: 1
+         ]},
+        id: :metric_multi
+      )
+
+      start_supervised!(
+        {BaselineStore,
+         [
+           name: :test_baseline_store_multi,
+           ets_table: :test_baselines_multi,
+           dets_file: nil
+         ]},
+        id: :baseline_multi
+      )
+
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_multi_collect,
+             metric_store: :test_metric_store_multi,
+             baseline_store: :test_baseline_store_multi,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 1000,
+             skills: [TestSkill, TestSkill2]
+           ]},
+          id: :detector_multi_collect
+        )
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      assert MetricStore.get_latest(:test_metric_store_multi, TestSkill, :metric_a) != nil
+      assert MetricStore.get_latest(:test_metric_store_multi, TestSkill, :metric_b) != nil
+      assert MetricStore.get_latest(:test_metric_store_multi, TestSkill2, :metric_x) != nil
+      assert MetricStore.get_latest(:test_metric_store_multi, TestSkill2, :metric_y) != nil
+      assert MetricStore.get_latest(:test_metric_store_multi, TestSkill2, :metric_z) != nil
+    end
+
+    test "collects all metrics from skill snapshots" do
+      start_supervised!(
+        {MetricStore,
+         [
+           name: :test_metric_store_snapshot,
+           sample_interval_ms: 1000,
+           history_minutes: 1
+         ]},
+        id: :metric_snapshot
+      )
+
+      start_supervised!(
+        {BaselineStore,
+         [
+           name: :test_baseline_store_snapshot,
+           ets_table: :test_baselines_snapshot,
+           dets_file: nil
+         ]},
+        id: :baseline_snapshot
+      )
+
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_snapshot,
+             metric_store: :test_metric_store_snapshot,
+             baseline_store: :test_baseline_store_snapshot,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 1000,
+             skills: [TestSkill]
+           ]},
+          id: :detector_snapshot
+        )
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      sample_a = MetricStore.get_latest(:test_metric_store_snapshot, TestSkill, :metric_a)
+      sample_b = MetricStore.get_latest(:test_metric_store_snapshot, TestSkill, :metric_b)
+
+      assert sample_a.value == 50.0
+      assert sample_b.value == 100.0
+    end
+  end
+
+  describe "multi-skill baseline learning" do
+    test "calculates baselines for all skill metrics after learning" do
+      start_supervised!(
+        {MetricStore,
+         [
+           name: :test_metric_store_baseline_multi,
+           sample_interval_ms: 1000,
+           history_minutes: 1
+         ]},
+        id: :metric_baseline_multi
+      )
+
+      start_supervised!(
+        {BaselineStore,
+         [
+           name: :test_baseline_store_baseline_multi,
+           ets_table: :test_baselines_baseline_multi,
+           dets_file: nil
+         ]},
+        id: :baseline_baseline_multi
+      )
+
+      for i <- 1..5 do
+        MetricStore.add_sample(:test_metric_store_baseline_multi, TestSkill, :metric_a, 50.0 + i)
+        MetricStore.add_sample(:test_metric_store_baseline_multi, TestSkill, :metric_b, 100.0 + i)
+        MetricStore.add_sample(:test_metric_store_baseline_multi, TestSkill2, :metric_x, 25.0 + i)
+        MetricStore.add_sample(:test_metric_store_baseline_multi, TestSkill2, :metric_y, 75.0 + i)
+
+        MetricStore.add_sample(
+          :test_metric_store_baseline_multi,
+          TestSkill2,
+          :metric_z,
+          150.0 + i
+        )
+      end
+
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_baseline_multi,
+             metric_store: :test_metric_store_baseline_multi,
+             baseline_store: :test_baseline_store_baseline_multi,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             skills: [TestSkill, TestSkill2]
+           ]},
+          id: :detector_baseline_multi
+        )
+
+      past_time = System.system_time(:millisecond) - 200
+
+      :sys.replace_state(pid, fn state ->
+        %{state | learning_start_time: past_time}
+      end)
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      baseline_a =
+        BaselineStore.get_baseline(:test_baseline_store_baseline_multi, TestSkill, :metric_a)
+
+      baseline_b =
+        BaselineStore.get_baseline(:test_baseline_store_baseline_multi, TestSkill, :metric_b)
+
+      baseline_x =
+        BaselineStore.get_baseline(:test_baseline_store_baseline_multi, TestSkill2, :metric_x)
+
+      baseline_y =
+        BaselineStore.get_baseline(:test_baseline_store_baseline_multi, TestSkill2, :metric_y)
+
+      baseline_z =
+        BaselineStore.get_baseline(:test_baseline_store_baseline_multi, TestSkill2, :metric_z)
+
+      assert baseline_a != nil
+      assert baseline_a.sample_count > 0
+      assert baseline_b != nil
+      assert baseline_b.sample_count > 0
+      assert baseline_x != nil
+      assert baseline_x.sample_count > 0
+      assert baseline_y != nil
+      assert baseline_y.sample_count > 0
+      assert baseline_z != nil
+      assert baseline_z.sample_count > 0
+    end
+  end
+
+  describe "anomaly detection with mock skills" do
+    test "detects anomaly only for changed metric" do
+      start_supervised!(
+        {MetricStore,
+         [
+           name: :test_metric_store_anomaly_mock,
+           sample_interval_ms: 1000,
+           history_minutes: 1
+         ]},
+        id: :metric_anomaly_mock
+      )
+
+      start_supervised!(
+        {BaselineStore,
+         [
+           name: :test_baseline_store_anomaly_mock,
+           ets_table: :test_baselines_anomaly_mock,
+           dets_file: nil
+         ]},
+        id: :baseline_anomaly_mock
+      )
+
+      start_supervised!(%{
+        id: TestSkillControllable,
+        start:
+          {Agent, :start_link,
+           [fn -> %{controlled_metric: 50.0} end, [name: TestSkillControllable]]}
+      })
+
+      BaselineStore.update_baseline(
+        :test_baseline_store_anomaly_mock,
+        TestSkillControllable,
+        :controlled_metric,
+        [45.0, 47.0, 50.0, 53.0, 55.0]
+      )
+
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_anomaly_mock,
+             metric_store: :test_metric_store_anomaly_mock,
+             baseline_store: :test_baseline_store_anomaly_mock,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             z_threshold: 2.0,
+             consecutive_required: 2,
+             cooldown_ms: 200,
+             skills: [TestSkillControllable]
+           ]},
+          id: :detector_anomaly_mock
+        )
+
+      :sys.replace_state(pid, fn state ->
+        %{state | state: :active, learning_start_time: nil}
+      end)
+
+      Agent.update(TestSkillControllable, fn _ -> %{controlled_metric: 200.0} end)
+
+      send(pid, :collect)
+      state = :sys.get_state(pid)
+
+      assert state.consecutive_count == 1
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      assert :cooldown = Detector.get_state(:test_detector_anomaly_mock)
+    end
+
+    test "normal values reset consecutive count" do
+      start_supervised!(
+        {MetricStore,
+         [
+           name: :test_metric_store_reset,
+           sample_interval_ms: 1000,
+           history_minutes: 1
+         ]},
+        id: :metric_reset
+      )
+
+      start_supervised!(
+        {BaselineStore,
+         [
+           name: :test_baseline_store_reset,
+           ets_table: :test_baselines_reset,
+           dets_file: nil
+         ]},
+        id: :baseline_reset
+      )
+
+      start_supervised!(%{
+        id: TestSkillControllableReset,
+        start:
+          {Agent, :start_link,
+           [fn -> %{controlled_metric: 50.0} end, [name: TestSkillControllableReset]]}
+      })
+
+      BaselineStore.update_baseline(
+        :test_baseline_store_reset,
+        TestSkillControllableReset,
+        :controlled_metric,
+        [45.0, 47.0, 50.0, 53.0, 55.0]
+      )
+
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_reset,
+             metric_store: :test_metric_store_reset,
+             baseline_store: :test_baseline_store_reset,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             z_threshold: 2.0,
+             consecutive_required: 3,
+             cooldown_ms: 200,
+             skills: [TestSkillControllableReset]
+           ]},
+          id: :detector_reset
+        )
+
+      :sys.replace_state(pid, fn state ->
+        %{state | state: :active, learning_start_time: nil}
+      end)
+
+      Agent.update(TestSkillControllableReset, fn _ -> %{controlled_metric: 200.0} end)
+
+      send(pid, :collect)
+      state = :sys.get_state(pid)
+
+      assert state.consecutive_count == 1
+
+      Agent.update(TestSkillControllableReset, fn _ -> %{controlled_metric: 50.0} end)
+
+      send(pid, :collect)
+      state = :sys.get_state(pid)
+
+      assert state.consecutive_count == 0
+      assert :active = Detector.get_state(:test_detector_reset)
     end
   end
 end
