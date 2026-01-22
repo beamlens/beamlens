@@ -5,8 +5,8 @@ defmodule Beamlens.Skill.Overload do
   Analyzes message queue overload patterns, classifies overload types,
   identifies bottlenecks, and recommends remediation strategies.
 
-  Based on Chapter 103 of "Erlang in Anger": message queue overflow
-  is the #1 cause of node crashes.
+  Message queue overflow is the #1 cause of node crashes in production
+  BEAM systems.
 
   All functions are read-only with zero side effects.
   """
@@ -28,9 +28,8 @@ defmodule Beamlens.Skill.Overload do
     to detect overload BEFORE it causes crashes.
 
     ## Overload is the #1 Killer
-    From "Erlang in Anger" Chapter 103: "By far, the most common cause of failure
-    I've encountered in real-world scenarios is due to the node running out of memory.
-    Furthermore, it is usually related to message queues going out of bounds."
+    Message queue overflow is the most common cause of production BEAM system
+    failures, leading to memory exhaustion and node crashes.
 
     ## Your Domain
     - Message queue buildup detection and classification
