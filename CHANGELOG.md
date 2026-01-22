@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Port queue saturation monitoring with growth tracking and prediction
+- Port saturation percentage calculation based on queue size thresholds
+- Top ports by queue size with `ports_top_by_queue/1` callback
+- Port queue growth rate analysis with `ports_queue_growth/1` callback
+- Suspended process detection correlating busy_port events with process info
+- Port saturation prediction with risk level assessment (critical/high/medium/low)
 - Automatic Coordinator triggering on anomaly escalation (opt-in via `auto_trigger: true`)
 - Rate limiting for auto-triggers with configurable `max_triggers_per_hour` (default: 3)
 - Statistical anomaly detection Monitor skill with self-learning baselines

@@ -237,4 +237,240 @@ defmodule Beamlens.Skill.PortsTest do
       end
     end
   end
+
+  describe "ports_top_by_queue callback" do
+    test "returns list of ports" do
+      result = Ports.callbacks()["ports_top_by_queue"].(5)
+
+      assert is_list(result)
+      assert length(result) <= 5
+    end
+
+    test "entries have expected fields" do
+      result = Ports.callbacks()["ports_top_by_queue"].(5)
+
+      if result != [] do
+        [port | _] = result
+        assert Map.has_key?(port, :id)
+        assert Map.has_key?(port, :name)
+        assert Map.has_key?(port, :queue_size)
+        assert Map.has_key?(port, :connected_pid)
+        assert Map.has_key?(port, :saturation_pct)
+      end
+    end
+
+    test "returns ports sorted by queue size descending" do
+      result = Ports.callbacks()["ports_top_by_queue"].(10)
+
+      if length(result) > 1 do
+        queue_sizes = Enum.map(result, & &1.queue_size)
+        assert queue_sizes == Enum.sort(queue_sizes, :desc)
+      end
+    end
+
+    test "caps limit at 50" do
+      result = Ports.callbacks()["ports_top_by_queue"].(100)
+
+      assert length(result) <= 50
+    end
+
+    test "queue sizes are non-negative" do
+      result = Ports.callbacks()["ports_top_by_queue"].(10)
+
+      Enum.all?(result, fn port ->
+        assert port.queue_size >= 0
+      end)
+    end
+
+    test "saturation percentage is within valid range" do
+      result = Ports.callbacks()["ports_top_by_queue"].(10)
+
+      Enum.all?(result, fn port ->
+        assert port.saturation_pct >= 0
+        assert port.saturation_pct <= 100
+      end)
+    end
+  end
+
+  describe "ports_queue_growth callback" do
+    test "returns growth analysis map" do
+      result = Ports.callbacks()["ports_queue_growth"].(5)
+
+      assert is_map(result)
+      assert Map.has_key?(result, :growing_ports)
+      assert Map.has_key?(result, :current_queues)
+    end
+
+    test "growing_ports is a list" do
+      result = Ports.callbacks()["ports_queue_growth"].(5)
+
+      assert is_list(result.growing_ports)
+    end
+
+    test "current_queues is a map" do
+      result = Ports.callbacks()["ports_queue_growth"].(5)
+
+      assert is_map(result.current_queues)
+    end
+
+    test "growing port entries have expected fields" do
+      result = Ports.callbacks()["ports_queue_growth"].(5)
+
+      if result.growing_ports != [] do
+        [port | _] = result.growing_ports
+        assert Map.has_key?(port, :id)
+        assert Map.has_key?(port, :current_queue)
+        assert Map.has_key?(port, :growth_rate_bytes_per_sec)
+        assert Map.has_key?(port, :trend)
+      end
+    end
+
+    test "accepts different time windows" do
+      result_5min = Ports.callbacks()["ports_queue_growth"].(5)
+      result_15min = Ports.callbacks()["ports_queue_growth"].(15)
+
+      assert is_map(result_5min)
+      assert is_map(result_15min)
+    end
+
+    test "trend is valid atom when data exists" do
+      result = Ports.callbacks()["ports_queue_growth"].(5)
+
+      if result.growing_ports != [] do
+        Enum.all?(result.growing_ports, fn port ->
+          assert port.trend in [:growing, :shrinking, :stable, :unknown]
+        end)
+      end
+    end
+
+    test "growth rates are numbers when data exists" do
+      result = Ports.callbacks()["ports_queue_growth"].(5)
+
+      if result.growing_ports != [] do
+        Enum.all?(result.growing_ports, fn port ->
+          assert is_number(port.growth_rate_bytes_per_sec)
+        end)
+      end
+    end
+  end
+
+  describe "ports_suspended_processes callback" do
+    test "returns list of suspended processes" do
+      result = Ports.callbacks()["ports_suspended_processes"].()
+
+      assert is_list(result)
+    end
+
+    test "process entries have expected fields when data exists" do
+      result = Ports.callbacks()["ports_suspended_processes"].()
+
+      if result != [] do
+        [proc | _] = result
+        assert Map.has_key?(proc, :pid)
+        assert Map.has_key?(proc, :message_queue_len)
+        assert Map.has_key?(proc, :current_function)
+        assert Map.has_key?(proc, :registered_name)
+      end
+    end
+
+    test "message queue lengths are non-negative" do
+      result = Ports.callbacks()["ports_suspended_processes"].()
+
+      if result != [] do
+        Enum.all?(result, fn proc ->
+          assert proc.message_queue_len >= 0
+        end)
+      end
+    end
+
+    test "pids are strings" do
+      result = Ports.callbacks()["ports_suspended_processes"].()
+
+      if result != [] do
+        Enum.all?(result, fn proc ->
+          assert is_binary(proc.pid)
+        end)
+      end
+    end
+
+    test "registered_names are strings or anonymous" do
+      result = Ports.callbacks()["ports_suspended_processes"].()
+
+      if result != [] do
+        Enum.all?(result, fn proc ->
+          assert is_binary(proc.registered_name)
+        end)
+      end
+    end
+  end
+
+  describe "ports_saturation_prediction callback" do
+    test "returns list of predictions" do
+      result = Ports.callbacks()["ports_saturation_prediction"].(30)
+
+      assert is_list(result)
+    end
+
+    test "prediction entries have expected fields when data exists" do
+      result = Ports.callbacks()["ports_saturation_prediction"].(30)
+
+      if result != [] do
+        [pred | _] = result
+        assert Map.has_key?(pred, :id)
+        assert Map.has_key?(pred, :name)
+        assert Map.has_key?(pred, :current_queue_bytes)
+        assert Map.has_key?(pred, :growth_rate_bytes_per_sec)
+        assert Map.has_key?(pred, :saturation_threshold_bytes)
+        assert Map.has_key?(pred, :minutes_until_saturation)
+        assert Map.has_key?(pred, :risk_level)
+      end
+    end
+
+    test "risk levels are valid atoms when predictions exist" do
+      result = Ports.callbacks()["ports_saturation_prediction"].(30)
+
+      if result != [] do
+        Enum.all?(result, fn pred ->
+          assert pred.risk_level in [:critical, :high, :medium, :low]
+        end)
+      end
+    end
+
+    test "minutes_until_saturation is positive when predictions exist" do
+      result = Ports.callbacks()["ports_saturation_prediction"].(30)
+
+      if result != [] do
+        Enum.all?(result, fn pred ->
+          assert pred.minutes_until_saturation > 0
+        end)
+      end
+    end
+
+    test "saturation_threshold is 1MB" do
+      result = Ports.callbacks()["ports_saturation_prediction"].(30)
+
+      if result != [] do
+        Enum.all?(result, fn pred ->
+          assert pred.saturation_threshold_bytes == 1024 * 1024
+        end)
+      end
+    end
+
+    test "accepts different prediction windows" do
+      result_15min = Ports.callbacks()["ports_saturation_prediction"].(15)
+      result_60min = Ports.callbacks()["ports_saturation_prediction"].(60)
+
+      assert is_list(result_15min)
+      assert is_list(result_60min)
+    end
+
+    test "returns predictions sorted by minutes_until_saturation" do
+      result = Ports.callbacks()["ports_saturation_prediction"].(30)
+
+      if length(result) > 1 do
+        times = Enum.map(result, & &1.minutes_until_saturation)
+        assert times == Enum.sort(times)
+      end
+    end
+  end
 end
