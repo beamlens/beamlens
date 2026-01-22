@@ -62,6 +62,9 @@ defmodule Beamlens.Skill.Ports do
       "ports_list" => &list_ports/0,
       "ports_info" => &port_info/1,
       "ports_top" => &top_ports/2,
+      "ports_list_inet" => &list_inet_ports/0,
+      "ports_top_by_buffer" => &top_ports_by_buffer/2,
+      "ports_inet_stats" => &inet_stats/1,
       "ports_busy_events" => fn ->
         EventStore.get_events(EventStore, type: "busy_port", limit: 50)
       end,
@@ -82,6 +85,15 @@ defmodule Beamlens.Skill.Ports do
 
     ### ports_top(limit, sort_by)
     Top N ports by "input", "output", or "memory". Returns list with id, name, input_bytes, output_bytes, memory_kb
+
+    ### ports_list_inet()
+    All inet ports (TCP/UDP/SCTP) with socket details: id, type, local_addr, remote_addr, input_kb, output_kb
+
+    ### ports_top_by_buffer(limit, direction)
+    Top N inet ports by send or recv buffer size. Direction: "send" or "recv"
+
+    ### ports_inet_stats(port_id)
+    Detailed inet port statistics: recv_cnt, recv_oct, send_cnt, send_oct, send_pend
 
     ### ports_busy_events()
     Recent busy_port events from system monitor. Returns: datetime, type, port, pid
@@ -189,4 +201,147 @@ defmodule Beamlens.Skill.Ports do
   defp normalize_sort_key("output"), do: :output_bytes
   defp normalize_sort_key("memory"), do: :memory_kb
   defp normalize_sort_key(_), do: :memory_kb
+
+  def list_inet_ports do
+    inet_types = ["tcp_inet", "udp_inet", "sctp_inet"]
+
+    Port.list()
+    |> Enum.map(&inet_port_summary/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.filter(fn port -> port.type in inet_types end)
+  end
+
+  def top_ports_by_buffer(limit, direction) when is_number(limit) and is_binary(direction) do
+    limit = min(limit, 50)
+
+    inet_ports =
+      Port.list()
+      |> Enum.map(&inet_port_with_buffer/1)
+      |> Enum.reject(&is_nil/1)
+
+    sort_key =
+      case direction do
+        "send" -> :send_kb
+        "recv" -> :recv_kb
+        _ -> :send_kb
+      end
+
+    inet_ports
+    |> Enum.sort_by(&Map.get(&1, sort_key), :desc)
+    |> Enum.take(limit)
+  end
+
+  def inet_stats(port_id) when is_binary(port_id) do
+    case resolve_port(port_id) do
+      nil ->
+        %{error: "port_not_found", id: port_id}
+
+      port ->
+        case safe_inet_stats(port) do
+          {:ok, stats} ->
+            Map.put(stats, :id, port_id)
+
+          {:error, reason} ->
+            %{error: reason, id: port_id}
+        end
+    end
+  end
+
+  defp inet_port_summary(port) do
+    case safe_port_info(port) do
+      nil ->
+        nil
+
+      info ->
+        port_type = format_name(info[:name])
+
+        inet_data =
+          case get_inet_info(port) do
+            {:ok, data} ->
+              data
+
+            _ ->
+              %{local_addr: "unknown", remote_addr: "unknown"}
+          end
+
+        %{
+          id: inspect(port),
+          type: port_type,
+          local_addr: inet_data.local_addr,
+          remote_addr: inet_data.remote_addr,
+          input_kb: bytes_to_kb(info[:input] || 0),
+          output_kb: bytes_to_kb(info[:output] || 0)
+        }
+    end
+  end
+
+  defp inet_port_with_buffer(port) do
+    case safe_port_info(port) do
+      nil ->
+        nil
+
+      info ->
+        case safe_inet_stats(port) do
+          {:ok, stats} ->
+            %{
+              id: inspect(port),
+              type: format_name(info[:name]),
+              send_kb: bytes_to_kb(stats.send_oct || 0),
+              recv_kb: bytes_to_kb(stats.recv_oct || 0)
+            }
+
+          _ ->
+            nil
+        end
+    end
+  end
+
+  defp safe_inet_stats(port) do
+    case :inet.getstat(port) do
+      {:ok, stats} when is_list(stats) ->
+        stats_map =
+          stats
+          |> Enum.map(fn {key, val} -> {key, val} end)
+          |> Map.new()
+
+        {:ok, stats_map}
+
+      {:error, _} ->
+        {:error, "inet_stats_failed"}
+    end
+  rescue
+    _ -> {:error, "not_an_inet_port"}
+  end
+
+  defp get_inet_info(port) do
+    local_addr =
+      case :inet.sockname(port) do
+        {:ok, {ip, port_num}} -> format_ip_port(ip, port_num)
+        _ -> "unknown"
+      end
+
+    remote_addr =
+      case :inet.peername(port) do
+        {:ok, {ip, port_num}} -> format_ip_port(ip, port_num)
+        _ -> "not_connected"
+      end
+
+    {:ok, %{local_addr: local_addr, remote_addr: remote_addr}}
+  rescue
+    _ -> {:error, "inet_info_failed"}
+  end
+
+  defp format_ip_port(ip, port) when is_tuple(ip) do
+    ip_str =
+      ip
+      |> Tuple.to_list()
+      |> Enum.join(".")
+
+    "#{ip_str}:#{port}"
+  end
+
+  defp format_ip_port(_ip, _port), do: "unknown"
+
+  defp bytes_to_kb(bytes) when is_integer(bytes), do: Float.round(bytes / 1024, 2)
+  defp bytes_to_kb(_), do: 0.0
 end
