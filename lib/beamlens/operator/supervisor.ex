@@ -43,6 +43,7 @@ defmodule Beamlens.Operator.Supervisor do
     Beamlens.Skill.Ets,
     Beamlens.Skill.Gc,
     Beamlens.Skill.Logger,
+    Beamlens.Skill.Monitor,
     Beamlens.Skill.Ports,
     Beamlens.Skill.Sup,
     Beamlens.Skill.System,
