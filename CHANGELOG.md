@@ -62,7 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Binary memory leak detection callbacks in Beam skill (`beam_binary_leak`, `beam_binary_top_memory`, `beam_binary_info`)
 - Binary memory tracking in Beam skill snapshot (`binary_memory_mb`)
 - Rate limiting for `beam_binary_leak` GC calls (once per minute)
-- Message queue overload detection: `beam_queue_processes/1`, `beam_queue_growth/2`, `beam_queue_stats/0`
 - Operators and Coordinator are now always-running supervised processes
 - New `Operator.run_async/3` for running analysis in the background with progress notifications
 - Multiple analysis requests to the same operator are queued and processed in order
@@ -70,6 +69,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Skills can now be configured inline using `{module, opts}` tuples in the skills list
+  ```elixir
+  # Collocated configuration
+  {Beamlens, skills: [{Beamlens.Skill.Monitor, [enabled: true]}]}
+  ```
 - **Breaking:** Configuration option renamed from `:operators` to `:skills`
   ```elixir
   # Before

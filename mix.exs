@@ -181,7 +181,6 @@ defmodule Beamlens.MixProject do
           Beamlens.Skill.System,
           Beamlens.Skill.SystemMonitor,
           Beamlens.Skill.SystemMonitor.EventStore,
-          Beamlens.Skill.SystemMonitor.GrowthStore,
           Beamlens.Skill.Tracer
         ],
         Telemetry: [

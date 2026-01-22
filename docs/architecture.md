@@ -521,6 +521,10 @@ Monitors supervisor tree structure.
 | `sup_list()` | All supervisors: name, pid, child_count, active_children |
 | `sup_children(supervisor_name)` | Direct children: id, pid, type |
 | `sup_tree(supervisor_name)` | Full supervision tree (recursive, depth-limited) |
+| `sup_unlinked_processes()` | Processes not linked to any supervisor |
+| `sup_orphaned_processes()` | Orphaned processes without proper supervision |
+| `sup_tree_integrity(supervisor_name)` | Tree integrity check with anomaly detection |
+| `sup_zombie_children(supervisor_name)` | Zombie children detection |
 
 ### System Skill (`Beamlens.Skill.System`)
 
@@ -559,7 +563,7 @@ Statistical anomaly detection with automatic triggering based on learned baselin
       learning_duration_ms: 300_000,
       z_threshold: 3.0,
       consecutive_required: 3,
-      cooldown_duration_ms: 900_000
+      cooldown_ms: 900_000
     ]}
   ]
 ]}
@@ -575,9 +579,8 @@ Statistical anomaly detection with automatic triggering based on learned baselin
 
 | Callback | Description |
 |----------|-------------|
-| `monitor_get_state()` | Current detector state and configuration |
-| `monitor_get_baseline(skill, metric)` | Statistical baseline for specific metric |
-| `monitor_get_anomalies()` | Current detected anomalies |
+| `monitor_get_state()` | Current detector state: learning, active, or cooldown |
+| `monitor_get_status()` | Detailed status including learning progress and configuration |
 
 ### Overload Skill (`Beamlens.Skill.Overload`)
 
@@ -593,11 +596,11 @@ Message queue overload detection, bottleneck analysis, and cascade detection.
 
 | Callback | Description |
 |----------|-------------|
-| `overload_get_queue_status()` | Overall queue health and severity |
-| `overload_get_overloaded_processes()` | Processes with large queues |
-| `overload_detect_bottlenecks()` | Identify blocked processes and causes |
-| `overload_detect_cascades()` | Detect cascading queue failures |
-| `overload_predict_growth()` | Predict queue saturation times |
+| `overload_state()` | Current overload classification and severity |
+| `overload_queue_analysis()` | Detailed queue pattern analysis |
+| `overload_bottleneck()` | Find the true bottleneck causing overload |
+| `overload_cascade_detection()` | Detect cascading failures across subsystems |
+| `overload_remediation_plan()` | Generate specific remediation recommendations |
 
 ### SystemMonitor Skill (`Beamlens.Skill.SystemMonitor`)
 
@@ -612,10 +615,8 @@ Monitors OS-level system events via Erlang's :system_monitor.
 
 | Callback | Description |
 |----------|-------------|
-| `system_monitor_get_events()` | Recent system monitor events |
-| `system_monitor_get_long_gc()` | Long garbage collection events |
-| `system_monitor_get_large_heap()` | Large heap allocation events |
-| `system_monitor_get_busy_ports()` | Busy port events |
+| `sysmon_stats()` | System monitor statistics: long_gc_count_5m, long_schedule_count_5m, busy_port_count_5m |
+| `sysmon_events(type, limit)` | Recent system monitor events filtered by type |
 
 ### Tracer Skill (`Beamlens.Skill.Tracer`)
 
@@ -629,10 +630,9 @@ Process tracing for debugging and investigation.
 
 | Callback | Description |
 |----------|-------------|
-| `tracer_trace(pid_spec, flags)` | Start tracing processes |
-| `tracer_stop(pid_spec)` | Stop tracing processes |
-| `tracer_get_traces()` | Get collected traces |
-| `tracer_clear()` | Clear all traces |
+| `trace_start(pattern)` | Start a new trace session |
+| `trace_stop()` | Stop the active trace session |
+| `trace_list()` | List all active trace sessions |
 
 ### Allocator Skill (`Beamlens.Skill.Allocator`)
 
@@ -646,9 +646,10 @@ Memory allocator monitoring (mbuf, binary, driver, etc.).
 
 | Callback | Description |
 |----------|-------------|
-| `allocator_get_info()` | Allocator information by type |
-| `allocator_get_mbuf()` | Mbuf allocator stats |
-| `allocator_get_binary()` | Binary allocator stats |
+| `allocator_summary()` | Summary of all allocators with name, carriers, blocks, usage_ratio |
+| `allocator_by_type(allocator_name)` | Detailed metrics for specific allocator |
+| `allocator_fragmentation()` | Current vs maximum fragmentation metrics |
+| `allocator_problematic()` | Allocators with usage_ratio < 0.5 |
 
 ### Ecto Skill (`Beamlens.Skill.Ecto`)
 
