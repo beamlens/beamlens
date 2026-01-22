@@ -54,6 +54,10 @@ defmodule Beamlens.Skill.SupTest do
       assert Map.has_key?(callbacks, "sup_list")
       assert Map.has_key?(callbacks, "sup_children")
       assert Map.has_key?(callbacks, "sup_tree")
+      assert Map.has_key?(callbacks, "sup_unlinked_processes")
+      assert Map.has_key?(callbacks, "sup_orphaned_processes")
+      assert Map.has_key?(callbacks, "sup_tree_integrity")
+      assert Map.has_key?(callbacks, "sup_zombie_children")
     end
 
     test "callbacks are functions with correct arity" do
@@ -62,6 +66,10 @@ defmodule Beamlens.Skill.SupTest do
       assert is_function(callbacks["sup_list"], 0)
       assert is_function(callbacks["sup_children"], 1)
       assert is_function(callbacks["sup_tree"], 1)
+      assert is_function(callbacks["sup_unlinked_processes"], 0)
+      assert is_function(callbacks["sup_orphaned_processes"], 0)
+      assert is_function(callbacks["sup_tree_integrity"], 1)
+      assert is_function(callbacks["sup_zombie_children"], 1)
     end
   end
 
@@ -115,6 +123,114 @@ defmodule Beamlens.Skill.SupTest do
       assert docs =~ "sup_list"
       assert docs =~ "sup_children"
       assert docs =~ "sup_tree"
+      assert docs =~ "sup_unlinked_processes"
+      assert docs =~ "sup_orphaned_processes"
+      assert docs =~ "sup_tree_integrity"
+      assert docs =~ "sup_zombie_children"
+    end
+  end
+
+  describe "sup_unlinked_processes callback" do
+    test "returns a list" do
+      result = Sup.callbacks()["sup_unlinked_processes"].()
+
+      assert is_list(result)
+    end
+
+    test "process entries have expected fields when unlinked processes exist" do
+      result = Sup.callbacks()["sup_unlinked_processes"].()
+
+      if result != [] do
+        [proc | _] = result
+        assert Map.has_key?(proc, :pid)
+        assert Map.has_key?(proc, :registered_name)
+        assert Map.has_key?(proc, :initial_call)
+        assert Map.has_key?(proc, :current_function)
+        assert Map.has_key?(proc, :memory_mb)
+        assert Map.has_key?(proc, :message_queue_len)
+      end
+    end
+  end
+
+  describe "sup_orphaned_processes callback" do
+    test "returns a list" do
+      result = Sup.callbacks()["sup_orphaned_processes"].()
+
+      assert is_list(result)
+    end
+
+    test "process entries have expected fields when orphaned processes exist" do
+      result = Sup.callbacks()["sup_orphaned_processes"].()
+
+      if result != [] do
+        [proc | _] = result
+        assert Map.has_key?(proc, :pid)
+        assert Map.has_key?(proc, :registered_name)
+        assert Map.has_key?(proc, :initial_call)
+        assert Map.has_key?(proc, :dead_ancestor_pids)
+        assert Map.has_key?(proc, :age_seconds)
+      end
+    end
+
+    test "handles processes with nil ancestors gracefully" do
+      result = Sup.callbacks()["sup_orphaned_processes"].()
+
+      assert is_list(result)
+
+      if result != [] do
+        Enum.each(result, fn proc ->
+          assert Map.has_key?(proc, :pid)
+          assert Map.has_key?(proc, :dead_ancestor_pids)
+          assert is_list(proc.dead_ancestor_pids)
+        end)
+      end
+    end
+  end
+
+  describe "sup_tree_integrity callback" do
+    test "returns error for non-existent supervisor" do
+      result = Sup.callbacks()["sup_tree_integrity"].("nonexistent_supervisor_xyz")
+
+      assert result.error == "supervisor_not_found"
+    end
+
+    test "returns integrity map for valid supervisor when supervisors exist" do
+      supervisors = Sup.callbacks()["sup_list"].()
+
+      if supervisors != [] do
+        sup_name = hd(supervisors).name
+        result = Sup.callbacks()["sup_tree_integrity"].(sup_name)
+
+        refute Map.has_key?(result, :error)
+        assert Map.has_key?(result, :supervisor_name)
+        assert Map.has_key?(result, :total_children)
+        assert Map.has_key?(result, :active_children)
+        assert Map.has_key?(result, :undefined_children)
+        assert Map.has_key?(result, :restarting_children)
+        assert Map.has_key?(result, :anomalies)
+        assert is_list(result.anomalies)
+      end
+    end
+  end
+
+  describe "sup_zombie_children callback" do
+    test "returns error for non-existent supervisor" do
+      result = Sup.callbacks()["sup_zombie_children"].("nonexistent_supervisor_xyz")
+
+      assert result.error == "supervisor_not_found"
+    end
+
+    test "returns zombie children map for valid supervisor when supervisors exist" do
+      supervisors = Sup.callbacks()["sup_list"].()
+
+      if supervisors != [] do
+        sup_name = hd(supervisors).name
+        result = Sup.callbacks()["sup_zombie_children"].(sup_name)
+
+        refute Map.has_key?(result, :error)
+        assert Map.has_key?(result, :supervisor_name)
+        assert Map.has_key?(result, :status)
+      end
     end
   end
 end
