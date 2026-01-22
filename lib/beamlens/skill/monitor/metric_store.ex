@@ -188,13 +188,4 @@ defmodule Beamlens.Skill.Monitor.MetricStore do
   def get_all_samples(store \\ __MODULE__) do
     GenServer.call(store, :get_all_samples)
   end
-
-  @doc """
-  Add a metric sample with a specific timestamp (for testing).
-
-  Allows deterministic tests without Process.sleep by controlling timestamps explicitly.
-  """
-  def add_sample_with_timestamp(store \\ __MODULE__, skill, metric, value, timestamp) do
-    GenServer.call(store, {:add_sample_with_timestamp, skill, metric, value, timestamp})
-  end
 end

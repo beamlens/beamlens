@@ -19,8 +19,15 @@ defmodule Beamlens.Skill.Monitor.MetricStoreTest do
 
     test "stores samples with unique timestamps", %{store: store} do
       base_time = System.system_time(:millisecond)
-      :ok = MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 100.0, base_time)
-      :ok = MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 110.0, base_time + 1)
+
+      :ok =
+        GenServer.call(store, {:add_sample_with_timestamp, :beam, :memory_mb, 100.0, base_time})
+
+      :ok =
+        GenServer.call(
+          store,
+          {:add_sample_with_timestamp, :beam, :memory_mb, 110.0, base_time + 1}
+        )
 
       samples = MetricStore.get_samples(store, :beam, :memory_mb, 60_000)
       assert length(samples) == 2
@@ -49,9 +56,9 @@ defmodule Beamlens.Skill.Monitor.MetricStoreTest do
 
     test "sorts samples by timestamp", %{store: store} do
       base_time = System.system_time(:millisecond)
-      MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 100.0, base_time)
-      MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 110.0, base_time + 1)
-      MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 105.0, base_time + 2)
+      GenServer.call(store, {:add_sample_with_timestamp, :beam, :memory_mb, 100.0, base_time})
+      GenServer.call(store, {:add_sample_with_timestamp, :beam, :memory_mb, 110.0, base_time + 1})
+      GenServer.call(store, {:add_sample_with_timestamp, :beam, :memory_mb, 105.0, base_time + 2})
 
       samples = MetricStore.get_samples(store, :beam, :memory_mb, 60_000)
       timestamps = Enum.map(samples, & &1.timestamp)
@@ -130,8 +137,12 @@ defmodule Beamlens.Skill.Monitor.MetricStoreTest do
 
       base_time = System.system_time(:millisecond)
 
-      MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 100.0, base_time - 200)
-      MetricStore.add_sample_with_timestamp(store, :beam, :memory_mb, 110.0, base_time)
+      GenServer.call(
+        store,
+        {:add_sample_with_timestamp, :beam, :memory_mb, 100.0, base_time - 200}
+      )
+
+      GenServer.call(store, {:add_sample_with_timestamp, :beam, :memory_mb, 110.0, base_time})
 
       GenServer.call(store, :prune)
 
