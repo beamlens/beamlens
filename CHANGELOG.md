@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Statistical anomaly detection Monitor skill with self-learning baselines
+- Z-score analysis for detecting metric deviations (3+ standard deviations)
+- Three-phase state machine: learning → active → cooldown
+- Configurable thresholds: z_threshold, consecutive_required, cooldown_ms
+- Runtime configuration via supervision tree (opt-in, requires enabled: true)
+- MetricStore GenServer for time-series metric data with ETS ring buffer
+- BaselineStore GenServer for learned baselines with optional DETS persistence
+- Detector GenServer for collection, analysis, and anomaly escalation
+- Pure statistical functions: mean, std_dev, z_score, percentile, ema
+- Zero production impact (all reads from skill snapshots)
 - Overload skill for message queue overload analysis and adaptive response recommendations
 - Overload classification: transient (burst), sustained (capacity exceeded), critical (cascade)
 - Bottleneck detection identifying downstream blocking, CPU-bound, or contention issues
