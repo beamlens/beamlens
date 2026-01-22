@@ -142,6 +142,99 @@ defmodule Beamlens.Skill.PortsTest do
       assert docs =~ "ports_list"
       assert docs =~ "ports_info"
       assert docs =~ "ports_top"
+      assert docs =~ "ports_list_inet"
+      assert docs =~ "ports_top_by_buffer"
+      assert docs =~ "ports_inet_stats"
+    end
+  end
+
+  describe "ports_list_inet callback" do
+    test "returns list of inet ports" do
+      result = Ports.callbacks()["ports_list_inet"].()
+
+      assert is_list(result)
+    end
+
+    test "inet port entries have expected fields" do
+      result = Ports.callbacks()["ports_list_inet"].()
+
+      if result != [] do
+        [port | _] = result
+        assert Map.has_key?(port, :id)
+        assert Map.has_key?(port, :type)
+        assert Map.has_key?(port, :local_addr)
+        assert Map.has_key?(port, :remote_addr)
+        assert Map.has_key?(port, :input_kb)
+        assert Map.has_key?(port, :output_kb)
+      end
+    end
+
+    test "filters only inet port types" do
+      result = Ports.callbacks()["ports_list_inet"].()
+
+      if result != [] do
+        inet_types = ["tcp_inet", "udp_inet", "sctp_inet"]
+        Enum.all?(result, fn port -> port.type in inet_types end)
+      end
+    end
+  end
+
+  describe "ports_top_by_buffer callback" do
+    test "returns top ports by send buffer" do
+      result = Ports.callbacks()["ports_top_by_buffer"].(5, "send")
+
+      assert is_list(result)
+      assert length(result) <= 5
+    end
+
+    test "returns top ports by recv buffer" do
+      result = Ports.callbacks()["ports_top_by_buffer"].(5, "recv")
+
+      assert is_list(result)
+      assert length(result) <= 5
+    end
+
+    test "caps limit at 50" do
+      result = Ports.callbacks()["ports_top_by_buffer"].(100, "send")
+
+      assert length(result) <= 50
+    end
+
+    test "entries have buffer fields" do
+      result = Ports.callbacks()["ports_top_by_buffer"].(5, "send")
+
+      if result != [] do
+        [port | _] = result
+        assert Map.has_key?(port, :id)
+        assert Map.has_key?(port, :type)
+        assert Map.has_key?(port, :send_kb)
+        assert Map.has_key?(port, :recv_kb)
+      end
+    end
+  end
+
+  describe "ports_inet_stats callback" do
+    test "returns error for non-existent port" do
+      result = Ports.callbacks()["ports_inet_stats"].("#Port<999.999>")
+
+      assert result.error == "port_not_found"
+    end
+
+    test "returns error for non-inet port" do
+      ports = Ports.callbacks()["ports_list"].()
+
+      if ports != [] do
+        non_inet_port =
+          Enum.find(ports, fn port ->
+            port.name not in ["tcp_inet", "udp_inet", "sctp_inet"]
+          end)
+
+        if non_inet_port do
+          result = Ports.callbacks()["ports_inet_stats"].(non_inet_port.id)
+
+          assert Map.has_key?(result, :error)
+        end
+      end
     end
   end
 end

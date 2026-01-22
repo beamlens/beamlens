@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Inet port monitoring callbacks in Ports skill: `ports_list_inet`, `ports_top_by_buffer`, `ports_inet_stats`
+- Socket state tracking for TCP/UDP/SCTP ports with local/remote addresses
+- Buffer size monitoring for detecting backpressure and connection issues
 - Tracer skill for production-safe function call tracing with message limits and auto-shutoff
 - Atom table growth monitoring callbacks in Beam skill: `beam_atom_growth_rate/1`, `beam_atom_leak_detected/0`
 - AtomStore GenServer for periodic atom count sampling
