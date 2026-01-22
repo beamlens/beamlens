@@ -17,24 +17,36 @@ defmodule Beamlens.Supervisor do
 
   ## Configuration
 
+  Skills can be specified as modules or `{module, opts}` tuples for collocated configuration:
+
       children = [
-        {Beamlens, skills: [Beamlens.Skill.Beam, Beamlens.Skill.Ets]}
+        {Beamlens,
+         skills: [
+           Beamlens.Skill.Beam,
+           {Beamlens.Skill.Monitor, [
+             enabled: true,
+             collection_interval_ms: :timer.seconds(30),
+             learning_duration_ms: :timer.hours(2),
+             z_threshold: 3.0,
+             consecutive_required: 3,
+             cooldown_ms: :timer.minutes(15)
+           ]}
+         ]}
       ]
 
   ## Monitor Skill Configuration
 
-  The Monitor skill is opt-in and requires explicit configuration:
+  The Monitor skill is opt-in and requires explicit configuration with enabled: true.
+  Configuration is collocated with the skill in the skills list:
 
       children = [
         {Beamlens,
-         skills: [Beamlens.Skill.Beam, Beamlens.Skill.Monitor],
-         monitor: [
-           enabled: true,
-           collection_interval_ms: :timer.seconds(30),
-           learning_duration_ms: :timer.hours(2),
-           z_threshold: 3.0,
-           consecutive_required: 3,
-           cooldown_ms: :timer.minutes(15)
+         skills: [
+           Beamlens.Skill.Beam,
+           {Beamlens.Skill.Monitor, [
+             enabled: true,
+             collection_interval_ms: :timer.seconds(30)
+           ]}
          ]}
       ]
 
@@ -58,8 +70,9 @@ defmodule Beamlens.Supervisor do
   def init(opts) do
     skills = Keyword.get(opts, :skills, Beamlens.Operator.Supervisor.builtin_skills())
     client_registry = Keyword.get(opts, :client_registry)
-    monitor_opts = Keyword.get(opts, :monitor, [])
-    :persistent_term.put({__MODULE__, :skills}, skills)
+
+    {skill_modules, skill_configs} = parse_skills(skills)
+    :persistent_term.put({__MODULE__, :skills}, skill_modules)
 
     children =
       [
@@ -67,16 +80,27 @@ defmodule Beamlens.Supervisor do
         {Registry, keys: :unique, name: Beamlens.OperatorRegistry},
         LogStore,
         exception_store_child(),
-        system_monitor_child(skills),
-        ets_growth_store_child(skills),
-        beam_atom_store_child(skills),
-        monitor_child(skills, monitor_opts),
+        system_monitor_child(skill_modules),
+        ets_growth_store_child(skill_modules),
+        beam_atom_store_child(skill_modules),
+        monitor_child(skill_modules, skill_configs),
         coordinator_child(client_registry),
-        {OperatorSupervisor, skills: skills, client_registry: client_registry}
+        {OperatorSupervisor, skills: skill_modules, client_registry: client_registry}
       ]
       |> List.flatten()
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp parse_skills(skills) do
+    Enum.reduce(skills, {[], %{}}, fn
+      skill, {modules, configs} when is_atom(skill) ->
+        {[skill | modules], configs}
+
+      {skill, opts}, {modules, configs} when is_atom(skill) and is_list(opts) ->
+        {[skill | modules], Map.put(configs, skill, opts)}
+    end)
+    |> then(fn {modules, configs} -> {Enum.reverse(modules), configs} end)
   end
 
   defp coordinator_child(client_registry) do
@@ -124,8 +148,9 @@ defmodule Beamlens.Supervisor do
     end
   end
 
-  defp monitor_child(skills, monitor_opts) do
+  defp monitor_child(skills, skill_configs) do
     if Beamlens.Skill.Monitor in skills do
+      monitor_opts = Map.get(skill_configs, Beamlens.Skill.Monitor, [])
       enabled = Keyword.get(monitor_opts, :enabled, false)
 
       if enabled do

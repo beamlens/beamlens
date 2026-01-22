@@ -1,6 +1,8 @@
 defmodule Beamlens.SupervisorTest do
   use ExUnit.Case, async: false
 
+  alias Beamlens.Skill.Monitor.Detector
+
   describe "start_link/1" do
     test "starts supervisor" do
       {:ok, supervisor} = start_supervised({Beamlens.Supervisor, []})
@@ -15,9 +17,9 @@ defmodule Beamlens.SupervisorTest do
         start_supervised(
           {Beamlens,
            skills: [
-             [skill: Beamlens.Skill.Beam],
-             [skill: Beamlens.Skill.Ets],
-             [skill: Beamlens.Skill.System]
+             Beamlens.Skill.Beam,
+             Beamlens.Skill.Ets,
+             Beamlens.Skill.System
            ]}
         )
 
@@ -62,6 +64,76 @@ defmodule Beamlens.SupervisorTest do
 
       operators = Beamlens.list_operators()
       assert length(operators) == 9
+    end
+  end
+
+  describe "collocated skill configuration" do
+    test "accepts {skill, opts} tuple format" do
+      {:ok, _} =
+        start_supervised(
+          {Beamlens,
+           skills: [
+             Beamlens.Skill.Beam,
+             {Beamlens.Skill.Monitor,
+              [
+                enabled: true,
+                collection_interval_ms: :timer.seconds(30),
+                learning_duration_ms: :timer.minutes(10),
+                z_threshold: 2.5
+              ]}
+           ]}
+        )
+
+      operators = Beamlens.list_operators()
+
+      assert Enum.find(operators, &(&1.name == Beamlens.Skill.Beam))
+      assert Enum.find(operators, &(&1.name == Beamlens.Skill.Monitor))
+    end
+
+    test "mixes module and tuple formats" do
+      {:ok, _} =
+        start_supervised(
+          {Beamlens,
+           skills: [
+             Beamlens.Skill.Beam,
+             Beamlens.Skill.Ets,
+             {Beamlens.Skill.Monitor, enabled: true}
+           ]}
+        )
+
+      operators = Beamlens.list_operators()
+
+      assert length(operators) == 3
+      assert Enum.find(operators, &(&1.name == Beamlens.Skill.Beam))
+      assert Enum.find(operators, &(&1.name == Beamlens.Skill.Ets))
+      assert Enum.find(operators, &(&1.name == Beamlens.Skill.Monitor))
+    end
+
+    test "collocated config applies to Monitor supervisor" do
+      {:ok, _} =
+        start_supervised(
+          {Beamlens,
+           skills: [
+             Beamlens.Skill.Beam,
+             {Beamlens.Skill.Monitor,
+              [
+                enabled: true,
+                collection_interval_ms: :timer.seconds(15),
+                learning_duration_ms: :timer.minutes(30)
+              ]}
+           ]}
+        )
+
+      detector_pid =
+        case Registry.lookup(Beamlens.OperatorRegistry, "monitor_detector") do
+          [{pid, _}] -> pid
+          [] -> flunk("Monitor detector not found")
+        end
+
+      status = Detector.get_status(detector_pid)
+
+      assert status.collection_interval_ms == :timer.seconds(15)
+      assert status.state == :learning
     end
   end
 end
