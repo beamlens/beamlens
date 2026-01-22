@@ -126,8 +126,6 @@ defmodule Beamlens.Skill.Overload do
     """
   end
 
-  # Callback implementations
-
   def overload_state_wrapper do
     overload_state()
   end
@@ -255,8 +253,6 @@ defmodule Beamlens.Skill.Overload do
       implementation_steps: steps
     }
   end
-
-  # Helper functions
 
   defp collect_queue_data do
     Process.list()
