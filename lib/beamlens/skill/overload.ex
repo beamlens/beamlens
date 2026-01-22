@@ -33,7 +33,7 @@ defmodule Beamlens.Skill.Overload do
 
     ## Your Domain
     - Message queue buildup detection and classification
-    - True bottleneck identification (the "sink drain" problem)
+    - True bottleneck identification
     - Remediation strategy recommendations
     - Cascading failure detection
 
@@ -43,15 +43,11 @@ defmodule Beamlens.Skill.Overload do
     - **Critical**: Exponential growth, rapidly accelerating. Response: urgent load shedding or circuit breaking.
 
     ## Finding the True Bottleneck
-    Work backwards from overflowing queues:
-    1. Find processes with largest growing queues
-    2. Check current_function:
-       - Waiting on DB/port = bottleneck downstream
-       - CPU-bound, high reductions = bottleneck in this process
-    3. Trace message sources:
-       - Many producers, one consumer = bottleneck at consumer
-       - One producer, many consumers = bottleneck at producer
-    4. Check shared resources: ETS contention, port saturation, blocking NIFs
+    Work backwards from overflowing queues to identify the root cause.
+    Check process current_function to distinguish between downstream blocking
+    (DB/port operations) vs CPU-bound work. Analyze message flow patterns
+    (many producers to one consumer indicates bottleneck at consumer).
+    Consider shared resource contention: ETS tables, ports, blocking NIFs.
 
     ## Remediation Strategies
     - **Back-pressure**: Synchronous boundaries at bottlenecks (apply back-pressure)
