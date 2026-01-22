@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- GC pattern analysis callbacks: `gc_find_spiky_processes`, `gc_find_lazy_gc_processes`, `gc_calculate_efficiency`, `gc_recommend_hibernation`, `gc_get_long_gcs`
+- Memory variance detection for spiky process memory usage patterns
+- Lazy GC process identification for memory hoarding detection
+- GC efficiency ratio calculation (reclaimed vs allocated)
+- Hibernation recommendations with estimated memory savings
+- Long GC event history from SystemMonitor integration
 - Memory allocator monitoring in Allocator skill: `allocator_summary`, `allocator_by_type`, `allocator_fragmentation`, `allocator_problematic`
 - Allocator metrics: carrier utilization, block efficiency, fragmentation detection for long-running nodes
 - Inet port monitoring callbacks in Ports skill: `ports_list_inet`, `ports_top_by_buffer`, `ports_inet_stats`
