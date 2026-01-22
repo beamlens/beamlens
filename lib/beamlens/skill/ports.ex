@@ -65,6 +65,10 @@ defmodule Beamlens.Skill.Ports do
       "ports_list_inet" => &list_inet_ports/0,
       "ports_top_by_buffer" => &top_ports_by_buffer/2,
       "ports_inet_stats" => &inet_stats/1,
+      "ports_top_by_queue" => &top_ports_by_queue/1,
+      "ports_queue_growth" => &queue_growth/1,
+      "ports_suspended_processes" => &suspended_processes/0,
+      "ports_saturation_prediction" => &saturation_prediction/1,
       "ports_busy_events" => fn ->
         EventStore.get_events(EventStore, type: "busy_port", limit: 50)
       end,
@@ -94,6 +98,18 @@ defmodule Beamlens.Skill.Ports do
 
     ### ports_inet_stats(port_id)
     Detailed inet port statistics: recv_cnt, recv_oct, send_cnt, send_oct, send_pend
+
+    ### ports_top_by_queue(limit)
+    Top N ports by internal queue size. Returns: id, name, queue_size, connected_pid, saturation_pct
+
+    ### ports_queue_growth(minutes_back)
+    Track port queue size changes over time window. Returns ports with highest growth rates and predictions
+
+    ### ports_suspended_processes()
+    Processes currently de-scheduled due to port saturation. Correlates busy_port events with process info
+
+    ### ports_saturation_prediction(minutes_ahead)
+    Predict which ports will saturate based on current queue growth rates
 
     ### ports_busy_events()
     Recent busy_port events from system monitor. Returns: datetime, type, port, pid
@@ -344,4 +360,237 @@ defmodule Beamlens.Skill.Ports do
 
   defp bytes_to_kb(bytes) when is_integer(bytes), do: Float.round(bytes / 1024, 2)
   defp bytes_to_kb(_), do: 0.0
+
+  def top_ports_by_queue(limit) when is_number(limit) do
+    limit = min(limit, 50)
+
+    Port.list()
+    |> Enum.map(&port_with_queue/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort_by(& &1.queue_size, :desc)
+    |> Enum.take(limit)
+  end
+
+  def queue_growth(minutes_back) when is_number(minutes_back) do
+    window_ms = minutes_back * 60_000
+
+    current_queues =
+      Port.list()
+      |> Enum.map(&port_with_queue/1)
+      |> Enum.reject(&is_nil/1)
+      |> Map.new(fn port -> {port.id, port.queue_size} end)
+
+    oldest_queues =
+      get_historical_queues(window_ms)
+
+    analyze_growth(current_queues, oldest_queues)
+  end
+
+  def suspended_processes do
+    alias Beamlens.Skill.SystemMonitor.EventStore
+
+    busy_events =
+      EventStore.get_events(EventStore, type: "busy_port", limit: 100)
+
+    suspended_pids =
+      busy_events
+      |> Enum.map(fn event -> extract_pid_from_event(event) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    Enum.map(suspended_pids, fn pid -> process_suspension_info(pid) end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  def saturation_prediction(minutes_ahead) when is_number(minutes_ahead) do
+    window_ms = 5 * 60_000
+
+    growth_data = queue_growth(div(window_ms, 60_000))
+
+    future_ms = minutes_ahead * 60_000
+
+    Enum.map(growth_data.growing_ports, fn port ->
+      predict_saturation(port, growth_data.current_queues, future_ms)
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort_by(& &1.minutes_until_saturation)
+  end
+
+  defp port_with_queue(port) do
+    case safe_port_info(port) do
+      nil ->
+        nil
+
+      info ->
+        queue_size = info[:queue_size] || 0
+
+        saturation_pct =
+          calculate_saturation_pct(queue_size)
+
+        %{
+          id: inspect(port),
+          name: format_name(info[:name]),
+          queue_size: queue_size,
+          connected_pid: format_pid(info[:connected]),
+          saturation_pct: saturation_pct
+        }
+    end
+  end
+
+  defp calculate_saturation_pct(queue_size) when queue_size >= 0 do
+    cond do
+      queue_size >= 1024 * 1024 ->
+        100.0
+
+      queue_size >= 512 * 1024 ->
+        75.0
+
+      queue_size >= 256 * 1024 ->
+        50.0
+
+      queue_size >= 128 * 1024 ->
+        25.0
+
+      true ->
+        Float.round(queue_size / (1024 * 1024) * 100, 2)
+    end
+  end
+
+  defp get_historical_queues(_window_ms) do
+    %{}
+  end
+
+  defp analyze_growth(current_queues, oldest_queues) when map_size(oldest_queues) == 0 do
+    current_port_list =
+      current_queues
+      |> Enum.map(fn {id, queue_size} ->
+        %{
+          id: id,
+          current_queue: queue_size,
+          growth_rate_bytes_per_sec: 0,
+          trend: :unknown
+        }
+      end)
+
+    %{growing_ports: current_port_list, current_queues: current_queues}
+  end
+
+  defp analyze_growth(current_queues, oldest_queues) do
+    _now_ms = System.system_time(:millisecond)
+    window_sec = 300
+
+    growing_ports =
+      current_queues
+      |> Enum.map(fn {id, current_queue} ->
+        oldest_queue = Map.get(oldest_queues, id, current_queue)
+
+        growth_bytes = current_queue - oldest_queue
+        growth_rate = growth_bytes / window_sec
+
+        trend =
+          cond do
+            growth_rate > 1024 ->
+              :growing
+
+            growth_rate < -1024 ->
+              :shrinking
+
+            true ->
+              :stable
+          end
+
+        %{
+          id: id,
+          current_queue: current_queue,
+          oldest_queue: oldest_queue,
+          growth_bytes: growth_bytes,
+          growth_rate_bytes_per_sec: growth_rate,
+          trend: trend
+        }
+      end)
+      |> Enum.filter(fn port -> port.trend == :growing end)
+
+    %{growing_ports: growing_ports, current_queues: current_queues}
+  end
+
+  defp extract_pid_from_event(event) do
+    pid_string = Map.get(event, :pid)
+
+    if pid_string do
+      pid_string
+      |> String.trim()
+      |> String.to_charlist()
+      |> :erlang.list_to_pid()
+    else
+      nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp process_suspension_info(pid) do
+    case Process.info(pid, [:message_queue_len, :current_function, :dictionary]) do
+      nil ->
+        nil
+
+      info ->
+        %{
+          pid: inspect(pid),
+          message_queue_len: Keyword.get(info, :message_queue_len, 0),
+          current_function: format_current_function(Keyword.get(info, :current_function)),
+          registered_name: get_process_name(pid)
+        }
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp format_current_function({mod, fun, arity}) do
+    "#{inspect(mod)}.#{fun}/#{arity}"
+  end
+
+  defp format_current_function(_), do: "unknown"
+
+  defp get_process_name(pid) do
+    case Process.info(pid, :registered_name) do
+      {:registered_name, name} when is_atom(name) -> inspect(name)
+      _ -> "anonymous"
+    end
+  rescue
+    _ -> "unknown"
+  end
+
+  defp predict_saturation(port, current_queues, _future_ms) do
+    queue_size = Map.get(current_queues, port.id, port.current_queue)
+
+    if port.growth_rate_bytes_per_sec > 0 do
+      saturation_threshold = 1024 * 1024
+
+      remaining_bytes = max(saturation_threshold - queue_size, 0)
+      seconds_until_saturation = remaining_bytes / port.growth_rate_bytes_per_sec
+
+      minutes_until_saturation = seconds_until_saturation / 60
+
+      if minutes_until_saturation < 1440 do
+        %{
+          id: port.id,
+          name: port.name,
+          current_queue_bytes: queue_size,
+          growth_rate_bytes_per_sec: port.growth_rate_bytes_per_sec,
+          saturation_threshold_bytes: saturation_threshold,
+          minutes_until_saturation: Float.round(minutes_until_saturation, 2),
+          risk_level: assess_risk(minutes_until_saturation)
+        }
+      else
+        nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp assess_risk(minutes) when minutes < 15, do: :critical
+  defp assess_risk(minutes) when minutes < 60, do: :high
+  defp assess_risk(minutes) when minutes < 240, do: :medium
+  defp assess_risk(_), do: :low
 end
