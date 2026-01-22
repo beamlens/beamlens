@@ -245,6 +245,7 @@ end
 Beamlens includes skills for common BEAM runtime monitoring:
 
 - **`Beamlens.Skill.Beam`** — BEAM VM health (memory, processes, schedulers, atoms, ports)
+- **`Beamlens.Skill.Allocator`** — Memory allocator fragmentation monitoring
 - **`Beamlens.Skill.Ets`** — ETS table monitoring (counts, memory, top tables)
 - **`Beamlens.Skill.Gc`** — Garbage collection statistics
 - **`Beamlens.Skill.Logger`** — Application log analysis (error rates, patterns)
