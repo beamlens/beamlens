@@ -11,6 +11,7 @@ defmodule Beamlens.Supervisor do
     * `Beamlens.Skill.SystemMonitor.EventStore` - System monitor event buffer (only if SystemMonitor skill is enabled)
     * `Beamlens.Skill.Ets.GrowthStore` - ETS growth tracking buffer (only if Ets skill is enabled)
     * `Beamlens.Skill.Beam.AtomStore` - Atom growth tracking buffer (only if Beam skill is enabled)
+    * `Beamlens.Skill.Monitor.Supervisor` - Statistical anomaly detection (only if Monitor skill is enabled and configured with enabled: true)
     * `Beamlens.Coordinator` - Static coordinator process
     * `Beamlens.Operator.Supervisor` - Supervisor for static operator processes
 
@@ -18,6 +19,23 @@ defmodule Beamlens.Supervisor do
 
       children = [
         {Beamlens, skills: [Beamlens.Skill.Beam, Beamlens.Skill.Ets]}
+      ]
+
+  ## Monitor Skill Configuration
+
+  The Monitor skill is opt-in and requires explicit configuration:
+
+      children = [
+        {Beamlens,
+         skills: [Beamlens.Skill.Beam, Beamlens.Skill.Monitor],
+         monitor: [
+           enabled: true,
+           collection_interval_ms: :timer.seconds(30),
+           learning_duration_ms: :timer.hours(2),
+           z_threshold: 3.0,
+           consecutive_required: 3,
+           cooldown_ms: :timer.minutes(15)
+         ]}
       ]
 
   ## Advanced Deployments
@@ -40,6 +58,7 @@ defmodule Beamlens.Supervisor do
   def init(opts) do
     skills = Keyword.get(opts, :skills, Beamlens.Operator.Supervisor.builtin_skills())
     client_registry = Keyword.get(opts, :client_registry)
+    monitor_opts = Keyword.get(opts, :monitor, [])
     :persistent_term.put({__MODULE__, :skills}, skills)
 
     children =
@@ -51,6 +70,7 @@ defmodule Beamlens.Supervisor do
         system_monitor_child(skills),
         ets_growth_store_child(skills),
         beam_atom_store_child(skills),
+        monitor_child(skills, monitor_opts),
         coordinator_child(client_registry),
         {OperatorSupervisor, skills: skills, client_registry: client_registry}
       ]
@@ -99,6 +119,20 @@ defmodule Beamlens.Supervisor do
   defp beam_atom_store_child(skills) do
     if Beamlens.Skill.Beam in skills do
       [{Beamlens.Skill.Beam.AtomStore, [name: Beamlens.Skill.Beam.AtomStore]}]
+    else
+      []
+    end
+  end
+
+  defp monitor_child(skills, monitor_opts) do
+    if Beamlens.Skill.Monitor in skills do
+      enabled = Keyword.get(monitor_opts, :enabled, false)
+
+      if enabled do
+        [{Beamlens.Skill.Monitor.Supervisor, monitor_opts}]
+      else
+        []
+      end
     else
       []
     end
