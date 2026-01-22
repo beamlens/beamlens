@@ -146,6 +146,8 @@ defmodule Beamlens.Skill.Monitor.DetectorTest do
       assert status.learning_elapsed_ms >= 0
       assert status.collection_interval_ms == 100
       assert status.consecutive_count == 0
+      assert status.auto_trigger == false
+      assert status.triggers_in_last_hour == 0
     end
   end
 
@@ -642,6 +644,222 @@ defmodule Beamlens.Skill.Monitor.DetectorTest do
 
       assert state.consecutive_count == 0
       assert :active = Detector.get_state(:test_detector_reset)
+    end
+  end
+
+  defmodule TestSkillAutoTrigger do
+    @moduledoc false
+    @behaviour Beamlens.Skill
+    def title, do: "Auto Trigger Skill"
+    def description, do: "Controllable skill for auto-trigger tests"
+    def system_prompt, do: ""
+    def snapshot, do: Agent.get(__MODULE__, & &1)
+    def callbacks, do: %{}
+    def callback_docs, do: ""
+  end
+
+  describe "auto-trigger" do
+    import ExUnit.CaptureLog
+
+    setup do
+      start_supervised!(
+        {MetricStore,
+         [
+           name: :test_metric_store_auto,
+           sample_interval_ms: 1000,
+           history_minutes: 1
+         ]},
+        id: :metric_auto
+      )
+
+      start_supervised!(
+        {BaselineStore,
+         [
+           name: :test_baseline_store_auto,
+           ets_table: :test_baselines_auto,
+           dets_file: nil
+         ]},
+        id: :baseline_auto
+      )
+
+      start_supervised!(%{
+        id: TestSkillAutoTrigger,
+        start:
+          {Agent, :start_link,
+           [fn -> %{controlled_metric: 50.0} end, [name: TestSkillAutoTrigger]]}
+      })
+
+      BaselineStore.update_baseline(
+        :test_baseline_store_auto,
+        TestSkillAutoTrigger,
+        :controlled_metric,
+        [45.0, 47.0, 50.0, 53.0, 55.0]
+      )
+
+      :ok
+    end
+
+    test "does not trigger when auto_trigger is false (default)" do
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_auto_off,
+             metric_store: :test_metric_store_auto,
+             baseline_store: :test_baseline_store_auto,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             z_threshold: 2.0,
+             consecutive_required: 2,
+             cooldown_ms: 200,
+             skills: [TestSkillAutoTrigger]
+           ]},
+          id: :detector_auto_off
+        )
+
+      :sys.replace_state(pid, fn state ->
+        %{state | state: :active, learning_start_time: nil}
+      end)
+
+      Agent.update(TestSkillAutoTrigger, fn _ -> %{controlled_metric: 200.0} end)
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      send(pid, :collect)
+      state = :sys.get_state(pid)
+
+      assert state.trigger_history == []
+      assert state.auto_trigger == false
+    end
+
+    test "triggers Coordinator when enabled and under rate limit" do
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_auto_on,
+             metric_store: :test_metric_store_auto,
+             baseline_store: :test_baseline_store_auto,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             z_threshold: 2.0,
+             consecutive_required: 2,
+             cooldown_ms: 200,
+             auto_trigger: true,
+             max_triggers_per_hour: 3,
+             skills: [TestSkillAutoTrigger]
+           ]},
+          id: :detector_auto_on
+        )
+
+      :sys.replace_state(pid, fn state ->
+        %{state | state: :active, learning_start_time: nil}
+      end)
+
+      Agent.update(TestSkillAutoTrigger, fn _ -> %{controlled_metric: 200.0} end)
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      send(pid, :collect)
+      state = :sys.get_state(pid)
+
+      assert length(state.trigger_history) == 1
+      assert state.auto_trigger == true
+    end
+
+    test "logs warning when rate-limited" do
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_rate_limit,
+             metric_store: :test_metric_store_auto,
+             baseline_store: :test_baseline_store_auto,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             z_threshold: 2.0,
+             consecutive_required: 2,
+             cooldown_ms: 100,
+             auto_trigger: true,
+             max_triggers_per_hour: 2,
+             skills: [TestSkillAutoTrigger]
+           ]},
+          id: :detector_rate_limit
+        )
+
+      now = System.system_time(:millisecond)
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | state: :active,
+            learning_start_time: nil,
+            trigger_history: [now - 1000, now - 2000]
+        }
+      end)
+
+      Agent.update(TestSkillAutoTrigger, fn _ -> %{controlled_metric: 200.0} end)
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      log =
+        capture_log(fn ->
+          send(pid, :collect)
+          _ = :sys.get_state(pid)
+        end)
+
+      assert log =~ "rate-limited"
+
+      state = :sys.get_state(pid)
+      assert length(state.trigger_history) == 2
+    end
+
+    test "prunes old entries from trigger_history" do
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_prune,
+             metric_store: :test_metric_store_auto,
+             baseline_store: :test_baseline_store_auto,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             z_threshold: 2.0,
+             consecutive_required: 2,
+             cooldown_ms: 200,
+             auto_trigger: true,
+             max_triggers_per_hour: 3,
+             skills: [TestSkillAutoTrigger]
+           ]},
+          id: :detector_prune
+        )
+
+      now = System.system_time(:millisecond)
+      one_hour_ms = :timer.hours(1)
+      old_timestamp = now - one_hour_ms - 1000
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | state: :active,
+            learning_start_time: nil,
+            trigger_history: [old_timestamp]
+        }
+      end)
+
+      Agent.update(TestSkillAutoTrigger, fn _ -> %{controlled_metric: 200.0} end)
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      send(pid, :collect)
+      state = :sys.get_state(pid)
+
+      assert length(state.trigger_history) == 1
+      refute old_timestamp in state.trigger_history
     end
   end
 end

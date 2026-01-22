@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Automatic Coordinator triggering on anomaly escalation (opt-in via `auto_trigger: true`)
+- Rate limiting for auto-triggers with configurable `max_triggers_per_hour` (default: 3)
 - Statistical anomaly detection Monitor skill with self-learning baselines
 - Z-score analysis for detecting metric deviations (3+ standard deviations)
 - Three-phase state machine: learning → active → cooldown

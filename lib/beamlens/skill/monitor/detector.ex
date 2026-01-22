@@ -22,6 +22,9 @@ defmodule Beamlens.Skill.Monitor.Detector do
   @default_z_threshold 3.0
   @default_consecutive_required 3
   @default_cooldown_ms :timer.minutes(15)
+  @default_auto_trigger false
+  @default_max_triggers_per_hour 3
+  @one_hour_ms :timer.hours(1)
 
   defstruct [
     :metric_store,
@@ -36,7 +39,10 @@ defmodule Beamlens.Skill.Monitor.Detector do
     :cooldown_start_time,
     :consecutive_count,
     :state,
-    :skills
+    :skills,
+    :auto_trigger,
+    :max_triggers_per_hour,
+    :trigger_history
   ]
 
   @doc """
@@ -52,6 +58,8 @@ defmodule Beamlens.Skill.Monitor.Detector do
     * `:consecutive_required` - Consecutive anomalies before escalation (default: 3)
     * `:cooldown_ms` - Cooldown period after escalation (default: 15 minutes)
     * `:skills` - List of skill modules to monitor (default: all registered skills)
+    * `:auto_trigger` - Enable automatic Coordinator triggering (default: false)
+    * `:max_triggers_per_hour` - Rate limit for auto-triggers (default: 3)
   """
   def start_link(opts \\ []) do
     {gen_opts, init_opts} = Keyword.split(opts, [:name])
@@ -72,6 +80,10 @@ defmodule Beamlens.Skill.Monitor.Detector do
     consecutive_required = Keyword.get(opts, :consecutive_required, @default_consecutive_required)
     cooldown_ms = Keyword.get(opts, :cooldown_ms, @default_cooldown_ms)
     skills = Keyword.get(opts, :skills, get_registered_skills())
+    auto_trigger = Keyword.get(opts, :auto_trigger, @default_auto_trigger)
+
+    max_triggers_per_hour =
+      Keyword.get(opts, :max_triggers_per_hour, @default_max_triggers_per_hour)
 
     timer_ref = Process.send_after(self(), :collect, collection_interval_ms)
 
@@ -87,7 +99,10 @@ defmodule Beamlens.Skill.Monitor.Detector do
       cooldown_ms: cooldown_ms,
       consecutive_count: 0,
       state: :learning,
-      skills: skills
+      skills: skills,
+      auto_trigger: auto_trigger,
+      max_triggers_per_hour: max_triggers_per_hour,
+      trigger_history: []
     }
 
     {:ok, state}
@@ -117,13 +132,23 @@ defmodule Beamlens.Skill.Monitor.Detector do
 
   @impl true
   def handle_call(:get_status, _from, state) do
+    now = System.system_time(:millisecond)
+
+    learning_elapsed_ms =
+      if state.learning_start_time, do: now - state.learning_start_time, else: nil
+
+    triggers_in_last_hour =
+      Enum.count(state.trigger_history, &(now - &1 < @one_hour_ms))
+
     status = %{
       state: state.state,
       learning_start_time: state.learning_start_time,
-      learning_elapsed_ms: System.system_time(:millisecond) - state.learning_start_time,
+      learning_elapsed_ms: learning_elapsed_ms,
       cooldown_start_time: state.cooldown_start_time,
       consecutive_count: state.consecutive_count,
-      collection_interval_ms: state.collection_interval_ms
+      collection_interval_ms: state.collection_interval_ms,
+      auto_trigger: state.auto_trigger,
+      triggers_in_last_hour: triggers_in_last_hour
     }
 
     {:reply, status, state}
@@ -228,8 +253,9 @@ defmodule Beamlens.Skill.Monitor.Detector do
       acc_state = %{state | consecutive_count: state.consecutive_count + 1}
 
       if acc_state.consecutive_count >= acc_state.consecutive_required do
-        escalate_anomalies(anomalies)
-        enter_cooldown(acc_state)
+        acc_state
+        |> escalate_anomalies(anomalies)
+        |> enter_cooldown()
       else
         acc_state
       end
@@ -260,7 +286,7 @@ defmodule Beamlens.Skill.Monitor.Detector do
     end)
   end
 
-  defp escalate_anomalies(anomalies) do
+  defp escalate_anomalies(state, anomalies) do
     Logger.error("Anomaly threshold exceeded, escalating to Coordinator")
 
     anomaly_summary =
@@ -269,6 +295,61 @@ defmodule Beamlens.Skill.Monitor.Detector do
       end)
 
     Logger.error("Anomalies: #{anomaly_summary}")
+
+    maybe_trigger_coordinator(state, anomalies)
+  end
+
+  defp maybe_trigger_coordinator(%{auto_trigger: false} = state, _anomalies), do: state
+
+  defp maybe_trigger_coordinator(state, anomalies) do
+    now = System.system_time(:millisecond)
+    recent_triggers = Enum.filter(state.trigger_history, &(now - &1 < @one_hour_ms))
+
+    if length(recent_triggers) >= state.max_triggers_per_hour do
+      Logger.warning(
+        "Coordinator trigger rate-limited (#{length(recent_triggers)} triggers in last hour)"
+      )
+
+      %{state | trigger_history: recent_triggers}
+    else
+      trigger_coordinator(anomalies)
+      %{state | trigger_history: [now | recent_triggers]}
+    end
+  end
+
+  defp trigger_coordinator(anomalies) do
+    case Process.whereis(Beamlens.TaskSupervisor) do
+      nil ->
+        Logger.warning("Auto-trigger failed: TaskSupervisor not running")
+
+      _pid ->
+        anomaly_summary = format_anomaly_summary(anomalies)
+
+        Task.Supervisor.start_child(Beamlens.TaskSupervisor, fn ->
+          run_coordinator(anomaly_summary)
+        end)
+    end
+  end
+
+  defp format_anomaly_summary(anomalies) do
+    Enum.map_join(anomalies, ", ", fn a ->
+      "#{inspect(a.skill)}.#{a.metric}: #{a.value}"
+    end)
+  end
+
+  defp run_coordinator(anomaly_summary) do
+    case Process.whereis(Beamlens.Coordinator) do
+      nil ->
+        Logger.warning("Auto-trigger failed: Coordinator not running")
+
+      _pid ->
+        Logger.info("Auto-triggering Coordinator due to anomalies")
+
+        Beamlens.Coordinator.run(%{
+          reason: "Detector anomaly escalation",
+          anomalies: anomaly_summary
+        })
+    end
   end
 
   defp enter_cooldown(state) do

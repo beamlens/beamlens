@@ -23,6 +23,8 @@ defmodule Beamlens.Skill.Monitor.Supervisor do
   @default_consecutive_required 3
   @default_cooldown_ms :timer.minutes(15)
   @default_history_minutes 60
+  @default_auto_trigger false
+  @default_max_triggers_per_hour 3
 
   def start_link(opts) do
     {gen_opts, init_opts} = Keyword.split(opts, [:name])
@@ -46,6 +48,10 @@ defmodule Beamlens.Skill.Monitor.Supervisor do
     consecutive_required = Keyword.get(opts, :consecutive_required, @default_consecutive_required)
     cooldown_ms = Keyword.get(opts, :cooldown_ms, @default_cooldown_ms)
     history_minutes = Keyword.get(opts, :history_minutes, @default_history_minutes)
+    auto_trigger = Keyword.get(opts, :auto_trigger, @default_auto_trigger)
+
+    max_triggers_per_hour =
+      Keyword.get(opts, :max_triggers_per_hour, @default_max_triggers_per_hour)
 
     dets_file = Keyword.get(opts, :dets_file)
     auto_save_interval_ms = Keyword.get(opts, :auto_save_interval_ms, :timer.minutes(5))
@@ -76,7 +82,9 @@ defmodule Beamlens.Skill.Monitor.Supervisor do
          z_threshold: z_threshold,
          consecutive_required: consecutive_required,
          cooldown_ms: cooldown_ms,
-         skills: skills
+         skills: skills,
+         auto_trigger: auto_trigger,
+         max_triggers_per_hour: max_triggers_per_hour
        ]}
     ]
 
