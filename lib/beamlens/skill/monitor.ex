@@ -106,8 +106,12 @@ defmodule Beamlens.Skill.Monitor do
         Detector.get_state({:via, Registry, {Beamlens.OperatorRegistry, "monitor_detector"}}),
       timestamp: System.system_time(:millisecond)
     }
-  rescue
-    _ -> %{error: "Monitor not available", timestamp: System.system_time(:millisecond)}
+  catch
+    :exit, {:noproc, _} ->
+      %{error: "Monitor not started", timestamp: System.system_time(:millisecond)}
+
+    :exit, {:timeout, _} ->
+      %{error: "Monitor timeout", timestamp: System.system_time(:millisecond)}
   end
 
   @impl true

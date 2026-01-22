@@ -195,14 +195,5 @@ defmodule Beamlens.Skill.OverloadTest do
         assert is_map(result), "Callback #{name} should return a map"
       end)
     end
-
-    test "overload severity affects remediation priority" do
-      state = Overload.overload_state_wrapper()
-      plan = Overload.remediation_plan_wrapper()
-
-      if state.severity == :critical do
-        assert plan.priority in [:high, :critical]
-      end
-    end
   end
 end

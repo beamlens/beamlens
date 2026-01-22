@@ -107,37 +107,62 @@ defmodule Beamlens.Skill.Monitor.DetectorTest do
 
   describe "learning phase" do
     test "transitions to active after learning duration" do
-      start_supervised(
-        {Detector,
-         [
-           name: :test_detector_learning_transition,
-           metric_store: :test_metric_store,
-           baseline_store: :test_baseline_store,
-           collection_interval_ms: 50,
-           learning_duration_ms: 200,
-           skills: [@skill_beam]
-         ]}
-      )
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_learning_transition,
+             metric_store: :test_metric_store,
+             baseline_store: :test_baseline_store,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             skills: [@skill_beam]
+           ]}
+        )
 
-      Process.sleep(300)
+      past_time = System.system_time(:millisecond) - 200
+
+      :sys.replace_state(pid, fn state ->
+        %{state | learning_start_time: past_time}
+      end)
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
 
       assert :active = Detector.get_state(:test_detector_learning_transition)
     end
 
     test "calculates baselines after learning" do
-      start_supervised(
-        {Detector,
-         [
-           name: :test_detector_baseline_calc,
-           metric_store: :test_metric_store,
-           baseline_store: :test_baseline_store,
-           collection_interval_ms: 50,
-           learning_duration_ms: 200,
-           skills: [@skill_beam]
-         ]}
-      )
+      for i <- 1..5 do
+        MetricStore.add_sample(
+          :test_metric_store,
+          @skill_beam,
+          :process_utilization_pct,
+          50.0 + i
+        )
+      end
 
-      Process.sleep(300)
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_baseline_calc,
+             metric_store: :test_metric_store,
+             baseline_store: :test_baseline_store,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             skills: [@skill_beam]
+           ]}
+        )
+
+      past_time = System.system_time(:millisecond) - 200
+
+      :sys.replace_state(pid, fn state ->
+        %{state | learning_start_time: past_time}
+      end)
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
 
       baseline =
         BaselineStore.get_baseline(:test_baseline_store, @skill_beam, :process_utilization_pct)
@@ -150,108 +175,107 @@ defmodule Beamlens.Skill.Monitor.DetectorTest do
 
   describe "anomaly detection" do
     setup do
-      start_supervised(
-        {Detector,
-         [
-           name: :test_detector_anomaly,
-           metric_store: :test_metric_store,
-           baseline_store: :test_baseline_store,
-           collection_interval_ms: 50,
-           learning_duration_ms: 100,
-           z_threshold: 2.0,
-           consecutive_required: 2,
-           cooldown_ms: 200,
-           skills: [@skill_beam]
-         ]}
+      BaselineStore.update_baseline(
+        :test_baseline_store,
+        @skill_beam,
+        :process_utilization_pct,
+        [45.0, 47.0, 50.0, 53.0, 55.0]
       )
 
-      :ok
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_anomaly,
+             metric_store: :test_metric_store,
+             baseline_store: :test_baseline_store,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             z_threshold: 2.0,
+             consecutive_required: 2,
+             cooldown_ms: 200,
+             skills: [@skill_beam]
+           ]}
+        )
+
+      :sys.replace_state(pid, fn state ->
+        %{state | state: :active, learning_start_time: nil}
+      end)
+
+      {:ok, detector_pid: pid}
     end
 
-    test "remains in active state when no anomalies" do
-      Process.sleep(200)
+    test "remains in active state when no anomalies", %{detector_pid: pid} do
+      MetricStore.add_sample(:test_metric_store, @skill_beam, :process_utilization_pct, 52.0)
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
 
       assert :active = Detector.get_state(:test_detector_anomaly)
     end
 
-    test "enters cooldown when consecutive anomalies detected" do
-      Process.sleep(200)
+    test "enters cooldown when consecutive anomalies detected", %{detector_pid: pid} do
+      anomaly_value = 100.0
 
-      baseline =
-        BaselineStore.get_baseline(:test_baseline_store, @skill_beam, :process_utilization_pct)
+      MetricStore.add_sample(
+        :test_metric_store,
+        @skill_beam,
+        :process_utilization_pct,
+        anomaly_value
+      )
 
-      if baseline && baseline.mean > 0 && baseline.std_dev > 0 do
-        anomaly_value = baseline.mean + baseline.std_dev * 5
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
 
-        for _ <- 1..3 do
-          MetricStore.add_sample(
-            :test_metric_store,
-            @skill_beam,
-            :process_utilization_pct,
-            anomaly_value
-          )
+      assert :active = Detector.get_state(:test_detector_anomaly)
 
-          Process.sleep(60)
-        end
+      MetricStore.add_sample(
+        :test_metric_store,
+        @skill_beam,
+        :process_utilization_pct,
+        anomaly_value
+      )
 
-        new_state = Detector.get_state(:test_detector_anomaly)
-        assert :cooldown = new_state
-      else
-        :skip
-      end
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      assert :cooldown = Detector.get_state(:test_detector_anomaly)
     end
   end
 
   describe "cooldown phase" do
     test "transitions back to active after cooldown" do
-      start_supervised(
-        {Detector,
-         [
-           name: :test_detector_cooldown,
-           metric_store: :test_metric_store,
-           baseline_store: :test_baseline_store,
-           collection_interval_ms: 50,
-           learning_duration_ms: 100,
-           cooldown_ms: 150,
-           skills: [@skill_beam]
-         ]}
+      BaselineStore.update_baseline(
+        :test_baseline_store,
+        @skill_beam,
+        :process_utilization_pct,
+        [45.0, 47.0, 50.0, 53.0, 55.0]
       )
 
-      Process.sleep(200)
-
-      baseline =
-        BaselineStore.get_baseline(:test_baseline_store, @skill_beam, :process_utilization_pct)
-
-      if baseline && baseline.mean > 0 && baseline.std_dev > 0 do
-        anomaly_value = baseline.mean + baseline.std_dev * 5
-
-        MetricStore.add_sample(
-          :test_metric_store,
-          @skill_beam,
-          :process_utilization_pct,
-          anomaly_value
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_cooldown,
+             metric_store: :test_metric_store,
+             baseline_store: :test_baseline_store,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             cooldown_ms: 100,
+             skills: [@skill_beam]
+           ]}
         )
 
-        MetricStore.add_sample(
-          :test_metric_store,
-          @skill_beam,
-          :process_utilization_pct,
-          anomaly_value
-        )
+      past_time = System.system_time(:millisecond) - 200
 
-        MetricStore.add_sample(
-          :test_metric_store,
-          @skill_beam,
-          :process_utilization_pct,
-          anomaly_value
-        )
+      :sys.replace_state(pid, fn state ->
+        %{state | state: :cooldown, cooldown_start_time: past_time}
+      end)
 
-        Process.sleep(250)
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
 
-        assert :active = Detector.get_state(:test_detector_cooldown)
-      else
-        :skip
-      end
+      assert :active = Detector.get_state(:test_detector_cooldown)
     end
   end
 end

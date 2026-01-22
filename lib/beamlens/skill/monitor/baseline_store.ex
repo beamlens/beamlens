@@ -100,12 +100,7 @@ defmodule Beamlens.Skill.Monitor.BaselineStore do
 
     key = {skill, metric}
     :ets.insert(state.ets_table, {key, baseline})
-
-    if state.dets_table do
-      spawn(fn ->
-        :dets.insert(state.dets_table, {key, baseline})
-      end)
-    end
+    async_dets_insert(state.dets_table, key, baseline)
 
     {:reply, {:ok, baseline}, state}
   end
@@ -114,12 +109,7 @@ defmodule Beamlens.Skill.Monitor.BaselineStore do
   def handle_call({:clear, skill, metric}, _from, state) do
     key = {skill, metric}
     :ets.delete(state.ets_table, key)
-
-    if state.dets_table do
-      spawn(fn ->
-        :dets.delete(state.dets_table, key)
-      end)
-    end
+    async_dets_delete(state.dets_table, key)
 
     {:reply, :ok, state}
   end
@@ -202,6 +192,28 @@ defmodule Beamlens.Skill.Monitor.BaselineStore do
   defp start_auto_save(interval_ms, state) do
     timer_ref = Process.send_after(self(), :auto_save, interval_ms)
     %{state | timer_ref: timer_ref, auto_save_enabled: true}
+  end
+
+  defp async_dets_insert(nil, _key, _value), do: :ok
+
+  defp async_dets_insert(dets_table, key, value) do
+    Task.start(fn ->
+      case :dets.insert(dets_table, {key, value}) do
+        :ok -> :ok
+        {:error, reason} -> Logger.error("DETS insert failed: #{inspect(reason)}")
+      end
+    end)
+  end
+
+  defp async_dets_delete(nil, _key), do: :ok
+
+  defp async_dets_delete(dets_table, key) do
+    Task.start(fn ->
+      case :dets.delete(dets_table, key) do
+        :ok -> :ok
+        {:error, reason} -> Logger.error("DETS delete failed: #{inspect(reason)}")
+      end
+    end)
   end
 
   defp calculate_baseline_from_samples(skill, metric, samples) do
