@@ -552,14 +552,15 @@ Statistical anomaly detection with automatic triggering based on learned baselin
 
 ```elixir
 {Beamlens, [
-  skills: [Beamlens.Skill.Monitor],
-  monitor: [
-    enabled: true,
-    collection_interval_ms: 60_000,
-    learning_duration_ms: 300_000,
-    z_threshold: 3.0,
-    consecutive_required: 3,
-    cooldown_duration_ms: 900_000
+  skills: [
+    {Beamlens.Skill.Monitor, [
+      enabled: true,
+      collection_interval_ms: 60_000,
+      learning_duration_ms: 300_000,
+      z_threshold: 3.0,
+      consecutive_required: 3,
+      cooldown_duration_ms: 900_000
+    ]}
   ]
 ]}
 ```
