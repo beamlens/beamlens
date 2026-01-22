@@ -101,6 +101,7 @@ defmodule Beamlens.MixProject do
         "CHANGELOG.md",
         "LICENSE"
       ],
+      assets: %{"assets" => "assets"},
       source_ref: "v#{@version}",
       formatters: ["html"],
       authors: ["Bradley Golden"],

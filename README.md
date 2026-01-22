@@ -6,7 +6,7 @@ Adaptive runtime intelligence for the BEAM.
  
 Move beyond static supervision. Give your application the capability to self-diagnose incidents, analyze traffic patterns, and optimize its own performance.
 
-[DEMO VIDEO](https://screen.studio/share/w1qXNbUc)
+<a href="https://screen.studio/share/w1qXNbUc" target="_blank"><img src="assets/demo.gif" alt="Demo" /></a>
 
 **[Request free early access to the web dashboard here](https://forms.gle/1KDwTLTC1UNwhGbh7)**. The web dashboard will be **free**, I just want to get early feedback first before releasing to everyone.
 
