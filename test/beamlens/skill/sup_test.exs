@@ -171,6 +171,20 @@ defmodule Beamlens.Skill.SupTest do
         assert Map.has_key?(proc, :age_seconds)
       end
     end
+
+    test "handles processes with nil ancestors gracefully" do
+      result = Sup.callbacks()["sup_orphaned_processes"].()
+
+      assert is_list(result)
+
+      if result != [] do
+        Enum.each(result, fn proc ->
+          assert Map.has_key?(proc, :pid)
+          assert Map.has_key?(proc, :dead_ancestor_pids)
+          assert is_list(proc.dead_ancestor_pids)
+        end)
+      end
+    end
   end
 
   describe "sup_tree_integrity callback" do

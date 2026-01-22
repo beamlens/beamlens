@@ -430,7 +430,7 @@ defmodule Beamlens.Skill.Sup do
         initial_call = dict[:"$initial_call"]
 
         dead_ancestors =
-          Enum.filter(ancestors, fn ancestor_pid ->
+          Enum.filter(ancestors || [], fn ancestor_pid ->
             not Process.alive?(ancestor_pid)
           end)
 
