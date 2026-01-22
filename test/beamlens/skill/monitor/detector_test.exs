@@ -195,12 +195,7 @@ defmodule Beamlens.Skill.Monitor.DetectorTest do
         end
 
         new_state = Detector.get_state(:test_detector_anomaly)
-
-        if new_state == :cooldown do
-          assert true
-        else
-          flunk("Expected cooldown state, got #{new_state}")
-        end
+        assert :cooldown = new_state
       else
         :skip
       end

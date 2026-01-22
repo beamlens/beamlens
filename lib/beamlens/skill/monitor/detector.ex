@@ -154,7 +154,9 @@ defmodule Beamlens.Skill.Monitor.Detector do
           %{skill: skill, metric: metric_name, value: normalize_value(value)}
         end)
       rescue
-        _ -> []
+        e ->
+          Logger.warning("Failed to collect metrics from #{inspect(skill)}: #{inspect(e)}")
+          []
       end
     end)
   end
@@ -201,7 +203,9 @@ defmodule Beamlens.Skill.Monitor.Detector do
           end
         end)
       rescue
-        _ -> :ok
+        e ->
+          Logger.warning("Failed to calculate baseline for #{inspect(skill)}: #{inspect(e)}")
+          :ok
       end
     end)
   end

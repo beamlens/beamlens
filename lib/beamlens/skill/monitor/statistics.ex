@@ -65,20 +65,38 @@ defmodule Beamlens.Skill.Monitor.Statistics do
     if count == 1 do
       hd(sorted)
     else
-      # Linear interpolation method
       rank = p / 100 * (count - 1)
-      lower = floor(rank)
-      upper = ceil(rank)
+      lower = trunc(floor(rank))
+      upper = trunc(ceil(rank))
 
       if lower == upper do
-        Enum.at(sorted, trunc(rank))
+        exact_rank_value(sorted, lower)
       else
-        lower_val = Enum.at(sorted, lower)
-        upper_val = Enum.at(sorted, upper)
-        fraction = rank - lower
-        lower_val + fraction * (upper_val - lower_val)
+        interpolate_rank_value(sorted, lower, upper, rank)
       end
     end
+  end
+
+  defp exact_rank_value(sorted, index) do
+    case Enum.at(sorted, index) do
+      nil -> hd(sorted)
+      val -> val
+    end
+  end
+
+  defp interpolate_rank_value(sorted, lower, upper, rank) do
+    lower_val = Enum.at(sorted, lower)
+    upper_val = Enum.at(sorted, upper)
+
+    cond do
+      lower_val == nil -> upper_val || hd(sorted)
+      upper_val == nil -> lower_val
+      true -> linear_interpolate(lower_val, upper_val, rank - lower)
+    end
+  end
+
+  defp linear_interpolate(lower_val, upper_val, fraction) do
+    lower_val + fraction * (upper_val - lower_val)
   end
 
   @doc """

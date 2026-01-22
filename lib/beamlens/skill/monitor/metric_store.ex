@@ -82,12 +82,9 @@ defmodule Beamlens.Skill.Monitor.MetricStore do
     cutoff = System.system_time(:millisecond) - since_ms
 
     samples =
-      :ets.tab2list(state.ets_table)
-      |> Enum.filter(fn {{s, m, _ts}, _sample} ->
-        s == skill and m == metric
-      end)
-      |> Enum.map(fn {_key, sample} -> sample end)
-      |> Enum.filter(fn sample -> sample.timestamp >= cutoff end)
+      :ets.select(state.ets_table, [
+        {{{skill, metric, :"$1"}, :"$2"}, [{:>=, :"$1", cutoff}], [:"$2"]}
+      ])
       |> Enum.sort_by(& &1.timestamp)
 
     {:reply, samples, state}
@@ -95,14 +92,7 @@ defmodule Beamlens.Skill.Monitor.MetricStore do
 
   @impl true
   def handle_call({:get_latest, skill, metric}, _from, state) do
-    latest =
-      :ets.tab2list(state.ets_table)
-      |> Enum.filter(fn {{s, m, _ts}, _sample} ->
-        s == skill and m == metric
-      end)
-      |> Enum.map(fn {_key, sample} -> sample end)
-      |> Enum.max_by(fn sample -> sample.timestamp end, fn -> nil end)
-
+    latest = find_latest_sample(state.ets_table, skill, metric)
     {:reply, latest, state}
   end
 
@@ -125,23 +115,28 @@ defmodule Beamlens.Skill.Monitor.MetricStore do
   end
 
   defp prune_old_samples(ets_table, cutoff_ms) do
+    :ets.select_delete(ets_table, [
+      {{{:_skill, :_metric, :"$1"}, :_}, [{:<, :"$1", cutoff_ms}], [true]}
+    ])
+  end
+
+  defp find_latest_sample(ets_table, skill, metric) do
     :ets.foldl(
-      fn {{_skill, _metric, timestamp}, _sample}, acc ->
-        if timestamp < cutoff_ms do
-          [timestamp | acc]
+      fn {{s, m, _ts}, sample}, acc ->
+        if s == skill and m == metric do
+          compare_timestamps(sample, acc)
         else
           acc
         end
       end,
-      [],
+      nil,
       ets_table
     )
-    |> Enum.each(fn timestamp ->
-      :ets.select_delete(ets_table, [
-        {{{:_skill, :_metric, timestamp}, :_}, [], [true]}
-      ])
-    end)
   end
+
+  defp compare_timestamps(sample, nil), do: sample
+  defp compare_timestamps(sample, current) when sample.timestamp > current.timestamp, do: sample
+  defp compare_timestamps(_sample, current), do: current
 
   @doc """
   Add a metric sample.
