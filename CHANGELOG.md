@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **VmEvents** — EventStore now correctly handles BEAM system_monitor message format (`{:monitor, pid, event_type, info}`) instead of incorrect tuple format. Fixed long_gc, long_schedule, busy_port, and busy_dist_port event handlers to extract data from keyword lists rather than positional tuples.
-
 ### Added
 
 #### New Skills
