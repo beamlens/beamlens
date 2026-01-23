@@ -14,6 +14,12 @@ defmodule Beamlens.Integration.CoordinatorOperatorTest do
   alias Beamlens.Coordinator
   alias Beamlens.Operator.Notification
 
+  setup context do
+    start_supervised!({Coordinator, name: Coordinator, client_registry: context.client_registry})
+
+    :ok
+  end
+
   describe "coordinator on-demand mode" do
     @tag timeout: 120_000
     test "completes analysis and returns result", context do

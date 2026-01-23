@@ -6,11 +6,6 @@ defmodule Beamlens.Integration.SupervisorTest do
   alias Beamlens.Operator
   alias Beamlens.Operator.Supervisor, as: OperatorSupervisor
 
-  setup do
-    start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
-    :ok
-  end
-
   describe "static operator supervision" do
     @tag timeout: 30_000
     test "starts configured operators as static children" do

@@ -34,27 +34,40 @@ defmodule Beamlens.IntegrationCase do
   when the test ends. The GenServer is now responsive during LLM calls
   (via Task.async), so normal shutdown works.
 
+  The operator is registered with its skill module name in the OperatorRegistry,
+  allowing lookup via `Operator.run(SkillModule, ...)`.
+
   ## Example
 
       {:ok, pid} = start_operator(context, skill: MySkill)
 
   """
   def start_operator(%{puck_client: %Puck.Client{} = puck_client} = context, opts) do
+    skill = Keyword.fetch!(opts, :skill)
+
     opts =
       opts
       |> Keyword.put(:client_registry, context.client_registry)
       |> Keyword.put_new(:puck_client, puck_client)
+      |> Keyword.put_new(:name, {:via, Registry, {Beamlens.OperatorRegistry, skill}})
 
     start_supervised({Beamlens.Operator, opts})
   end
 
   def start_operator(context, opts) do
-    opts = Keyword.put(opts, :client_registry, context.client_registry)
+    skill = Keyword.fetch!(opts, :skill)
+
+    opts =
+      opts
+      |> Keyword.put(:client_registry, context.client_registry)
+      |> Keyword.put_new(:name, {:via, Registry, {Beamlens.OperatorRegistry, skill}})
+
     start_supervised({Beamlens.Operator, opts})
   end
 
-  setup do
-    # Configure operators for coordinator tests (set in persistent_term like Beamlens.Supervisor does)
+  setup context do
+    start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
+
     :persistent_term.put(
       {Beamlens.Supervisor, :skills},
       [Beamlens.Skill.Beam, Beamlens.Skill.Ets, Beamlens.Skill.Gc]
@@ -65,8 +78,8 @@ defmodule Beamlens.IntegrationCase do
     end)
 
     case Provider.build_context() do
-      {:ok, context} ->
-        {:ok, context}
+      {:ok, provider_context} ->
+        {:ok, Map.merge(context, provider_context)}
 
       {:error, reason} ->
         flunk(reason)

@@ -21,6 +21,11 @@ defmodule Beamlens.Integration.CoordinatorRunTest do
     )
   end
 
+  setup context do
+    start_supervised!({Coordinator, name: Coordinator, client_registry: context.client_registry})
+    :ok
+  end
+
   describe "run/2 - basic execution" do
     @tag timeout: 60_000
     test "spawns coordinator and blocks until completion", context do
@@ -148,10 +153,12 @@ defmodule Beamlens.Integration.CoordinatorRunTest do
   describe "run/2 - process cleanup" do
     @tag timeout: 60_000
     test "coordinator process stops after completion", context do
+      coordinators_before = count_coordinator_processes()
+
       {:ok, _result} =
         Coordinator.run(%{}, client_registry: context.client_registry, timeout: 30_000)
 
-      refute Enum.any?(Process.list(), &coordinator_process?/1)
+      assert count_coordinator_processes() == coordinators_before
     end
   end
 

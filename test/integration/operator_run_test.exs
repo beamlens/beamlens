@@ -39,6 +39,11 @@ defmodule Beamlens.Integration.OperatorRunTest do
     end
   end
 
+  setup context do
+    {:ok, _pid} = start_operator(context, skill: TestSkill)
+    :ok
+  end
+
   describe "run/2 skill resolution" do
     @tag timeout: 60_000
     test "accepts valid skill module", context do
