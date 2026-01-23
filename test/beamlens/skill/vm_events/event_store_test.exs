@@ -37,7 +37,10 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
     end
 
     test "aggregates long_gc events" do
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -50,7 +53,11 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
     end
 
     test "aggregates long_schedule events" do
-      send(@test_name, {:long_schedule, {150, 1000}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_schedule,
+         [timeout: 150, in: {:mod, :fun, 1}, out: {:mod, :fun, 2}]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -66,9 +73,21 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
       pid1 = self()
       pid2 = spawn(fn -> receive do: (_ -> :ok) end)
 
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, pid1})
-      send(@test_name, {:long_schedule, {150, 1000}, pid1})
-      send(@test_name, {:long_gc, {200, 1000, 10, 500, 0}, pid2})
+      send(
+        @test_name,
+        {:monitor, pid1, :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, pid1, :long_schedule,
+         [timeout: 150, in: {:mod, :fun, 1}, out: {:mod, :fun, 2}]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, pid2, :long_gc, [timeout: 200, heap_size: 1000, old_heap_size: 500]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -78,10 +97,27 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
     end
 
     test "tracks maximum durations correctly" do
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
-      send(@test_name, {:long_gc, {300, 1000, 10, 500, 0}, self()})
-      send(@test_name, {:long_schedule, {150, 1000}, self()})
-      send(@test_name, {:long_schedule, {250, 1000}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 300, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_schedule,
+         [timeout: 150, in: {:mod, :fun, 1}, out: {:mod, :fun, 2}]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_schedule,
+         [timeout: 250, in: {:mod, :fun, 1}, out: {:mod, :fun, 2}]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -99,8 +135,16 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
     end
 
     test "returns all events" do
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
-      send(@test_name, {:long_schedule, {150, 1000}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_schedule,
+         [timeout: 150, in: {:mod, :fun, 1}, out: {:mod, :fun, 2}]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -110,8 +154,16 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
     end
 
     test "filters by long_gc type" do
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
-      send(@test_name, {:long_schedule, {150, 1000}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_schedule,
+         [timeout: 150, in: {:mod, :fun, 1}, out: {:mod, :fun, 2}]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -122,8 +174,16 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
     end
 
     test "filters by long_schedule type" do
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
-      send(@test_name, {:long_schedule, {150, 1000}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_schedule,
+         [timeout: 150, in: {:mod, :fun, 1}, out: {:mod, :fun, 2}]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -134,8 +194,16 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
     end
 
     test "returns all events when type is nil" do
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
-      send(@test_name, {:long_schedule, {150, 1000}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_schedule,
+         [timeout: 150, in: {:mod, :fun, 1}, out: {:mod, :fun, 2}]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -146,7 +214,10 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
 
     test "respects limit parameter" do
       for i <- 1..10 do
-        send(@test_name, {:long_gc, {i * 10, 1000, 10, 500, 0}, self()})
+        send(
+          @test_name,
+          {:monitor, self(), :long_gc, [timeout: i * 10, heap_size: 1000, old_heap_size: 500]}
+        )
       end
 
       EventStore.flush(@test_name)
@@ -157,9 +228,21 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
     end
 
     test "returns events in chronological order" do
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
-      send(@test_name, {:long_schedule, {150, 1000}, self()})
-      send(@test_name, {:long_gc, {200, 1000, 10, 500, 0}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_schedule,
+         [timeout: 150, in: {:mod, :fun, 1}, out: {:mod, :fun, 2}]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 200, heap_size: 1000, old_heap_size: 500]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -172,7 +255,10 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
     end
 
     test "includes heap_size for long_gc events" do
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -182,18 +268,26 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
       assert hd(events).old_heap_size == 500
     end
 
-    test "includes runtime_reductions for long_schedule events" do
-      send(@test_name, {:long_schedule, {150, 1000}, self()})
+    test "includes in_mfa and out_mfa for long_schedule events" do
+      send(
+        @test_name,
+        {:monitor, self(), :long_schedule,
+         [timeout: 150, in: {:mod, :fun, 1}, out: {:mod, :fun, 2}]}
+      )
 
       EventStore.flush(@test_name)
 
       events = EventStore.get_events(@test_name, type: "long_schedule")
 
-      assert hd(events).runtime_reductions == 1000
+      assert hd(events).in_mfa == ":mod.fun/1"
+      assert hd(events).out_mfa == ":mod.fun/2"
     end
 
     test "formats datetime as ISO8601" do
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -203,7 +297,10 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
     end
 
     test "formats pid as inspect string" do
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -219,7 +316,10 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
       {:ok, _pid} = start_supervised({EventStore, name: @test_name, max_size: 5})
 
       for i <- 1..10 do
-        send(@test_name, {:long_gc, {i * 10, 1000, 10, 500, 0}, self()})
+        send(
+          @test_name,
+          {:monitor, self(), :long_gc, [timeout: i * 10, heap_size: 1000, old_heap_size: 500]}
+        )
       end
 
       EventStore.flush(@test_name)
@@ -233,10 +333,25 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
       stop_supervised!(EventStore)
       {:ok, _pid} = start_supervised({EventStore, name: @test_name, max_size: 3})
 
-      send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
-      send(@test_name, {:long_gc, {200, 1000, 10, 500, 0}, self()})
-      send(@test_name, {:long_gc, {300, 1000, 10, 500, 0}, self()})
-      send(@test_name, {:long_gc, {400, 1000, 10, 500, 0}, self()})
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 200, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 300, heap_size: 1000, old_heap_size: 500]}
+      )
+
+      send(
+        @test_name,
+        {:monitor, self(), :long_gc, [timeout: 400, heap_size: 1000, old_heap_size: 500]}
+      )
 
       EventStore.flush(@test_name)
 
@@ -266,7 +381,7 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
       test_port = Port.list() |> List.first()
 
       if test_port do
-        send(@test_name, {:busy_port, test_port, self()})
+        send(@test_name, {:monitor, self(), :busy_port, test_port})
 
         EventStore.flush(@test_name)
 
@@ -281,7 +396,7 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
       test_port = Port.list() |> List.first()
 
       if test_port do
-        send(@test_name, {:busy_dist_port, test_port, self()})
+        send(@test_name, {:monitor, self(), :busy_dist_port, test_port})
 
         EventStore.flush(@test_name)
 
@@ -296,8 +411,12 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
       test_port = Port.list() |> List.first()
 
       if test_port do
-        send(@test_name, {:busy_port, test_port, self()})
-        send(@test_name, {:long_gc, {100, 1000, 10, 500, 0}, self()})
+        send(@test_name, {:monitor, self(), :busy_port, test_port})
+
+        send(
+          @test_name,
+          {:monitor, self(), :long_gc, [timeout: 100, heap_size: 1000, old_heap_size: 500]}
+        )
 
         EventStore.flush(@test_name)
 
@@ -312,7 +431,7 @@ defmodule Beamlens.Skill.VmEvents.EventStoreTest do
       test_port = Port.list() |> List.first()
 
       if test_port do
-        send(@test_name, {:busy_port, test_port, self()})
+        send(@test_name, {:monitor, self(), :busy_port, test_port})
 
         EventStore.flush(@test_name)
 

@@ -88,28 +88,28 @@ defmodule Beamlens.Skill.VmEvents.EventStore do
   end
 
   @impl true
-  def handle_info({:long_gc, gc_info, pid}, state) do
-    entry = build_long_gc_entry(gc_info, pid)
+  def handle_info({:monitor, pid, :long_gc, info}, state) do
+    entry = build_long_gc_entry(info, pid)
     {events, count} = add_to_ring(state.events, state.count, state.max_size, entry)
     {:noreply, %{state | events: events, count: count}}
   end
 
   @impl true
-  def handle_info({:long_schedule, sched_info, pid}, state) do
-    entry = build_long_schedule_entry(sched_info, pid)
+  def handle_info({:monitor, pid, :long_schedule, info}, state) do
+    entry = build_long_schedule_entry(info, pid)
     {events, count} = add_to_ring(state.events, state.count, state.max_size, entry)
     {:noreply, %{state | events: events, count: count}}
   end
 
   @impl true
-  def handle_info({:busy_port, port, pid}, state) do
+  def handle_info({:monitor, pid, :busy_port, port}, state) do
     entry = build_busy_port_entry(port, pid)
     {events, count} = add_to_ring(state.events, state.count, state.max_size, entry)
     {:noreply, %{state | events: events, count: count}}
   end
 
   @impl true
-  def handle_info({:busy_dist_port, port, pid}, state) do
+  def handle_info({:monitor, pid, :busy_dist_port, port}, state) do
     entry = build_busy_dist_port_entry(port, pid)
     {events, count} = add_to_ring(state.events, state.count, state.max_size, entry)
     {:noreply, %{state | events: events, count: count}}
@@ -199,33 +199,31 @@ defmodule Beamlens.Skill.VmEvents.EventStore do
     {:reply, events, state}
   end
 
-  defp build_long_gc_entry(gc_info, pid) do
-    {ms, heap_size, heap_fragmentation, old_heap_size, mnesia_spare} =
-      gc_info
-
+  defp build_long_gc_entry(info, pid) do
     %{
       id: make_ref(),
       timestamp: System.monotonic_time(:millisecond),
       type: :long_gc,
       pid: pid,
-      duration_ms: ms,
-      heap_size: heap_size,
-      heap_fragmentation: heap_fragmentation,
-      old_heap_size: old_heap_size,
-      mnesia_spare: mnesia_spare
+      duration_ms: Keyword.get(info, :timeout, 0),
+      heap_size: Keyword.get(info, :heap_size, 0),
+      heap_block_size: Keyword.get(info, :heap_block_size, 0),
+      old_heap_size: Keyword.get(info, :old_heap_size, 0),
+      old_heap_block_size: Keyword.get(info, :old_heap_block_size, 0),
+      stack_size: Keyword.get(info, :stack_size, 0),
+      mbuf_size: Keyword.get(info, :mbuf_size, 0)
     }
   end
 
-  defp build_long_schedule_entry(sched_info, pid) do
-    {ms, runtime_reductions} = sched_info
-
+  defp build_long_schedule_entry(info, pid) do
     %{
       id: make_ref(),
       timestamp: System.monotonic_time(:millisecond),
       type: :long_schedule,
       pid: pid,
-      duration_ms: ms,
-      runtime_reductions: runtime_reductions
+      duration_ms: Keyword.get(info, :timeout, 0),
+      in_mfa: Keyword.get(info, :in),
+      out_mfa: Keyword.get(info, :out)
     }
   end
 
@@ -337,7 +335,8 @@ defmodule Beamlens.Skill.VmEvents.EventStore do
       :long_schedule ->
         Map.merge(base, %{
           duration_ms: entry.duration_ms,
-          runtime_reductions: entry.runtime_reductions
+          in_mfa: inspect_mfa(entry.in_mfa),
+          out_mfa: inspect_mfa(entry.out_mfa)
         })
 
       :busy_port ->
@@ -357,6 +356,10 @@ defmodule Beamlens.Skill.VmEvents.EventStore do
     |> DateTime.from_unix!(:millisecond)
     |> DateTime.to_iso8601()
   end
+
+  defp inspect_mfa({mod, fun, arity}) when is_atom(mod), do: ":#{mod}.#{fun}/#{arity}"
+  defp inspect_mfa({mod, fun, arity}), do: "#{inspect(mod)}.#{fun}/#{arity}"
+  defp inspect_mfa(nil), do: "unknown"
 
   defp empty_stats do
     %{
