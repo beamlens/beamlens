@@ -415,6 +415,7 @@ defmodule Beamlens.Operator do
 
   def handle_call({:invoke, context, _opts}, from, %{status: :idle} = state) do
     state = prepare_invocation(state, context, from)
+    emit_status_change(state, :running)
     {:noreply, %{state | status: :running}, {:continue, :loop}}
   end
 
@@ -428,6 +429,7 @@ defmodule Beamlens.Operator do
     notify_pid = Keyword.get(opts, :notify_pid)
     state = prepare_invocation(state, context, nil)
     state = %{state | notify_pid: notify_pid}
+    emit_status_change(state, :running)
     {:noreply, %{state | status: :running}, {:continue, :loop}}
   end
 
@@ -831,6 +833,8 @@ defmodule Beamlens.Operator do
         {:noreply, new_state, {:continue, :loop}}
 
       {:empty, _} ->
+        emit_status_change(state, :idle)
+
         new_state = %{
           state
           | status: :idle,
@@ -844,5 +848,13 @@ defmodule Beamlens.Operator do
 
         {:noreply, new_state}
     end
+  end
+
+  defp emit_status_change(state, new_status) do
+    emit_telemetry(:status_change, state, %{
+      from: state.status,
+      to: new_status,
+      running: new_status == :running
+    })
   end
 end

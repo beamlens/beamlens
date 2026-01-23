@@ -268,6 +268,112 @@ defmodule Beamlens.OperatorTest do
       Operator.stop(pid)
       :telemetry.detach(ref)
     end
+
+    test "emits status_change event when invoke transitions idle to running" do
+      alias Beamlens.Operator.Tools.Done
+
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        ref,
+        [:beamlens, :operator, :status_change],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :status_change, metadata})
+        end,
+        nil
+      )
+
+      client = Puck.Test.mock_client([%Done{intent: "done"}])
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          name: :"test_status_change_#{:erlang.unique_integer([:positive])}",
+          start_loop: false,
+          puck_client: client
+        )
+
+      spawn(fn -> Operator.run(pid, %{reason: "test"}, []) end)
+
+      assert_receive {:telemetry, :status_change,
+                      %{operator: TestSkill, from: :idle, to: :running, running: true}},
+                     1_000
+
+      Operator.stop(pid)
+      :telemetry.detach(ref)
+    end
+
+    test "emits status_change event when invoke_async transitions idle to running" do
+      alias Beamlens.Operator.Tools.Done
+
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        ref,
+        [:beamlens, :operator, :status_change],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :status_change, metadata})
+        end,
+        nil
+      )
+
+      client = Puck.Test.mock_client([%Done{intent: "done"}])
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          name: :"test_status_change_async_#{:erlang.unique_integer([:positive])}",
+          start_loop: false,
+          puck_client: client
+        )
+
+      Operator.run_async(pid, %{reason: "test"}, notify_pid: self())
+
+      assert_receive {:telemetry, :status_change,
+                      %{operator: TestSkill, from: :idle, to: :running, running: true}},
+                     1_000
+
+      Operator.stop(pid)
+      :telemetry.detach(ref)
+    end
+
+    test "emits status_change event when loop completes and transitions to idle" do
+      alias Beamlens.Operator.Tools.Done
+
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        ref,
+        [:beamlens, :operator, :status_change],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :status_change, metadata})
+        end,
+        nil
+      )
+
+      client = Puck.Test.mock_client([%Done{intent: "done"}])
+
+      {:ok, pid} =
+        Operator.start_link(
+          skill: TestSkill,
+          name: :"test_status_idle_#{:erlang.unique_integer([:positive])}",
+          start_loop: false,
+          puck_client: client
+        )
+
+      Operator.run_async(pid, %{reason: "test"}, notify_pid: self())
+
+      assert_receive {:telemetry, :status_change, %{from: :idle, to: :running}}, 1_000
+
+      assert_receive {:telemetry, :status_change, %{from: :running, to: :idle, running: false}},
+                     1_000
+
+      Operator.stop(pid)
+      :telemetry.detach(ref)
+    end
   end
 
   describe "context management" do
