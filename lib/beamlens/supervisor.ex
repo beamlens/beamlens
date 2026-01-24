@@ -36,27 +36,17 @@ defmodule Beamlens.Supervisor do
 
   ## Anomaly Skill Configuration
 
-  The Anomaly skill is enabled by default and starts automatically with builtin skills.
-  To customize its configuration, use collocated options:
+  The Anomaly skill is opt-in and requires explicit configuration with enabled: true.
+  Configuration is collocated with the skill in the skills list:
 
       children = [
         {Beamlens,
          skills: [
            Beamlens.Skill.Beam,
            {Beamlens.Skill.Anomaly, [
-             collection_interval_ms: :timer.seconds(30),
-             learning_duration_ms: :timer.hours(2)
+             enabled: true,
+             collection_interval_ms: :timer.seconds(30)
            ]}
-         ]}
-      ]
-
-  To disable the Anomaly skill explicitly:
-
-      children = [
-        {Beamlens,
-         skills: [
-           Beamlens.Skill.Beam,
-           {Beamlens.Skill.Anomaly, enabled: false}
          ]}
       ]
 
@@ -87,7 +77,7 @@ defmodule Beamlens.Supervisor do
 
   @impl true
   def init(opts) do
-    skills = Keyword.get(opts, :skills, Beamlens.Operator.Supervisor.builtin_skills())
+    skills = opts |> Keyword.get(:skills) |> resolve_skills()
     client_registry = Keyword.get(opts, :client_registry)
 
     {skill_modules, skill_configs} = parse_skills(skills)
@@ -122,6 +112,10 @@ defmodule Beamlens.Supervisor do
     end)
     |> then(fn {modules, configs} -> {Enum.reverse(modules), configs} end)
   end
+
+  defp resolve_skills(nil), do: Beamlens.Operator.Supervisor.builtin_skills()
+  defp resolve_skills([]), do: Beamlens.Operator.Supervisor.builtin_skills()
+  defp resolve_skills(skills), do: skills
 
   defp coordinator_child(client_registry) do
     opts = [name: Coordinator]
@@ -179,7 +173,7 @@ defmodule Beamlens.Supervisor do
   defp monitor_child(skills, skill_configs) do
     if Beamlens.Skill.Anomaly in skills do
       monitor_opts = Map.get(skill_configs, Beamlens.Skill.Anomaly, [])
-      enabled = Keyword.get(monitor_opts, :enabled, true)
+      enabled = Keyword.get(monitor_opts, :enabled, false)
 
       if enabled do
         [{Beamlens.Skill.Anomaly.Supervisor, monitor_opts}]

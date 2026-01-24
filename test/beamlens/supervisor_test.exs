@@ -65,6 +65,13 @@ defmodule Beamlens.SupervisorTest do
       operators = Beamlens.list_operators()
       assert length(operators) == 12
     end
+
+    test "treats explicit empty skills list as default skills" do
+      {:ok, _} = start_supervised({Beamlens.Supervisor, skills: []})
+
+      operators = Beamlens.list_operators()
+      assert length(operators) == 12
+    end
   end
 
   describe "collocated skill configuration" do

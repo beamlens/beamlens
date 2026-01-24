@@ -59,6 +59,25 @@ end
 
 ## Quick Start
 
+### Automatic Installation (Recommended)
+
+Use the Igniter installer for one-command setup:
+
+```bash
+mix igniter.install beamlens
+```
+
+Configure a different LLM provider:
+
+```bash
+mix igniter.install beamlens --provider openai
+mix igniter.install beamlens --provider ollama
+```
+
+Supported providers: anthropic (default), openai, ollama, google-ai, vertex-ai, aws-bedrock, azure-openai, openrouter.
+
+### Manual Installation
+
 **1. Add to your supervision tree** in `application.ex`:
 
 ```elixir

@@ -91,7 +91,7 @@ defmodule Beamlens.Operator do
     * `:puck_client` - Optional `Puck.Client` to use instead of BAML
     * `:start_loop` - Whether to start the LLM loop on init (default: `false`)
     * `:context` - Map with context to pass to the LLM
-    * `:max_iterations` - Maximum LLM iterations before returning (default: 25)
+    * `:max_iterations` - Maximum LLM iterations before returning (default: 10)
     * `:compaction_max_tokens` - Token threshold for compaction (default: 50_000)
     * `:compaction_keep_last` - Messages to keep verbatim after compaction (default: 5)
     * `:notify_pid` - PID to receive real-time notifications and completion messages
@@ -162,7 +162,7 @@ defmodule Beamlens.Operator do
     * `:context` - Map with context (alternative to second argument)
     * `:client_registry` - LLM provider configuration map (default: `%{}`)
     * `:puck_client` - Optional `Puck.Client` to use instead of BAML
-    * `:max_iterations` - Maximum LLM iterations before returning (default: 25)
+    * `:max_iterations` - Maximum LLM iterations before returning (default: 10)
     * `:timeout` - Timeout for awaiting completion (default: `:infinity`)
 
   ## Returns
@@ -268,7 +268,7 @@ defmodule Beamlens.Operator do
     skill = Keyword.fetch!(opts, :skill)
     name = Keyword.get(opts, :name)
     client_registry = Keyword.get(opts, :client_registry)
-    max_iterations = Keyword.get(opts, :max_iterations, 25)
+    max_iterations = Keyword.get(opts, :max_iterations, 10)
     start_loop = Keyword.get(opts, :start_loop, false)
     run_context = Keyword.get(opts, :context, %{})
     notify_pid = Keyword.get(opts, :notify_pid)

@@ -68,7 +68,7 @@ defmodule Beamlens.Coordinator do
     :pending_trace_id,
     :caller,
     :skills,
-    max_iterations: 25,
+    max_iterations: 10,
     notifications: %{},
     iteration: 0,
     status: :idle,
@@ -120,7 +120,7 @@ defmodule Beamlens.Coordinator do
     * `:context` - Map with context (alternative to first argument)
     * `:notifications` - List of `Notification` structs to analyze (default: `[]`)
     * `:puck_client` - Optional `Puck.Client` to use instead of BAML
-    * `:max_iterations` - Maximum iterations before stopping (default: 25)
+    * `:max_iterations` - Maximum iterations before stopping (default: 10)
     * `:timeout` - Timeout for await in milliseconds (default: 300_000)
     * `:skills` - List of skill atoms to make available (default: configured operators)
 
@@ -227,7 +227,7 @@ defmodule Beamlens.Coordinator do
       name: Keyword.get(opts, :name),
       client: client,
       client_registry: Keyword.get(opts, :client_registry),
-      max_iterations: Keyword.get(opts, :max_iterations, 25),
+      max_iterations: Keyword.get(opts, :max_iterations, 10),
       notifications: initial_notifications,
       context: initial_context,
       skills: Keyword.get(opts, :skills),
@@ -258,35 +258,7 @@ defmodule Beamlens.Coordinator do
       )
       when iteration >= max do
     emit_telemetry(:max_iterations_reached, state, %{iteration: iteration})
-
-    running_operator_count = map_size(state.running_operators)
-    unread_count = count_by_status(state.notifications, :unread)
-
-    cond do
-      running_operator_count > 0 ->
-        running_skills =
-          state.running_operators
-          |> Map.values()
-          |> Enum.map_join(", ", &inspect(&1.skill))
-
-        error_message =
-          "Max iterations (#{max}) reached but #{running_operator_count} operator(s) still running (#{running_skills}). " <>
-            "Waiting for operators to complete before finishing."
-
-        new_context = Utils.add_result(state.context, %{warning: error_message})
-        {:noreply, %{state | context: new_context}}
-
-      unread_count > 0 ->
-        error_message =
-          "Max iterations (#{max}) reached but #{unread_count} unread notification(s) remain. " <>
-            "Finishing with unprocessed notifications."
-
-        new_context = Utils.add_result(state.context, %{warning: error_message})
-        finish(%{state | context: new_context})
-
-      true ->
-        finish(state)
-    end
+    finish(state)
   end
 
   def handle_continue(:loop, state) do
@@ -381,11 +353,7 @@ defmodule Beamlens.Coordinator do
             operator_results: [Map.put(result, :skill, skill) | state.operator_results]
         }
 
-        if should_finish_after_max_iterations?(new_state) do
-          finish(new_state)
-        else
-          {:noreply, new_state}
-        end
+        {:noreply, new_state}
     end
   end
 
@@ -837,11 +805,6 @@ defmodule Beamlens.Coordinator do
 
   defp find_operator_by_ref(running_operators, ref) do
     Enum.find(running_operators, fn {_pid, %{ref: r}} -> r == ref end)
-  end
-
-  defp should_finish_after_max_iterations?(state) do
-    state.iteration >= state.max_iterations and
-      map_size(state.running_operators) == 0
   end
 
   defp filter_notifications(notifications, nil), do: notifications

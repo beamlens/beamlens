@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Installation
+
+- **Igniter installer** — Run `mix igniter.install beamlens` to add Beamlens to your supervision tree. Uses Anthropic by default (set `ANTHROPIC_API_KEY`). Use `--provider` and `--model` to configure one of 8 providers: Anthropic, OpenAI, Ollama, Google AI, Vertex AI, AWS Bedrock, Azure OpenAI, or OpenRouter.
+
 #### New Skills
 
 - **Anomaly** — Statistical anomaly detection with self-learning baselines. Auto-triggers Coordinator when anomalies escalate.
