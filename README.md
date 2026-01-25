@@ -12,19 +12,19 @@ Move beyond static supervision. Give your application the capability to self-dia
 
 ## How It Works
 
-Beamlens lives inside your supervision tree. When triggered, it captures runtime state that external monitors miss—ETS distributions, process heaps, scheduler utilization—and uses an LLM to explain *why* your metrics look the way they do.
+Beamlens lives inside your supervision tree. It captures runtime state that external monitors miss—ETS distributions, process heaps, scheduler utilization—and uses an LLM to explain *why* your metrics look the way they do.
 
 - **Read-only**: All analysis is sandboxed. No side effects.
 - **Privacy-first**: Data stays in your infrastructure. You choose the LLM provider.
 - **Extensible**: Teach it your domain with custom skills.
-- **Low overhead**: No LLM calls until you trigger analysis.
+- **Auto or on-demand**: Trigger analysis manually, or let the Anomaly skill auto-trigger when it detects statistical anomalies.
 
 ## Example
 
 Beamlens translates opaque runtime metrics into semantic explanations.
 
 ```elixir
-# You trigger an investigation when telemetry spikes
+# Trigger manually from an alert, or let Anomaly skill auto-trigger
 {:ok, result} = Beamlens.Coordinator.run(%{reason: "memory > 90%"})
 
 # beamlens returns the specific root cause based on runtime introspection
@@ -201,25 +201,60 @@ end
 
 Beamlens includes skills for common BEAM runtime monitoring:
 
-- **`Beamlens.Skill.Beam`** — BEAM VM health (memory, processes, schedulers, atoms, ports)
-- **`Beamlens.Skill.Allocator`** — Memory allocator fragmentation monitoring
-- **`Beamlens.Skill.Ets`** — ETS table monitoring (counts, memory, top tables)
-- **`Beamlens.Skill.Gc`** — Garbage collection statistics
-- **`Beamlens.Skill.Logger`** — Application log analysis (error rates, patterns)
-- **`Beamlens.Skill.Anomaly`** — Statistical anomaly detection with auto-trigger capabilities
-- **`Beamlens.Skill.Overload`** — Message queue overload analysis and bottleneck detection
-- **`Beamlens.Skill.Ports`** — Port and socket monitoring
-- **`Beamlens.Skill.Supervisor`** — Supervisor tree inspection
-- **`Beamlens.Skill.Os`** — OS-level metrics (CPU, memory, disk via `os_mon`)
-- **`Beamlens.Skill.VmEvents`** — System event monitoring (long GC, large heap, etc.)
-- **`Beamlens.Skill.Tracer`** — Production-safe function tracing powered by Recon
+| Skill | Description | Default |
+|-------|-------------|:-------:|
+| `Beamlens.Skill.Beam` | BEAM VM health (memory, processes, schedulers, atoms, ports) | ✓ |
+| `Beamlens.Skill.Allocator` | Memory allocator fragmentation monitoring | ✓ |
+| `Beamlens.Skill.Anomaly` | Statistical anomaly detection with auto-trigger | ✓ |
+| `Beamlens.Skill.Ets` | ETS table monitoring (counts, memory, top tables) | ✓ |
+| `Beamlens.Skill.Gc` | Garbage collection statistics | ✓ |
+| `Beamlens.Skill.Logger` | Application log analysis (error rates, patterns) | ✓ |
+| `Beamlens.Skill.Os` | OS-level metrics (CPU, memory, disk via `os_mon`) | ✓ |
+| `Beamlens.Skill.Overload` | Message queue overload and bottleneck detection | ✓ |
+| `Beamlens.Skill.Ports` | Port and socket monitoring | ✓ |
+| `Beamlens.Skill.Supervisor` | Supervisor tree inspection | ✓ |
+| `Beamlens.Skill.Tracer` | Production-safe function tracing via Recon | ✓ |
+| `Beamlens.Skill.VmEvents` | System event monitoring (long GC, large heap, etc.) | ✓ |
+| `Beamlens.Skill.Ecto` | Database monitoring (requires `ecto_psql_extras`) | |
+| `Beamlens.Skill.Exception` | Exception tracking (requires `tower`) | |
 
-### Experimental Skills
+## FAQ
 
-These skills require optional dependencies:
+<details>
+<summary>Is it safe to run in production?</summary>
 
-- **`Beamlens.Skill.Ecto`** — Database monitoring (requires `ecto_psql_extras`)
-- **`Beamlens.Skill.Exception`** — Exception tracking (requires `tower`)
+Beamlens is read-only and designed to run alongside your app. This is still early. Start with a low-risk service or staging, validate, then add more skills as you need.
+</details>
+
+<details>
+<summary>How much does it cost to run?</summary>
+
+You control the costs. Choose which model to use and which skills to enable. Auto-trigger is rate-limited (default: 3 per hour) to prevent runaway costs.
+</details>
+
+<details>
+<summary>Which model do you recommend?</summary>
+
+Haiku-level intelligence or higher. Haiku is a solid baseline and runs well.
+</details>
+
+<details>
+<summary>Does Beamlens send my data to you?</summary>
+
+No. You bring your own provider and keys. Your data stays in your infrastructure and the provider you configure.
+</details>
+
+<details>
+<summary>How do I get dashboard early access?</summary>
+
+Join the [early access list](https://forms.gle/1KDwTLTC1UNwhGbh7) and we will follow up with next steps.
+</details>
+
+<details>
+<summary>Can we collaborate or partner?</summary>
+
+Yes. We are looking for early partners. Email bradley@recursivesystem.dev.
+</details>
 
 ## License
 
