@@ -3,6 +3,8 @@ defmodule Beamlens.Skill.EctoTest do
 
   use ExUnit.Case, async: false
 
+  import Beamlens.EctoTestHelper
+
   alias Beamlens.Skill.Ecto.TelemetryStore
 
   defmodule FakeRepo do
@@ -16,7 +18,7 @@ defmodule Beamlens.Skill.EctoTest do
 
   setup do
     start_supervised!({Registry, keys: :unique, name: Beamlens.Skill.Ecto.Registry})
-    start_supervised!({TelemetryStore, repo: FakeRepo})
+    start_supervised!({TelemetryStore, repo: FakeRepo, slow_threshold_ms: 100})
     :ok
   end
 
@@ -47,6 +49,56 @@ defmodule Beamlens.Skill.EctoTest do
       assert snapshot.query_count_1m == 0
       assert snapshot.avg_query_time_ms == 0.0
       assert snapshot.max_query_time_ms == 0.0
+    end
+
+    test "query_count_1m reflects injected count" do
+      inject_query(FakeRepo, total_time_ms: 10)
+      inject_query(FakeRepo, total_time_ms: 20)
+      inject_query(FakeRepo, total_time_ms: 30)
+
+      snapshot = TestEctoDomain.snapshot()
+
+      assert snapshot.query_count_1m == 3
+    end
+
+    test "avg_query_time_ms reflects injected times" do
+      inject_query(FakeRepo, total_time_ms: 10)
+      inject_query(FakeRepo, total_time_ms: 20)
+      inject_query(FakeRepo, total_time_ms: 30)
+
+      snapshot = TestEctoDomain.snapshot()
+
+      assert snapshot.avg_query_time_ms == 20.0
+    end
+
+    test "max_query_time_ms reflects slowest query" do
+      inject_query(FakeRepo, total_time_ms: 10)
+      inject_query(FakeRepo, total_time_ms: 50)
+      inject_query(FakeRepo, total_time_ms: 30)
+
+      snapshot = TestEctoDomain.snapshot()
+
+      assert snapshot.max_query_time_ms == 50.0
+    end
+
+    test "slow_query_count reflects queries above threshold" do
+      inject_query(FakeRepo, total_time_ms: 50)
+      inject_query(FakeRepo, total_time_ms: 150)
+      inject_query(FakeRepo, total_time_ms: 200)
+
+      snapshot = TestEctoDomain.snapshot()
+
+      assert snapshot.slow_query_count == 2
+    end
+
+    test "error_count reflects failed queries" do
+      inject_query(FakeRepo, total_time_ms: 10)
+      inject_error_query(FakeRepo, total_time_ms: 20)
+      inject_error_query(FakeRepo, total_time_ms: 30)
+
+      snapshot = TestEctoDomain.snapshot()
+
+      assert snapshot.error_count == 2
     end
   end
 
@@ -150,6 +202,65 @@ defmodule Beamlens.Skill.EctoTest do
       assert Map.has_key?(result, :queries)
       assert Map.has_key?(result, :threshold_ms)
       assert is_list(result.queries)
+    end
+  end
+
+  describe "callbacks with injected data" do
+    test "ecto_query_stats returns counts matching injected queries" do
+      inject_query(FakeRepo, total_time_ms: 10)
+      inject_query(FakeRepo, total_time_ms: 20)
+      inject_error_query(FakeRepo, total_time_ms: 30)
+
+      stats = TestEctoDomain.callbacks()["ecto_query_stats"].()
+
+      assert stats.query_count == 3
+      assert stats.error_count == 1
+      assert stats.avg_time_ms == 20.0
+    end
+
+    test "ecto_slow_queries returns queries sorted by time" do
+      inject_slow_query(FakeRepo, total_time_ms: 150, source: "lib/app.ex:10")
+      inject_slow_query(FakeRepo, total_time_ms: 300, source: "lib/app.ex:20")
+      inject_slow_query(FakeRepo, total_time_ms: 200, source: "lib/app.ex:15")
+
+      result = TestEctoDomain.callbacks()["ecto_slow_queries"].(10)
+
+      assert length(result.queries) == 3
+      [first, second, third] = result.queries
+      assert first.total_time_ms == 300.0
+      assert second.total_time_ms == 200.0
+      assert third.total_time_ms == 150.0
+    end
+
+    test "ecto_slow_queries respects limit" do
+      inject_slow_query(FakeRepo, total_time_ms: 150)
+      inject_slow_query(FakeRepo, total_time_ms: 200)
+      inject_slow_query(FakeRepo, total_time_ms: 250)
+
+      result = TestEctoDomain.callbacks()["ecto_slow_queries"].(2)
+
+      assert length(result.queries) == 2
+    end
+
+    test "ecto_pool_stats returns queue time stats" do
+      inject_query(FakeRepo, total_time_ms: 10, queue_time_ms: 5)
+      inject_query(FakeRepo, total_time_ms: 20, queue_time_ms: 10)
+      inject_query(FakeRepo, total_time_ms: 30, queue_time_ms: 15)
+
+      stats = TestEctoDomain.callbacks()["ecto_pool_stats"].()
+
+      assert stats.avg_queue_time_ms == 10.0
+      assert stats.max_queue_time_ms == 15.0
+    end
+
+    test "ecto_pool_stats returns high contention count" do
+      inject_query(FakeRepo, total_time_ms: 10, queue_time_ms: 10)
+      inject_query(FakeRepo, total_time_ms: 20, queue_time_ms: 60)
+      inject_query(FakeRepo, total_time_ms: 30, queue_time_ms: 100)
+
+      stats = TestEctoDomain.callbacks()["ecto_pool_stats"].()
+
+      assert stats.high_contention_count == 2
     end
   end
 end
