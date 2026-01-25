@@ -337,3 +337,67 @@ Memory stats in MB: total_mb, processes_mb, system_mb, binary_mb, ets_mb, code_m
   }
   @@assert(calls_done, {{ this.intent == "done" }})
 }
+
+// ============================================================================
+// INTENT DECOMPOSITION TESTS (Fact vs Speculation)
+// ============================================================================
+
+test OperatorRun_DecomposedNotification_SeparatesFactFromSpeculation {
+  functions [OperatorRun]
+  args {
+    messages [
+      { role "user", content #"Current state: observing"# },
+      { role "assistant", content #"{"intent":"take_snapshot"}"# },
+      { role "tool", content #"{"id":"snap1","captured_at":"2024-01-06T10:30:00Z","data":{"memory_utilization_pct":85.0,"process_count":500}}"# }
+    ]
+    system_prompt "You are a BEAM VM health monitor. Memory > 80% requires sending a notification. You must send a notification now."
+    callback_docs #"
+### beam_get_memory()
+Returns memory stats in MB: total_mb, processes_mb, system_mb, binary_mb, ets_mb, code_mb
+"#
+  }
+  @@assert(has_context_and_observation, {{
+    this.intent == "send_notification" and
+    this.context is not none and
+    this.observation is not none
+  }})
+}
+
+test OperatorRun_DecomposedNotification_HypothesisIsOptional {
+  functions [OperatorRun]
+  args {
+    messages [
+      { role "user", content #"Current state: warning"# },
+      { role "assistant", content #"{"intent":"take_snapshot"}"# },
+      { role "tool", content #"{"id":"snap1","captured_at":"2024-01-06T10:30:00Z","data":{"memory_utilization_pct":90.0,"process_count":400}}"# }
+    ]
+    system_prompt "You are a BEAM VM health monitor. Memory > 80% requires sending a notification. You must send a notification now."
+    callback_docs #"
+### beam_get_memory()
+Returns memory stats in MB
+"#
+  }
+  @@assert(sends_notification, {{ this.intent == "send_notification" }})
+}
+
+test OperatorRun_DecomposedNotification_ContextIsFactual {
+  functions [OperatorRun]
+  args {
+    messages [
+      { role "user", content #"Current state: observing"# },
+      { role "assistant", content #"{"intent":"take_snapshot"}"# },
+      { role "tool", content #"{"id":"snap1","captured_at":"2024-01-06T10:30:00Z","data":{"memory_utilization_pct":85.0,"uptime_seconds":259200}}"# }
+    ]
+    system_prompt "You are a BEAM VM health monitor. Memory > 80% requires a notification. Context field must be factual only - no speculation words like 'likely' or 'probably'. Send a notification now."
+    callback_docs #"
+### beam_get_memory()
+Returns memory stats in MB
+"#
+  }
+  @@assert(notification_with_factual_context, {{
+    this.intent == "send_notification" and
+    "likely" not in this.context and
+    "probably" not in this.context and
+    "might" not in this.context
+  }})
+}
