@@ -658,6 +658,139 @@ defmodule Beamlens.Skill.Anomaly.DetectorTest do
     def callback_docs, do: ""
   end
 
+  defmodule ExitingSkill do
+    @moduledoc false
+    @behaviour Beamlens.Skill
+    def title, do: "Exiting Skill"
+    def description, do: "Skill that exits on snapshot"
+    def system_prompt, do: ""
+
+    def snapshot do
+      GenServer.call(:nonexistent_genserver_for_test, :snapshot, 100)
+    end
+
+    def callbacks, do: %{}
+    def callback_docs, do: ""
+  end
+
+  describe "skill snapshot exits" do
+    test "survives when skill snapshot exits during metric collection" do
+      start_supervised!(
+        {MetricStore,
+         [
+           name: :test_metric_store_exit,
+           sample_interval_ms: 1000,
+           history_minutes: 1
+         ]},
+        id: :metric_exit
+      )
+
+      start_supervised!(
+        {BaselineStore,
+         [
+           name: :test_baseline_store_exit,
+           ets_table: :test_baselines_exit,
+           dets_file: nil
+         ]},
+        id: :baseline_exit
+      )
+
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_exit,
+             metric_store: :test_metric_store_exit,
+             baseline_store: :test_baseline_store_exit,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 1000,
+             skills: [ExitingSkill, TestSkill]
+           ]},
+          id: :detector_exit
+        )
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      assert Process.alive?(pid)
+      assert :learning = Detector.get_state(:test_detector_exit)
+
+      sample = MetricStore.get_latest(:test_metric_store_exit, TestSkill, :metric_a)
+      assert sample != nil
+      assert sample.value == 50.0
+    end
+
+    test "survives when skill snapshot exits during baseline calculation" do
+      start_supervised!(
+        {MetricStore,
+         [
+           name: :test_metric_store_exit_baseline,
+           sample_interval_ms: 1000,
+           history_minutes: 1
+         ]},
+        id: :metric_exit_baseline
+      )
+
+      start_supervised!(
+        {BaselineStore,
+         [
+           name: :test_baseline_store_exit_baseline,
+           ets_table: :test_baselines_exit_baseline,
+           dets_file: nil
+         ]},
+        id: :baseline_exit_baseline
+      )
+
+      for i <- 1..5 do
+        MetricStore.add_sample(
+          :test_metric_store_exit_baseline,
+          TestSkill,
+          :metric_a,
+          50.0 + i
+        )
+
+        MetricStore.add_sample(
+          :test_metric_store_exit_baseline,
+          TestSkill,
+          :metric_b,
+          100.0 + i
+        )
+      end
+
+      pid =
+        start_supervised!(
+          {Detector,
+           [
+             name: :test_detector_exit_baseline,
+             metric_store: :test_metric_store_exit_baseline,
+             baseline_store: :test_baseline_store_exit_baseline,
+             collection_interval_ms: 60_000,
+             learning_duration_ms: 100,
+             skills: [ExitingSkill, TestSkill]
+           ]},
+          id: :detector_exit_baseline
+        )
+
+      past_time = System.system_time(:millisecond) - 200
+
+      :sys.replace_state(pid, fn state ->
+        %{state | learning_start_time: past_time}
+      end)
+
+      send(pid, :collect)
+      _ = :sys.get_state(pid)
+
+      assert Process.alive?(pid)
+      assert :active = Detector.get_state(:test_detector_exit_baseline)
+
+      baseline =
+        BaselineStore.get_baseline(:test_baseline_store_exit_baseline, TestSkill, :metric_a)
+
+      assert baseline != nil
+      assert baseline.sample_count > 0
+    end
+  end
+
   describe "auto-trigger" do
     setup do
       start_supervised!(

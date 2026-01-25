@@ -11,6 +11,7 @@ defmodule Beamlens.Supervisor do
     * `Beamlens.Skill.VmEvents.EventStore` - System monitor event buffer (only if VmEvents skill is enabled)
     * `Beamlens.Skill.Ets.GrowthStore` - ETS growth tracking buffer (only if Ets skill is enabled)
     * `Beamlens.Skill.Beam.AtomStore` - Atom growth tracking buffer (only if Beam skill is enabled)
+    * `Beamlens.Skill.Tracer` - Function tracer GenServer (only if Tracer skill is enabled)
     * `Beamlens.Skill.Anomaly.Supervisor` - Statistical anomaly detection (only if Anomaly skill is enabled)
     * `Beamlens.Coordinator` - Static coordinator process
     * `Beamlens.Operator.Supervisor` - Supervisor for static operator processes
@@ -101,6 +102,7 @@ defmodule Beamlens.Supervisor do
         system_monitor_child(skill_modules),
         ets_growth_store_child(skill_modules),
         beam_atom_store_child(skill_modules),
+        tracer_child(skill_modules),
         monitor_child(skill_modules, skill_configs),
         coordinator_child(client_registry),
         {OperatorSupervisor, skills: skill_modules, client_registry: client_registry}
@@ -161,6 +163,14 @@ defmodule Beamlens.Supervisor do
   defp beam_atom_store_child(skills) do
     if Beamlens.Skill.Beam in skills do
       [{Beamlens.Skill.Beam.AtomStore, [name: Beamlens.Skill.Beam.AtomStore]}]
+    else
+      []
+    end
+  end
+
+  defp tracer_child(skills) do
+    if Beamlens.Skill.Tracer in skills do
+      [Beamlens.Skill.Tracer]
     else
       []
     end
