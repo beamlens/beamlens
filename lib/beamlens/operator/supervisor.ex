@@ -49,6 +49,7 @@ defmodule Beamlens.Operator.Supervisor do
     Beamlens.Skill.Overload,
     Beamlens.Skill.Ports,
     Beamlens.Skill.Supervisor,
+    Beamlens.Skill.Tracer,
     Beamlens.Skill.VmEvents
   ]
 
@@ -228,6 +229,7 @@ defmodule Beamlens.Operator.Supervisor do
   defp normalize_skill(:overload), do: Beamlens.Skill.Overload
   defp normalize_skill(:ports), do: Beamlens.Skill.Ports
   defp normalize_skill(:supervisor), do: Beamlens.Skill.Supervisor
+  defp normalize_skill(:tracer), do: Beamlens.Skill.Tracer
   defp normalize_skill(:vm_events), do: Beamlens.Skill.VmEvents
   defp normalize_skill(skill_module), do: skill_module
 
