@@ -625,20 +625,30 @@ Monitors OS-level system events via Erlang's :system_monitor.
 
 ### Tracer Skill (`Beamlens.Skill.Tracer`)
 
-Process tracing for debugging and investigation.
+Production-safe function call tracing powered by Recon.
+
+> **Requirement:** Requires the `recon` package: `{:recon, "~> 2.3"}`
+
+**Safety Guarantees:**
+- Rate limiting: 5 traces per second max
+- Message limit: 50 traces before auto-stop
+- Time limit: 60 seconds max before auto-stop
+- Blocked hot paths: High-frequency stdlib functions rejected
+- Arity required: Must specify function arity (no wildcards)
 
 **Snapshot Metrics:**
+- Active (boolean)
 - Trace count
-- Active trace count
+- Trace spec (module, function, arity)
+- Elapsed time (ms)
 
-**Lua Callbacks:**
+**Skill Callbacks:**
 
 | Callback | Description |
 |----------|-------------|
-| `tracer_trace(pid_spec, flags)` | Start tracing processes |
-| `tracer_stop(pid_spec)` | Stop tracing processes |
-| `tracer_get_traces()` | Get collected traces |
-| `tracer_clear()` | Clear all traces |
+| `trace_start(module, function, arity)` | Start tracing a specific function |
+| `trace_stop()` | Stop the active trace session |
+| `trace_get()` | Get collected trace events |
 
 ### Allocator Skill (`Beamlens.Skill.Allocator`)
 

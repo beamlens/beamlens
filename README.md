@@ -212,7 +212,7 @@ Beamlens includes skills for common BEAM runtime monitoring:
 - **`Beamlens.Skill.Supervisor`** — Supervisor tree inspection
 - **`Beamlens.Skill.Os`** — OS-level metrics (CPU, memory, disk via `os_mon`)
 - **`Beamlens.Skill.VmEvents`** — System event monitoring (long GC, large heap, etc.)
-- **`Beamlens.Skill.Tracer`** — Process tracing for debugging
+- **`Beamlens.Skill.Tracer`** — Production-safe function tracing powered by Recon
 
 ### Experimental Skills
 

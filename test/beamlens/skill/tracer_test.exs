@@ -164,6 +164,8 @@ defmodule Beamlens.Skill.TracerTest do
     end
 
     test "snapshot reflects active trace state" do
+      start_supervised({Tracer, []})
+
       assert %{active: false} = Tracer.snapshot()
 
       assert {:ok, _} = Tracer.start_trace({:erlang, :timestamp, 0})

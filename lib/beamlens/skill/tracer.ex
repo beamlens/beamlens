@@ -56,8 +56,6 @@ defmodule Beamlens.Skill.Tracer do
     {:gen_server, :cast, 2}
   ]
 
-  ## Skill Callbacks
-
   @impl true
   def title, do: "Tracer"
 
@@ -88,7 +86,7 @@ defmodule Beamlens.Skill.Tracer do
     - Finding root cause of errors
 
     ## What Gets Captured
-    Each trace event contains: timestamp, pid, module, function, arity, and arguments.
+    Each trace event contains: timestamp, pid, module, function, and arity.
 
     ## Blocked Functions
     These cannot be traced: :erlang.send, Kernel.send, :ets.lookup, :ets.insert,
@@ -137,12 +135,12 @@ defmodule Beamlens.Skill.Tracer do
     """
   end
 
-  ## GenServer Callbacks
-
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @impl true
   def init(_opts) do
+    Process.flag(:trap_exit, true)
+
     {:ok,
      %{
        active: false,
@@ -230,6 +228,11 @@ defmodule Beamlens.Skill.Tracer do
   end
 
   @impl true
+  def handle_info({:EXIT, pid, _reason}, %{collector_pid: pid} = state) do
+    {:noreply, %{state | collector_pid: nil}}
+  end
+
+  @impl true
   def handle_info(_msg, state), do: {:noreply, state}
 
   @impl true
@@ -238,21 +241,31 @@ defmodule Beamlens.Skill.Tracer do
     :ok
   end
 
-  ## Client API
+  @doc """
+  Starts a trace session for the given module, function, and arity.
 
+  Returns `{:ok, %{status: :started, matches: count}}` on success,
+  or `{:error, reason}` if validation fails or a trace is already active.
+  """
   def start_trace({module, function, arity}) do
     GenServer.call(__MODULE__, {:start_trace, module, function, arity})
   end
 
+  @doc """
+  Stops the active trace session.
+
+  Returns `{:ok, %{status: :stopped, trace_count: count}}`.
+  """
   def stop_trace do
     GenServer.call(__MODULE__, :stop_trace)
   end
 
+  @doc """
+  Returns collected trace events from the current or last session.
+  """
   def get_traces do
     GenServer.call(__MODULE__, :get_traces)
   end
-
-  ## Private - Validation
 
   defp check_not_active(%{active: true}), do: {:error, :trace_already_active}
   defp check_not_active(_), do: :ok
@@ -267,7 +280,7 @@ defmodule Beamlens.Skill.Tracer do
       function in wildcards ->
         {:error, :wildcard_function_not_allowed}
 
-      arity in wildcards or arity == :_ ->
+      arity in wildcards ->
         {:error, :arity_required}
 
       not is_integer(arity) or arity < 0 or arity > 255 ->
@@ -285,8 +298,6 @@ defmodule Beamlens.Skill.Tracer do
       :ok
     end
   end
-
-  ## Private - State Management
 
   defp do_stop(state) do
     if state.active do
@@ -308,10 +319,8 @@ defmodule Beamlens.Skill.Tracer do
     System.monotonic_time(:millisecond) - started_at
   end
 
-  ## Private - IO Collector
-
   defp spawn_collector(parent) do
-    spawn(fn -> collector_loop(parent) end)
+    spawn_link(fn -> collector_loop(parent) end)
   end
 
   defp collector_loop(parent) do
