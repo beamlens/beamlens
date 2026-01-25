@@ -9,7 +9,8 @@ defmodule Beamlens.Operator.NotificationTest do
         operator: :beam,
         anomaly_type: "memory_elevated",
         severity: :warning,
-        summary: "Memory at 85%",
+        context: "Node running for 3 days, 500 processes active",
+        observation: "Memory at 85%, exceeding 60% threshold",
         snapshots: [%{id: "snap1", data: %{}}]
       }
 
@@ -18,7 +19,9 @@ defmodule Beamlens.Operator.NotificationTest do
       assert notification.operator == :beam
       assert notification.anomaly_type == "memory_elevated"
       assert notification.severity == :warning
-      assert notification.summary == "Memory at 85%"
+      assert notification.context == "Node running for 3 days, 500 processes active"
+      assert notification.observation == "Memory at 85%, exceeding 60% threshold"
+      assert notification.summary == "Memory at 85%, exceeding 60% threshold"
       assert notification.snapshots == [%{id: "snap1", data: %{}}]
     end
 
@@ -27,7 +30,8 @@ defmodule Beamlens.Operator.NotificationTest do
         operator: :beam,
         anomaly_type: "test",
         severity: :info,
-        summary: "test",
+        context: "test context",
+        observation: "test observation",
         snapshots: []
       }
 
@@ -43,7 +47,8 @@ defmodule Beamlens.Operator.NotificationTest do
         operator: :beam,
         anomaly_type: "test",
         severity: :info,
-        summary: "test",
+        context: "test context",
+        observation: "test observation",
         snapshots: []
       }
 
@@ -57,7 +62,8 @@ defmodule Beamlens.Operator.NotificationTest do
         operator: :beam,
         anomaly_type: "test",
         severity: :info,
-        summary: "test",
+        context: "test context",
+        observation: "test observation",
         snapshots: []
       }
 
@@ -74,7 +80,8 @@ defmodule Beamlens.Operator.NotificationTest do
         operator: :beam,
         anomaly_type: "test",
         severity: :info,
-        summary: "test",
+        context: "test context",
+        observation: "test observation",
         snapshots: []
       }
 
@@ -88,7 +95,8 @@ defmodule Beamlens.Operator.NotificationTest do
         operator: :beam,
         anomaly_type: "test",
         severity: :info,
-        summary: "test",
+        context: "test context",
+        observation: "test observation",
         snapshots: []
       }
 
@@ -98,9 +106,64 @@ defmodule Beamlens.Operator.NotificationTest do
       assert String.length(notification.trace_id) == 32
     end
 
+    test "stores optional hypothesis" do
+      attrs = %{
+        operator: :beam,
+        anomaly_type: "memory_elevated",
+        severity: :warning,
+        context: "Node running for 3 days",
+        observation: "Memory at 85%",
+        hypothesis: "Likely due to ETS table growth",
+        snapshots: []
+      }
+
+      notification = Notification.new(attrs)
+
+      assert notification.hypothesis == "Likely due to ETS table growth"
+    end
+
+    test "hypothesis defaults to nil" do
+      attrs = %{
+        operator: :beam,
+        anomaly_type: "test",
+        severity: :info,
+        context: "test context",
+        observation: "test observation",
+        snapshots: []
+      }
+
+      notification = Notification.new(attrs)
+
+      assert notification.hypothesis == nil
+    end
+
     test "raises on missing required field" do
       assert_raise KeyError, fn ->
         Notification.new(%{operator: :beam})
+      end
+    end
+
+    test "raises on missing context" do
+      assert_raise KeyError, fn ->
+        Notification.new(%{
+          operator: :beam,
+          anomaly_type: "test",
+          severity: :info,
+          observation: "test observation",
+          snapshots: []
+        })
+      end
+    end
+
+    test "raises on missing observation" do
+      assert_raise KeyError, fn ->
+        Notification.new(%{
+          operator: :beam,
+          anomaly_type: "test",
+          severity: :info,
+          context: "test context",
+          snapshots: []
+        })
       end
     end
   end
@@ -129,12 +192,34 @@ defmodule Beamlens.Operator.NotificationTest do
           operator: :beam,
           anomaly_type: "test",
           severity: :info,
-          summary: "test",
+          context: "test context",
+          observation: "test observation",
           snapshots: []
         })
 
       assert {:ok, json} = Jason.encode(notification)
       assert is_binary(json)
+    end
+
+    test "encoded JSON contains decomposed fields" do
+      notification =
+        Notification.new(%{
+          operator: :beam,
+          anomaly_type: "memory_elevated",
+          severity: :warning,
+          context: "Node running for 3 days",
+          observation: "Memory at 85%",
+          hypothesis: "ETS table growth",
+          snapshots: []
+        })
+
+      {:ok, json} = Jason.encode(notification)
+      decoded = Jason.decode!(json)
+
+      assert decoded["context"] == "Node running for 3 days"
+      assert decoded["observation"] == "Memory at 85%"
+      assert decoded["hypothesis"] == "ETS table growth"
+      assert decoded["summary"] == "Memory at 85%"
     end
   end
 end

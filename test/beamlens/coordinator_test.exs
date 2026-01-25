@@ -76,7 +76,8 @@ defmodule Beamlens.CoordinatorTest do
           operator: :test,
           anomaly_type: "test_anomaly",
           severity: :info,
-          summary: "Test notification",
+          context: "Test context",
+          observation: "Test notification",
           snapshots: []
         },
         overrides
@@ -474,6 +475,8 @@ defmodule Beamlens.CoordinatorTest do
         notification_ids: [notification1.id, notification2.id],
         correlation_type: "causal",
         summary: "Test correlation",
+        matched_observations: ["observation1", "observation2"],
+        hypothesis_grounded: true,
         confidence: "high"
       }
 
@@ -504,6 +507,8 @@ defmodule Beamlens.CoordinatorTest do
         notification_ids: [notification.id],
         correlation_type: "temporal",
         summary: "Test insight",
+        matched_observations: ["Test notification"],
+        hypothesis_grounded: false,
         root_cause_hypothesis: "Test hypothesis",
         confidence: "medium"
       }
@@ -824,6 +829,8 @@ defmodule Beamlens.CoordinatorTest do
         notification_ids: [notification.id],
         correlation_type: "temporal",
         summary: "Test insight",
+        matched_observations: ["Test notification"],
+        hypothesis_grounded: false,
         confidence: "low"
       }
 

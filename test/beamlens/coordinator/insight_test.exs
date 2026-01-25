@@ -9,6 +9,8 @@ defmodule Beamlens.Coordinator.InsightTest do
         notification_ids: ["notification1", "notification2"],
         correlation_type: :causal,
         summary: "Memory spike caused scheduler contention",
+        matched_observations: ["Memory at 85%", "Run queue depth at 50"],
+        hypothesis_grounded: true,
         confidence: :high
       }
 
@@ -17,6 +19,8 @@ defmodule Beamlens.Coordinator.InsightTest do
       assert insight.notification_ids == ["notification1", "notification2"]
       assert insight.correlation_type == :causal
       assert insight.summary == "Memory spike caused scheduler contention"
+      assert insight.matched_observations == ["Memory at 85%", "Run queue depth at 50"]
+      assert insight.hypothesis_grounded == true
       assert insight.confidence == :high
     end
 
@@ -25,6 +29,8 @@ defmodule Beamlens.Coordinator.InsightTest do
         notification_ids: ["n1"],
         correlation_type: :temporal,
         summary: "test",
+        matched_observations: ["observation1"],
+        hypothesis_grounded: false,
         confidence: :low
       }
 
@@ -40,6 +46,8 @@ defmodule Beamlens.Coordinator.InsightTest do
         notification_ids: ["n1"],
         correlation_type: :temporal,
         summary: "test",
+        matched_observations: ["observation1"],
+        hypothesis_grounded: false,
         confidence: :low
       }
 
@@ -54,6 +62,8 @@ defmodule Beamlens.Coordinator.InsightTest do
         notification_ids: ["n1"],
         correlation_type: :temporal,
         summary: "test",
+        matched_observations: ["observation1"],
+        hypothesis_grounded: false,
         confidence: :low
       }
 
@@ -70,6 +80,8 @@ defmodule Beamlens.Coordinator.InsightTest do
         notification_ids: ["n1"],
         correlation_type: :symptomatic,
         summary: "Multiple symptoms of memory leak",
+        matched_observations: ["Memory at 85%", "ETS table size 500MB"],
+        hypothesis_grounded: true,
         root_cause_hypothesis: "Possible unbounded ETS table growth",
         confidence: :medium
       }
@@ -84,6 +96,8 @@ defmodule Beamlens.Coordinator.InsightTest do
         notification_ids: ["n1"],
         correlation_type: :temporal,
         summary: "test",
+        matched_observations: ["observation1"],
+        hypothesis_grounded: false,
         confidence: :low
       }
 
@@ -97,6 +111,8 @@ defmodule Beamlens.Coordinator.InsightTest do
         Insight.new(%{
           correlation_type: :temporal,
           summary: "test",
+          matched_observations: ["observation1"],
+          hypothesis_grounded: false,
           confidence: :low
         })
       end
@@ -107,6 +123,8 @@ defmodule Beamlens.Coordinator.InsightTest do
         Insight.new(%{
           notification_ids: ["n1"],
           summary: "test",
+          matched_observations: ["observation1"],
+          hypothesis_grounded: false,
           confidence: :low
         })
       end
@@ -117,6 +135,8 @@ defmodule Beamlens.Coordinator.InsightTest do
         Insight.new(%{
           notification_ids: ["n1"],
           correlation_type: :temporal,
+          matched_observations: ["observation1"],
+          hypothesis_grounded: false,
           confidence: :low
         })
       end
@@ -127,7 +147,33 @@ defmodule Beamlens.Coordinator.InsightTest do
         Insight.new(%{
           notification_ids: ["n1"],
           correlation_type: :temporal,
-          summary: "test"
+          summary: "test",
+          matched_observations: ["observation1"],
+          hypothesis_grounded: false
+        })
+      end
+    end
+
+    test "raises on missing matched_observations" do
+      assert_raise KeyError, fn ->
+        Insight.new(%{
+          notification_ids: ["n1"],
+          correlation_type: :temporal,
+          summary: "test",
+          hypothesis_grounded: false,
+          confidence: :low
+        })
+      end
+    end
+
+    test "raises on missing hypothesis_grounded" do
+      assert_raise KeyError, fn ->
+        Insight.new(%{
+          notification_ids: ["n1"],
+          correlation_type: :temporal,
+          summary: "test",
+          matched_observations: ["observation1"],
+          confidence: :low
         })
       end
     end
@@ -140,6 +186,8 @@ defmodule Beamlens.Coordinator.InsightTest do
           notification_ids: ["n1", "n2"],
           correlation_type: :causal,
           summary: "test correlation",
+          matched_observations: ["Memory at 85%", "Run queue at 50"],
+          hypothesis_grounded: true,
           confidence: :high
         })
 
@@ -153,6 +201,8 @@ defmodule Beamlens.Coordinator.InsightTest do
           notification_ids: ["n1"],
           correlation_type: :temporal,
           summary: "test",
+          matched_observations: ["observation1"],
+          hypothesis_grounded: false,
           root_cause_hypothesis: "hypothesis",
           confidence: :medium
         })
@@ -163,6 +213,8 @@ defmodule Beamlens.Coordinator.InsightTest do
       assert decoded["notification_ids"] == ["n1"]
       assert decoded["correlation_type"] == "temporal"
       assert decoded["summary"] == "test"
+      assert decoded["matched_observations"] == ["observation1"]
+      assert decoded["hypothesis_grounded"] == false
       assert decoded["root_cause_hypothesis"] == "hypothesis"
       assert decoded["confidence"] == "medium"
       assert is_binary(decoded["id"])

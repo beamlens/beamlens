@@ -460,15 +460,22 @@ defmodule Beamlens.Coordinator do
 
     result =
       Enum.map(notifications, fn {id, %{notification: notification, status: s}} ->
-        %{
+        base = %{
           id: id,
           status: s,
           operator: notification.operator,
           anomaly_type: notification.anomaly_type,
           severity: notification.severity,
-          summary: notification.summary,
+          context: notification.context,
+          observation: notification.observation,
           detected_at: notification.detected_at
         }
+
+        if notification.hypothesis do
+          Map.put(base, :hypothesis, notification.hypothesis)
+        else
+          base
+        end
       end)
 
     emit_telemetry(:get_notifications, state, %{trace_id: trace_id, count: length(result)})
@@ -520,6 +527,8 @@ defmodule Beamlens.Coordinator do
         notification_ids: tool.notification_ids,
         correlation_type: tool.correlation_type,
         summary: tool.summary,
+        matched_observations: tool.matched_observations,
+        hypothesis_grounded: tool.hypothesis_grounded,
         root_cause_hypothesis: tool.root_cause_hypothesis,
         confidence: tool.confidence
       })

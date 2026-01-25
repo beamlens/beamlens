@@ -32,8 +32,10 @@ class CoordinatorProduceInsight {
   intent "produce_insight"
   notification_ids string[] @description("IDs of notifications this insight correlates")
   correlation_type "temporal" | "causal" | "symptomatic" @description("How notifications are related")
-  summary string @description("Brief explanation of the correlation")
-  root_cause_hypothesis string? @description("Possible root cause if identified")
+  summary string @description("Brief explanation based on OBSERVATIONS ONLY - no speculation")
+  matched_observations string[] @description("Specific observations from notifications that correlated (copy exact text)")
+  hypothesis_grounded bool @description("True ONLY if hypotheses were corroborated by multiple independent operators")
+  root_cause_hypothesis string? @description("Only provide if grounded=true OR derived purely from observations")
   confidence "high" | "medium" | "low" @description("Confidence in this correlation")
 }
 
@@ -102,11 +104,25 @@ Update status on multiple notifications.
 - acknowledged: You're currently analyzing these
 - resolved: Done processing (use for unrelated/false positives without insight)
 
-### produce_insight(notification_ids, correlation_type, summary, root_cause_hypothesis?, confidence)
+### produce_insight(notification_ids, correlation_type, summary, matched_observations, hypothesis_grounded, root_cause_hypothesis?, confidence)
 Create insight correlating notifications. Auto-resolves the referenced notifications.
 - temporal: Notifications occurred close in time, possibly related
 - causal: One notification directly caused another (A -> B)
 - symptomatic: Notifications share a common hidden cause (A <- X -> B)
+
+## Correlation Rules (CRITICAL - Fact vs Speculation)
+
+Notifications have decomposed fields: context (facts), observation (facts), hypothesis (speculation).
+
+1. **Correlate on FACTS ONLY** - Match on context + observation fields, NEVER on hypothesis
+2. **Evaluate hypotheses AFTER** finding observation correlations
+3. **A hypothesis is GROUNDED only when:**
+   - Same hypothesis appears from multiple INDEPENDENT operators, OR
+   - Factual observations from other operators directly support it
+4. **Set hypothesis_grounded: false** if speculation is not corroborated
+5. **matched_observations** must contain exact observation text that correlated
+6. **summary** must describe correlation based on observations only - no speculation
+7. **root_cause_hypothesis** should only be provided if grounded=true OR derived from observations
 
 ### invoke_operators(skills, context?)
 Start multiple operators in parallel. They run independently and send notifications

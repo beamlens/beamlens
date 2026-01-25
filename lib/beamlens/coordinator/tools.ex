@@ -43,6 +43,8 @@ defmodule Beamlens.Coordinator.Tools do
       :notification_ids,
       :correlation_type,
       :summary,
+      :matched_observations,
+      :hypothesis_grounded,
       :root_cause_hypothesis,
       :confidence
     ]
@@ -52,6 +54,8 @@ defmodule Beamlens.Coordinator.Tools do
             notification_ids: [String.t()],
             correlation_type: :temporal | :causal | :symptomatic,
             summary: String.t(),
+            matched_observations: [String.t()],
+            hypothesis_grounded: boolean(),
             root_cause_hypothesis: String.t() | nil,
             confidence: :high | :medium | :low
           }
@@ -164,6 +168,8 @@ defmodule Beamlens.Coordinator.Tools do
         Zoi.enum(["temporal", "causal", "symptomatic"])
         |> Zoi.transform(&atomize_correlation_type/1),
       summary: Zoi.string(),
+      matched_observations: Zoi.list(Zoi.string()),
+      hypothesis_grounded: Zoi.boolean(),
       root_cause_hypothesis: Zoi.nullish(Zoi.string()),
       confidence:
         Zoi.enum(["high", "medium", "low"])

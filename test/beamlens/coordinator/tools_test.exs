@@ -121,6 +121,8 @@ defmodule Beamlens.Coordinator.ToolsTest do
         notification_ids: ["notification1", "notification2"],
         correlation_type: "causal",
         summary: "Memory spike caused scheduler contention",
+        matched_observations: ["Memory at 85%", "Run queue at 50"],
+        hypothesis_grounded: true,
         root_cause_hypothesis: "Unbounded ETS table growth",
         confidence: "high"
       }
@@ -130,6 +132,8 @@ defmodule Beamlens.Coordinator.ToolsTest do
       assert result.notification_ids == ["notification1", "notification2"]
       assert result.correlation_type == :causal
       assert result.summary == "Memory spike caused scheduler contention"
+      assert result.matched_observations == ["Memory at 85%", "Run queue at 50"]
+      assert result.hypothesis_grounded == true
       assert result.root_cause_hypothesis == "Unbounded ETS table growth"
       assert result.confidence == :high
     end
@@ -142,6 +146,8 @@ defmodule Beamlens.Coordinator.ToolsTest do
         notification_ids: ["notification1"],
         correlation_type: "temporal",
         summary: "Notifications close in time",
+        matched_observations: ["observation1"],
+        hypothesis_grounded: false,
         confidence: "low"
       }
 
@@ -159,6 +165,8 @@ defmodule Beamlens.Coordinator.ToolsTest do
           notification_ids: ["n1"],
           correlation_type: correlation_type,
           summary: "test",
+          matched_observations: ["observation1"],
+          hypothesis_grounded: false,
           confidence: "low"
         }
 
@@ -176,6 +184,8 @@ defmodule Beamlens.Coordinator.ToolsTest do
           notification_ids: ["n1"],
           correlation_type: "temporal",
           summary: "test",
+          matched_observations: ["observation1"],
+          hypothesis_grounded: false,
           confidence: confidence
         }
 

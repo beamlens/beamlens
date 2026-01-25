@@ -490,7 +490,9 @@ defmodule Beamlens.Operator do
   defp handle_action(
          %SendNotification{
            type: type,
-           summary: summary,
+           context: context,
+           observation: observation,
+           hypothesis: hypothesis,
            severity: severity,
            snapshot_ids: snapshot_ids
          },
@@ -499,7 +501,8 @@ defmodule Beamlens.Operator do
        ) do
     case resolve_snapshots(snapshot_ids, state.snapshots) do
       {:ok, snapshots} ->
-        notification = build_notification(state, type, summary, severity, snapshots)
+        notification =
+          build_notification(state, type, context, observation, hypothesis, severity, snapshots)
 
         emit_telemetry(:notification_sent, state, %{
           trace_id: trace_id,
@@ -701,12 +704,14 @@ defmodule Beamlens.Operator do
     "Current state: #{operator_state}"
   end
 
-  defp build_notification(state, type, summary, severity, snapshots) do
+  defp build_notification(state, type, context, observation, hypothesis, severity, snapshots) do
     Notification.new(%{
       operator: state.skill,
       anomaly_type: type,
       severity: severity,
-      summary: summary,
+      context: context,
+      observation: observation,
+      hypothesis: hypothesis,
       snapshots: snapshots
     })
   end

@@ -32,7 +32,9 @@ defmodule Beamlens.Operator.ToolsTest do
       input = %{
         intent: "send_notification",
         type: "memory_elevated",
-        summary: "High memory",
+        context: "Node running for 3 days",
+        observation: "Memory at 85%",
+        hypothesis: "Likely ETS growth",
         severity: "warning",
         snapshot_ids: ["abc123"]
       }
@@ -40,8 +42,28 @@ defmodule Beamlens.Operator.ToolsTest do
       assert {:ok, result} = Zoi.parse(schema, input)
       assert %SendNotification{} = result
       assert result.type == "memory_elevated"
+      assert result.context == "Node running for 3 days"
+      assert result.observation == "Memory at 85%"
+      assert result.hypothesis == "Likely ETS growth"
       assert result.severity == :warning
       assert result.snapshot_ids == ["abc123"]
+    end
+
+    test "parses send_notification without optional hypothesis" do
+      schema = Tools.schema()
+
+      input = %{
+        intent: "send_notification",
+        type: "memory_elevated",
+        context: "Node running for 3 days",
+        observation: "Memory at 85%",
+        severity: "warning",
+        snapshot_ids: ["abc123"]
+      }
+
+      assert {:ok, result} = Zoi.parse(schema, input)
+      assert %SendNotification{} = result
+      assert result.hypothesis == nil
     end
 
     test "rejects send_notification with missing snapshot_ids" do
@@ -50,7 +72,8 @@ defmodule Beamlens.Operator.ToolsTest do
       input = %{
         intent: "send_notification",
         type: "memory_elevated",
-        summary: "High memory",
+        context: "Node running",
+        observation: "High memory",
         severity: "warning"
       }
 
@@ -146,7 +169,8 @@ defmodule Beamlens.Operator.ToolsTest do
         input = %{
           intent: "send_notification",
           type: "test",
-          summary: "test",
+          context: "test context",
+          observation: "test observation",
           severity: severity,
           snapshot_ids: ["id1"]
         }

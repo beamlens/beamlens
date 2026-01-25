@@ -439,14 +439,19 @@ defmodule Beamlens.OperatorTest do
           operator: :test,
           anomaly_type: "test_anomaly",
           severity: :warning,
-          summary: "Test summary",
+          context: "Test context",
+          observation: "Test observation",
+          hypothesis: "Test hypothesis",
           snapshots: []
         })
 
       assert notification.operator == :test
       assert notification.anomaly_type == "test_anomaly"
       assert notification.severity == :warning
-      assert notification.summary == "Test summary"
+      assert notification.context == "Test context"
+      assert notification.observation == "Test observation"
+      assert notification.hypothesis == "Test hypothesis"
+      assert notification.summary == "Test observation"
       assert is_binary(notification.id)
       assert %DateTime{} = notification.detected_at
       assert is_binary(notification.trace_id)
@@ -619,7 +624,9 @@ defmodule Beamlens.OperatorTest do
           %SendNotification{
             intent: "send_notification",
             type: "process_spike",
-            summary: "process count elevated",
+            context: "Node running normally",
+            observation: "process count elevated",
+            hypothesis: nil,
             severity: :warning,
             snapshot_ids: [snapshot_id]
           }
@@ -706,7 +713,9 @@ defmodule Beamlens.OperatorTest do
           %SendNotification{
             intent: "send_notification",
             type: "test_alert",
-            summary: "Test notification",
+            context: "Test context",
+            observation: "Test notification",
+            hypothesis: nil,
             severity: :info,
             snapshot_ids: [snapshot_id]
           }

@@ -30,12 +30,14 @@ defmodule Beamlens.Operator.Tools do
 
   defmodule SendNotification do
     @moduledoc false
-    defstruct [:intent, :type, :summary, :severity, :snapshot_ids]
+    defstruct [:intent, :type, :context, :observation, :hypothesis, :severity, :snapshot_ids]
 
     @type t :: %__MODULE__{
             intent: String.t(),
             type: String.t(),
-            summary: String.t(),
+            context: String.t(),
+            observation: String.t(),
+            hypothesis: String.t() | nil,
             severity: :info | :warning | :critical,
             snapshot_ids: [String.t()]
           }
@@ -148,7 +150,9 @@ defmodule Beamlens.Operator.Tools do
     Zoi.object(%{
       intent: Zoi.literal("send_notification"),
       type: Zoi.string(),
-      summary: Zoi.string(),
+      context: Zoi.string(),
+      observation: Zoi.string(),
+      hypothesis: Zoi.nullish(Zoi.string()),
       severity:
         Zoi.enum(["info", "warning", "critical"])
         |> Zoi.transform(&atomize_severity/1),
