@@ -627,8 +627,6 @@ Monitors OS-level system events via Erlang's :system_monitor.
 
 Production-safe function call tracing powered by Recon.
 
-> **Requirement:** Requires the `recon` package: `{:recon, "~> 2.3"}`
-
 **Safety Guarantees:**
 - Rate limiting: 5 traces per second max
 - Message limit: 50 traces before auto-stop
