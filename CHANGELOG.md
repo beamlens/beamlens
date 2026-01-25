@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Anomaly** — Statistical anomaly detection with self-learning baselines. Optionally auto-triggers Coordinator when anomalies escalate (`auto_trigger: true`).
 - **Overload** — Message queue overload analysis with bottleneck detection and remediation recommendations.
 - **Allocator** — Memory allocator fragmentation monitoring for long-running nodes.
-- **Tracer** — Production-safe function call tracing with message limits and auto-shutoff.
+- **Tracer** — Production-safe function call tracing powered by Recon. Rate-limited with auto-shutoff. Requires optional `recon` dependency.
 
 #### Skill Enhancements
 

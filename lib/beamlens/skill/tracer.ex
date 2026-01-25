@@ -1,37 +1,60 @@
 defmodule Beamlens.Skill.Tracer do
   @moduledoc """
-  Production-safe function call tracing.
+  Production-safe function call tracing powered by Recon.
 
-  Provides rate-limited tracing of function calls for debugging
-  without risk of overwhelming the node. All tracing is time-bounded
-  and message-limited to ensure zero production impact.
+  Provides heavily rate-limited tracing of function calls for debugging
+  without risk of overwhelming the node. Uses the battle-tested
+  Recon library with additional safety layers.
 
   ## Safety Guarantees
 
-  - Message limit: max 100 total trace events
-  - Time limit: max 5 minutes per trace session
-  - Auto-shutoff: traces stop automatically when limits reached
-  - Specificity required: must specify concrete module/function patterns
-  - Runtime enforcement: wildcard patterns rejected at setup time
+  - **Rate limiting**: 5 traces per second max (configurable)
+  - **Message limit**: 50 traces before auto-stop (configurable)
+  - **Time limit**: 60 seconds max before auto-stop
+  - **Blocked hot paths**: High-frequency stdlib functions rejected
+  - **Arity required**: Must specify function arity (no wildcards)
+  - **Process isolation**: Tracer runs in separate process
 
-  ## What Gets Traced
+  ## Blocked Functions
 
-  Traces capture metadata only:
-  - Timestamp (microsecond precision)
-  - Process identifier (PID)
-  - Module name, function name
-  - Event type (:call, :return_from)
+  The following high-frequency functions are blocked to prevent
+  accidental node overload:
 
-  Function arguments and return values are never captured by design.
-  This makes it impossible for sensitive data to leak through traces
-  at the Erlang VM level.
+  - `:erlang.send/2`, `Kernel.send/2`
+  - `GenServer.call/2,3`, `GenServer.cast/2`
+  - `:ets.lookup/2`, `:ets.insert/2`
+  - `Process.send/2,3`
+
+  ## Requirements
+
+  Requires the `recon` package:
+
+      {:recon, "~> 2.3"}
   """
 
   use GenServer
   @behaviour Beamlens.Skill
 
-  @max_events 100
-  @max_duration_ms 300_000
+  @default_max_traces 50
+  @default_rate_limit {5, 1000}
+  @default_max_duration_ms 60_000
+
+  @blocked_functions [
+    {:erlang, :send, 2},
+    {:erlang, :send, 3},
+    {:erlang, :!, 2},
+    {:ets, :lookup, 2},
+    {:ets, :insert, 2},
+    {:ets, :delete, 2},
+    {GenServer, :call, 2},
+    {GenServer, :call, 3},
+    {GenServer, :cast, 2},
+    {Process, :send, 2},
+    {Process, :send, 3},
+    {:gen_server, :call, 2},
+    {:gen_server, :call, 3},
+    {:gen_server, :cast, 2}
+  ]
 
   ## Skill Callbacks
 
@@ -48,28 +71,28 @@ defmodule Beamlens.Skill.Tracer do
     by tracing function calls without risking node stability.
 
     ## Your Domain
-    - Function call tracing (module, function)
-    - Rate-limited and time-bounded trace sessions
-    - Trace event capture (timestamp, pid, module, function)
-    - Zero-impact tracing (safe for production use)
+    - Function call tracing (module, function, arity)
+    - Heavily rate-limited trace sessions (5 traces per second)
+    - Message-limited sessions (50 traces max)
+    - Time-limited sessions (60 seconds max)
 
-    ## How Tracing Works
-    - Specify concrete module and function names to trace
-    - Runtime validation prevents wildcard patterns (:"*", :_, etc.)
-    - Message limits prevent node overload (100 events max)
-    - Auto-shutoff when limits reached (100 events or 5 minutes)
-    - Trace only what's needed for the specific investigation
+    ## Safety Restrictions
+    - You MUST specify a concrete arity (no wildcards)
+    - High-frequency stdlib functions are blocked (send, ets, GenServer internals)
+    - Traces auto-stop after limits are reached
 
     ## When to Use Tracing
-    - Investigating specific function behavior
+    - Investigating specific function behavior in YOUR application code
     - Debugging production issues without redeployment
     - Understanding call patterns and sequences
-    - Finding root cause of errors or performance issues
+    - Finding root cause of errors
 
     ## What Gets Captured
-    Each trace event contains: timestamp, pid, module, function, event type
-    Function arguments and return values are never captured by design,
-    ensuring sensitive data cannot leak through traces.
+    Each trace event contains: timestamp, pid, module, function, arity, and arguments.
+
+    ## Blocked Functions
+    These cannot be traced: :erlang.send, Kernel.send, :ets.lookup, :ets.insert,
+    GenServer.call, GenServer.cast, Process.send
     """
   end
 
@@ -83,31 +106,34 @@ defmodule Beamlens.Skill.Tracer do
     %{
       "trace_start" => &start_trace/1,
       "trace_stop" => &stop_trace/0,
-      "trace_list" => &list_traces/0
+      "trace_get" => &get_traces/0
     }
   end
 
   @impl true
   def callback_docs do
     """
-    ### trace_start(module_pattern, function_pattern)
+    ### trace_start(module, function, arity)
     Start a new trace session for matching functions.
 
     Arguments:
-    - module_pattern: Module to trace (e.g., MyModule, :erlang)
-    - function_pattern: Function name (e.g., :my_func, :timestamp)
+    - module: Module to trace (e.g., MyApp.Worker) - no wildcards
+    - function: Function name atom (e.g., :handle_call) - no wildcards
+    - arity: Function arity (0-255) - REQUIRED, no wildcards
 
-    Returns: {:ok, %{status: :started}} or {:error, reason}
+    Returns: {:ok, %{status: :started, matches: count}} or {:error, reason}
+
+    Note: High-frequency stdlib functions are blocked for safety.
 
     ### trace_stop()
-    Stop the active trace session and collect results.
+    Stop the active trace session.
 
-    Returns: {:ok, %{events: [...], status: :stopped}} or {:error, :no_active_trace}
+    Returns: {:ok, %{status: :stopped}}
 
-    ### trace_list()
-    List all active trace sessions.
+    ### trace_get()
+    Get collected trace events from the current or last session.
 
-    Returns: list of trace session info with module_pattern, function_pattern, event_count, duration_ms
+    Returns: list of trace event strings
     """
   end
 
@@ -116,110 +142,91 @@ defmodule Beamlens.Skill.Tracer do
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @impl true
-  def init(_) do
-    Process.flag(:trap_exit, true)
-    {:ok, %{active_trace: nil, events: [], start_time: nil}}
+  def init(_opts) do
+    {:ok,
+     %{
+       active: false,
+       traces: [],
+       collector_pid: nil,
+       trace_spec: nil,
+       timer_ref: nil,
+       started_at: nil
+     }}
   end
 
   @impl true
   def handle_call(:snapshot, _from, state) do
-    active_count = if state.active_trace, do: 1, else: 0
-    {:reply, %{active_trace_count: active_count, event_count: length(state.events)}, state}
+    snapshot = %{
+      active: state.active,
+      trace_count: length(state.traces),
+      trace_spec: state.trace_spec,
+      elapsed_ms: elapsed_ms(state)
+    }
+
+    {:reply, snapshot, state}
   end
 
   @impl true
-  def handle_call({:start_trace, module_pattern, function_pattern}, _from, state) do
-    if state.active_trace do
-      {:reply, {:error, :trace_already_active}, state}
-    else
-      with :ok <- validate_patterns(module_pattern, function_pattern),
-           {:ok, trace_pid} <- setup_trace(module_pattern, function_pattern) do
+  def handle_call({:start_trace, module, function, arity}, _from, state) do
+    with :ok <- check_not_active(state),
+         :ok <- validate_no_wildcards(module, function, arity),
+         :ok <- validate_not_blocked(module, function, arity) do
+      collector_pid = spawn_collector(self())
+
+      opts = [
+        {:io_server, collector_pid},
+        {:args, :arity}
+      ]
+
+      try do
+        matches = :recon_trace.calls({module, function, arity}, @default_rate_limit, opts)
+
+        timer_ref = Process.send_after(self(), :timeout, @default_max_duration_ms)
+
         new_state = %{
-          active_trace: %{
-            module_pattern: module_pattern,
-            function_pattern: function_pattern,
-            tracer_pid: trace_pid
-          },
-          events: [],
-          start_time: System.monotonic_time(:millisecond)
+          active: true,
+          traces: [],
+          collector_pid: collector_pid,
+          trace_spec: {module, function, arity},
+          timer_ref: timer_ref,
+          started_at: System.monotonic_time(:millisecond)
         }
 
-        {:reply, {:ok, %{status: :started}}, new_state}
-      else
-        {:error, reason} ->
-          {:reply, {:error, reason}, state}
+        {:reply, {:ok, %{status: :started, matches: matches}}, new_state}
+      rescue
+        e ->
+          Process.exit(collector_pid, :shutdown)
+          {:reply, {:error, Exception.message(e)}, state}
       end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
   @impl true
   def handle_call(:stop_trace, _from, state) do
-    if state.active_trace do
-      stop_tracing(state.active_trace)
-      result = %{events: Enum.reverse(state.events), status: :stopped}
-      {:reply, {:ok, result}, %{active_trace: nil, events: [], start_time: nil}}
+    {:reply, {:ok, %{status: :stopped, trace_count: length(state.traces)}}, do_stop(state)}
+  end
+
+  @impl true
+  def handle_call(:get_traces, _from, state) do
+    {:reply, Enum.reverse(state.traces), state}
+  end
+
+  @impl true
+  def handle_info({:trace_line, line}, state) do
+    new_traces = [line | state.traces]
+
+    if length(new_traces) >= @default_max_traces do
+      {:noreply, do_stop(%{state | traces: new_traces})}
     else
-      {:reply, {:error, :no_active_trace}, state}
+      {:noreply, %{state | traces: new_traces}}
     end
   end
 
   @impl true
-  def handle_call(:list_traces, _from, state) do
-    traces =
-      if state.active_trace do
-        [
-          %{
-            module_pattern: state.active_trace.module_pattern,
-            function_pattern: state.active_trace.function_pattern,
-            event_count: length(state.events),
-            duration_ms: System.monotonic_time(:millisecond) - state.start_time
-          }
-        ]
-      else
-        []
-      end
-
-    {:reply, traces, state}
-  end
-
-  @impl true
-  def handle_info({:trace_ts, pid, :call, {module, function, arity}, timestamp}, state) do
-    event = %{
-      timestamp: timestamp,
-      pid: inspect(pid),
-      type: :call,
-      module: inspect(module),
-      function: function,
-      arity: arity
-    }
-
-    handle_trace_event(event, state)
-  end
-
-  @impl true
-  def handle_info({:trace_ts, _pid, :return_from, {module, function, _arity}, timestamp}, state) do
-    event = %{
-      timestamp: timestamp,
-      type: :return_from,
-      module: inspect(module),
-      function: function
-    }
-
-    handle_trace_event(event, state)
-  end
-
-  @impl true
-  def handle_info(:auto_stop, state) do
-    {:noreply, %{state | active_trace: nil}}
-  end
-
-  @impl true
-  def handle_info({:EXIT, pid, _reason}, state) do
-    if state.active_trace && state.active_trace.tracer_pid == pid do
-      {:noreply, %{state | active_trace: nil}}
-    else
-      {:noreply, state}
-    end
+  def handle_info(:timeout, state) do
+    {:noreply, do_stop(state)}
   end
 
   @impl true
@@ -227,100 +234,106 @@ defmodule Beamlens.Skill.Tracer do
 
   @impl true
   def terminate(_reason, state) do
-    if state.active_trace, do: stop_tracing(state.active_trace)
+    if state.active, do: :recon_trace.clear()
     :ok
   end
 
   ## Client API
 
-  def start_trace({module_pattern, function_pattern}) do
-    GenServer.call(__MODULE__, {:start_trace, module_pattern, function_pattern})
+  def start_trace({module, function, arity}) do
+    GenServer.call(__MODULE__, {:start_trace, module, function, arity})
   end
 
   def stop_trace do
     GenServer.call(__MODULE__, :stop_trace)
   end
 
-  def list_traces do
-    GenServer.call(__MODULE__, :list_traces)
+  def get_traces do
+    GenServer.call(__MODULE__, :get_traces)
   end
 
-  ## Private Helpers
+  ## Private - Validation
 
-  defp validate_patterns(module_pattern, function_pattern) do
-    forbidden_patterns = [:_, :*]
+  defp check_not_active(%{active: true}), do: {:error, :trace_already_active}
+  defp check_not_active(_), do: :ok
+
+  defp validate_no_wildcards(module, function, arity) do
+    wildcards = [:_, :*, :"$1", :"$2", :"$3"]
 
     cond do
-      module_pattern in forbidden_patterns ->
+      module in wildcards ->
         {:error, :wildcard_module_not_allowed}
 
-      function_pattern in forbidden_patterns ->
+      function in wildcards ->
         {:error, :wildcard_function_not_allowed}
+
+      arity in wildcards or arity == :_ ->
+        {:error, :arity_required}
+
+      not is_integer(arity) or arity < 0 or arity > 255 ->
+        {:error, :invalid_arity}
 
       true ->
         :ok
     end
   end
 
-  defp setup_trace(module_pattern, function_pattern) do
-    parent = self()
-    pid = spawn_link(fn -> tracer_loop(parent) end)
-    setup_trace_on_pid(pid, module_pattern, function_pattern)
-  end
-
-  defp setup_trace_on_pid(pid, module_pattern, function_pattern) do
-    case :erlang.trace(pid, true, [:call, :arity, :timestamp]) do
-      1 -> apply_trace_pattern(pid, module_pattern, function_pattern)
-      _ -> {:error, :trace_setup_failed}
+  defp validate_not_blocked(module, function, arity) do
+    if {module, function, arity} in @blocked_functions do
+      {:error, {:blocked_function, {module, function, arity}}}
+    else
+      :ok
     end
   end
 
-  defp apply_trace_pattern(pid, module_pattern, function_pattern) do
-    match_spec = [{:_, [], [{:return_trace}]}]
+  ## Private - State Management
 
-    case :erlang.trace_pattern({module_pattern, function_pattern, :_}, match_spec, []) do
-      1 -> {:ok, pid}
-      _ -> {:error, :trace_pattern_failed}
+  defp do_stop(state) do
+    if state.active do
+      :recon_trace.clear()
+
+      if state.collector_pid && Process.alive?(state.collector_pid) do
+        Process.exit(state.collector_pid, :shutdown)
+      end
+
+      if state.timer_ref, do: Process.cancel_timer(state.timer_ref)
     end
+
+    %{state | active: false, collector_pid: nil, timer_ref: nil}
   end
 
-  defp stop_tracing(nil), do: :ok
+  defp elapsed_ms(%{started_at: nil}), do: nil
 
-  defp stop_tracing(active_trace) do
-    :erlang.trace_pattern(
-      {active_trace.module_pattern, active_trace.function_pattern, :_},
-      false,
-      []
-    )
-
-    :erlang.trace(active_trace.tracer_pid, false, [:all])
+  defp elapsed_ms(%{started_at: started_at}) do
+    System.monotonic_time(:millisecond) - started_at
   end
 
-  defp tracer_loop(parent) do
+  ## Private - IO Collector
+
+  defp spawn_collector(parent) do
+    spawn(fn -> collector_loop(parent) end)
+  end
+
+  defp collector_loop(parent) do
     receive do
-      _ -> tracer_loop(parent)
-    end
-  end
+      {:io_request, from, reply_as, {:put_chars, _encoding, chars}} ->
+        line = IO.chardata_to_string(chars)
+        send(parent, {:trace_line, String.trim(line)})
+        send(from, {:io_reply, reply_as, :ok})
+        collector_loop(parent)
 
-  defp handle_trace_event(event, state) do
-    new_events = [event | state.events]
-    new_state = %{state | events: new_events}
+      {:io_request, from, reply_as, {:put_chars, chars}} ->
+        line = IO.chardata_to_string(chars)
+        send(parent, {:trace_line, String.trim(line)})
+        send(from, {:io_reply, reply_as, :ok})
+        collector_loop(parent)
 
-    if length(new_events) >= @max_events or exceeded_duration?(new_state) do
-      stop_tracing(state.active_trace)
-      send(self(), :auto_stop)
-      {:noreply, new_state}
-    else
-      {:noreply, new_state}
-    end
-  end
+      {:io_request, from, reply_as, _request} ->
+        send(from, {:io_reply, reply_as, :ok})
+        collector_loop(parent)
 
-  defp exceeded_duration?(state) do
-    if state.start_time do
-      elapsed = System.monotonic_time(:millisecond) - state.start_time
-      elapsed >= @max_duration_ms
-    else
-      false
+      _ ->
+        collector_loop(parent)
     end
   end
 end

@@ -56,6 +56,7 @@ defmodule Beamlens.MixProject do
       {:telemetry, "~> 1.2"},
       {:ecto_psql_extras, "~> 0.8", optional: true},
       {:tower, "~> 0.8.6", optional: true},
+      {:recon, "~> 2.3"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
