@@ -19,9 +19,15 @@ graph TD
     S --> OR[OperatorRegistry]
     S --> LS[LogStore]
     S --> ES[ExceptionStore]
+    S --> VES["VmEvents.EventStore*"]
+    S --> EGS["Ets.GrowthStore*"]
+    S --> BAS["Beam.AtomStore*"]
+    S --> AS["Anomaly.Supervisor*"]
     S --> C[Coordinator]
     S --> OS[Operator.Supervisor]
 ```
+
+\* Conditional children - started based on enabled skills
 
 Operators and Coordinator are static, always-running processes invoked via `Beamlens.Operator.run/2` or `Beamlens.Coordinator.run/2`.
 
@@ -644,7 +650,7 @@ Production-safe function call tracing powered by Recon.
 
 | Callback | Description |
 |----------|-------------|
-| `trace_start(module, function, arity)` | Start tracing a specific function |
+| `trace_start({module, function, arity})` | Start tracing a specific function (tuple argument) |
 | `trace_stop()` | Stop the active trace session |
 | `trace_get()` | Get collected trace events |
 
