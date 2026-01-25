@@ -137,6 +137,36 @@ defmodule Beamlens.SupervisorTest do
     end
   end
 
+  describe "tracer_child/1" do
+    test "starts Tracer GenServer when Tracer skill is included" do
+      {:ok, _} =
+        start_supervised(
+          {Beamlens.Supervisor,
+           skills: [
+             Beamlens.Skill.Beam,
+             Beamlens.Skill.Tracer
+           ]}
+        )
+
+      tracer_pid = Process.whereis(Beamlens.Skill.Tracer)
+      assert tracer_pid != nil
+      assert Process.alive?(tracer_pid)
+    end
+
+    test "does not start Tracer GenServer when Tracer skill is excluded" do
+      {:ok, _} =
+        start_supervised(
+          {Beamlens.Supervisor,
+           skills: [
+             Beamlens.Skill.Beam
+           ]}
+        )
+
+      tracer_pid = Process.whereis(Beamlens.Skill.Tracer)
+      assert tracer_pid == nil
+    end
+  end
+
   describe "anomaly skill defaults" do
     test "anomaly infrastructure starts by default with builtin skills" do
       {:ok, _} = start_supervised({Beamlens.Supervisor, []})

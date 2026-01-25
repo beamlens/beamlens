@@ -176,12 +176,12 @@ defmodule Beamlens.Skill.Anomaly.Detector do
         Enum.map(snapshot, fn {metric_name, value} ->
           %{skill: skill, metric: metric_name, value: normalize_value(value)}
         end)
-      rescue
-        e ->
+      catch
+        :exit, reason ->
           :telemetry.execute(
             [:beamlens, :anomaly, :detector, :metric_collection_failed],
             %{system_time: System.system_time()},
-            %{skill: skill, error: e}
+            %{skill: skill, error: {:exit, reason}}
           )
 
           []
@@ -235,12 +235,12 @@ defmodule Beamlens.Skill.Anomaly.Detector do
             BaselineStore.update_baseline(state.baseline_store, skill, metric_name, values)
           end
         end)
-      rescue
-        e ->
+      catch
+        :exit, reason ->
           :telemetry.execute(
             [:beamlens, :anomaly, :detector, :baseline_calculation_failed],
             %{system_time: System.system_time()},
-            %{skill: skill, error: e}
+            %{skill: skill, error: {:exit, reason}}
           )
 
           :ok

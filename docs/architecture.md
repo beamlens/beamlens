@@ -22,6 +22,7 @@ graph TD
     S --> VES["VmEvents.EventStore*"]
     S --> EGS["Ets.GrowthStore*"]
     S --> BAS["Beam.AtomStore*"]
+    S --> TR["Tracer*"]
     S --> AS["Anomaly.Supervisor*"]
     S --> C[Coordinator]
     S --> OS[Operator.Supervisor]
