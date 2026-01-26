@@ -605,7 +605,7 @@ defmodule Beamlens.Coordinator do
   end
 
   defp handle_action(%Think{thought: thought}, state, trace_id) do
-    emit_telemetry(:think, state, %{trace_id: trace_id})
+    emit_telemetry(:think, state, %{trace_id: trace_id, thought: thought})
 
     result = %{thought: thought, recorded: true}
     new_context = Utils.add_result(state.context, result)

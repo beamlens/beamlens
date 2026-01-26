@@ -179,7 +179,7 @@ defmodule Beamlens.Telemetry do
 
   * `[:beamlens, :coordinator, :think]` - Coordinator recorded a thought
     - Measurements: `%{system_time: integer}`
-    - Metadata: `%{trace_id: String.t()}`
+    - Metadata: `%{trace_id: String.t(), thought: String.t()}`
 
   * `[:beamlens, :coordinator, :operator_notification_received]` - Notification received from running operator
     - Measurements: `%{system_time: integer}`
