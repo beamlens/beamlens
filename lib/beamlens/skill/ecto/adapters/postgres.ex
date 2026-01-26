@@ -176,8 +176,7 @@ defmodule Beamlens.Skill.Ecto.Adapters.Postgres do
     end
   end
 
-  @doc false
-  def format_rows(rows, columns, excluded \\ []) do
+  defp format_rows(rows, columns, excluded \\ []) do
     excluded_set = MapSet.new(excluded)
 
     column_names =
