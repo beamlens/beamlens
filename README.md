@@ -47,39 +47,36 @@ Beamlens lives inside your supervision tree. It captures runtime state and uses 
 
 ## Installation
 
-Add `beamlens` to your list of dependencies in `mix.exs`:
+### Igniter (Recommended)
+
+Install igniter:
+
+```bash
+mix archive.install hex igniter_new
+```
+
+Install Beamlens:
+
+```bash
+# Choose your provider, model is optional
+mix igniter.install beamlens --provider openai --model "gpt-5-mini"
+```
+
+Supported providers: anthropic (default), openai, ollama, google-ai, vertex-ai, aws-bedrock, azure-openai, openrouter, openai-generic.
+
+### Manual
+
+Add to `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:beamlens, "~> 0.2.0"}
+    {:beamlens, "~> 0.2"}
   ]
 end
 ```
 
-## Quick Start
-
-### Automatic Installation (Recommended)
-
-Use the Igniter installer for one-command setup:
-
-```bash
-mix archive.install hex igniter_new
-mix igniter.install beamlens
-```
-
-Configure a different LLM provider:
-
-```bash
-mix igniter.install beamlens --provider openai
-mix igniter.install beamlens --provider ollama
-```
-
-Supported providers: anthropic (default), openai, ollama, google-ai, vertex-ai, aws-bedrock, azure-openai, openrouter.
-
-### Manual Installation
-
-**1. Add to your supervision tree** in `application.ex`:
+Add to your supervision tree in `application.ex`:
 
 ```elixir
 def start(_type, _args) do
@@ -101,7 +98,7 @@ You can also configure which skills to enable:
 ]}
 ```
 
-**2. Configure your LLM provider.** Set an API key for the default Anthropic provider:
+Configure your LLM provider. Set an API key for the default Anthropic provider:
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -119,13 +116,15 @@ Or configure a custom [provider](docs/providers.md) in your supervision tree:
 }}
 ```
 
-**3. Run Beamlens** (from an alert handler, Oban job, or IEx):
+## Usage
+
+**Run Beamlens** (from an alert handler, Oban job, or IEx):
 
 ```elixir
 {:ok, result} = Beamlens.Coordinator.run(%{reason: "memory alert..."})
 ```
 
-**4. Handle automatic insights**
+**Handle automatic insights**
 
 The Anomaly skill is enabled by default. It learns your baseline, then auto-triggers investigations when it detects statistical anomalies.
 
