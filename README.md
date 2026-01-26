@@ -40,13 +40,9 @@ Beamlens works with any LLM provider. Anthropic is the default. See the [provide
 
 Beamlens lives inside your supervision tree. It captures runtime state and uses an LLM to explain *why* your metrics look the way they do.
 
-```
-Alert → Coordinator → Operators (Skills) → LLM → Insights
-```
-
 - **Production-safe**: All analysis is read-only. No side effects.
 - **Privacy-first**: Data stays in your infrastructure. You choose the LLM provider.
-- **Extensible**: 12 built-in skills + custom skills for your domain.
+- **Extensible**: Built-in skills + custom skills for your domain.
 - **Auto or on-demand**: Trigger manually, on schedule, or let the Anomaly skill auto-trigger on statistical anomalies.
 
 ## Installation
