@@ -1,6 +1,7 @@
 defmodule Beamlens.TelemetryTest do
   use ExUnit.Case
 
+  alias Beamlens.Coordinator.Insight
   alias Beamlens.Telemetry
 
   describe "generate_trace_id/0" do
@@ -250,6 +251,42 @@ defmodule Beamlens.TelemetryTest do
       :telemetry.detach("beamlens-telemetry-default-logger")
 
       assert {:error, :not_found} = Telemetry.detach_default_logger()
+    end
+  end
+
+  describe "insight_produced event (README example)" do
+    test "handler receives insight with summary field" do
+      ref = make_ref()
+      test_pid = self()
+
+      :telemetry.attach(
+        "test-insight-handler-#{inspect(ref)}",
+        [:beamlens, :coordinator, :insight_produced],
+        fn _event, _measurements, metadata, _config ->
+          send(test_pid, {:insight_received, metadata.insight.summary})
+        end,
+        nil
+      )
+
+      insight =
+        Insight.new(%{
+          notification_ids: ["abc123"],
+          correlation_type: :temporal,
+          summary: "Memory usage spiked due to ETS table growth",
+          matched_observations: ["high memory"],
+          hypothesis_grounded: true,
+          confidence: :high
+        })
+
+      :telemetry.execute(
+        [:beamlens, :coordinator, :insight_produced],
+        %{system_time: System.system_time()},
+        %{trace_id: "test-trace", insight: insight}
+      )
+
+      assert_receive {:insight_received, "Memory usage spiked due to ETS table growth"}
+
+      :telemetry.detach("test-insight-handler-#{inspect(ref)}")
     end
   end
 end
