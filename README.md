@@ -19,16 +19,6 @@ Beamlens lives inside your supervision tree. It captures runtime state that exte
 - **Extensible**: Teach it your domain with custom skills.
 - **Auto or on-demand**: Trigger analysis manually, or let the Anomaly skill auto-trigger when it detects statistical anomalies.
 
-## Fact vs Speculation
-
-Beamlens separates factual observations from speculative hypotheses:
-
-- **Context**: Factual system state ("Node running for 3 days, 500 processes")
-- **Observation**: What was detected ("Memory at 85%, exceeding threshold")
-- **Hypothesis**: What might be causing it ("Likely ETS table growth") - optional
-
-The Coordinator correlates on facts only. Hypotheses are marked as "grounded" only when corroborated by multiple independent operators.
-
 ## Example
 
 Beamlens translates opaque runtime metrics into semantic explanations.
@@ -37,17 +27,12 @@ Beamlens translates opaque runtime metrics into semantic explanations.
 # Trigger manually from an alert, or let Anomaly skill auto-trigger
 {:ok, result} = Beamlens.Coordinator.run(%{reason: "memory > 90%"})
 
-# beamlens returns insights with correlated observations
+# beamlens returns the specific root cause based on runtime introspection
 result.insights
 # => [
-#      %Beamlens.Coordinator.Insight{
-#        summary: "Memory pressure from ETS table growth",
-#        matched_observations: ["Memory at 92%", "ETS tables using 1.8GB"],
-#        hypothesis_grounded: true,
-#        root_cause_hypothesis: "Unbounded cache growth in MyApp.Cache",
-#        correlation_type: :symptomatic,
-#        confidence: :high
-#      }
+#      "Analysis: Process <0.450.0> (MyApp.ImageWorker) is holding 2.1GB binary heap.",
+#      "Context: Correlates with 450 concurrent uploads in the last minute.",
+#      "Root Cause: Worker pool exhausted; processes are not hibernating after large binary handling."
 #    ]
 ```
 
