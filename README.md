@@ -194,13 +194,9 @@ Beamlens is read-only and designed to run alongside your app. This is still earl
 <details>
 <summary>How much does it cost to run?</summary>
 
-You control the costs:
+Based on our test suite, a typical investigation uses around 10K tokens and costs about one to three cents with Haiku. If you're running continuous monitoring with auto-trigger at its default rate limit (3 per hour), expect roughly $1-3 per day.
 
-- **Typical investigation**: ~10K tokens ($0.01-0.03 with Haiku)
-- **Hourly monitoring with all skills**: ~$1-3/day with Haiku
-- **Controls**: model choice, skill selection, trigger frequency, rate limits
-
-Auto-trigger is rate-limited (default: 3 per hour) to prevent runaway costs. Choose a smaller model like Haiku for routine monitoring.
+You control the costs through model choice, which skills you enable, and how often investigations run. Auto-trigger is rate-limited by default to prevent runaway costs.
 </details>
 
 <details>
@@ -210,9 +206,9 @@ Haiku-level intelligence or higher. Haiku is a solid baseline for routine monito
 </details>
 
 <details>
-<summary>Does Beamlens send my data to you?</summary>
+<summary>Where does my data go?</summary>
 
-No. You bring your own provider and keys. Your data stays in your infrastructure and the provider you configure.
+Beamlens has no backend. Runtime data stays in your infrastructure and goes only to the LLM provider you configure. You bring your own API keys.
 </details>
 
 ## Get Involved
