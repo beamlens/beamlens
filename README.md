@@ -105,6 +105,21 @@ Or configure a custom [provider](docs/providers.md) in your supervision tree:
 {:ok, result} = Beamlens.Coordinator.run(%{reason: "memory alert..."})
 ```
 
+**4. Handle automatic insights**
+
+The Anomaly skill is enabled by default. It learns your baseline, then auto-triggers investigations when it detects statistical anomalies.
+
+```elixir
+:telemetry.attach(
+  "beamlens-insights",
+  [:beamlens, :coordinator, :insight_produced],
+  fn _event, _measurements, metadata, _config ->
+    Logger.warning("Beamlens: #{metadata.insight.summary}")
+  end,
+  nil
+)
+```
+
 ## Built-in Skills
 
 Beamlens includes skills for common BEAM runtime monitoring:
