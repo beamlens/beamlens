@@ -470,7 +470,11 @@ defmodule Beamlens.Coordinator do
         NotificationView.from_entry(id, entry)
       end)
 
-    emit_telemetry(:get_notifications, state, %{trace_id: trace_id, count: length(result)})
+    emit_telemetry(:get_notifications, state, %{
+      trace_id: trace_id,
+      status: status,
+      count: length(result)
+    })
 
     new_context = Utils.add_result(state.context, result)
 

@@ -120,10 +120,12 @@ defmodule Beamlens.Integration.CoordinatorOperatorTest do
       assert is_map(result)
       assert is_list(result.insights)
 
-      assert_receive {:telemetry, [:beamlens, :coordinator, :get_notifications], %{count: count}},
+      assert_receive {:telemetry, [:beamlens, :coordinator, :get_notifications],
+                      %{count: count, status: status}},
                      0
 
       assert count >= 0
+      assert status in [:unread, :acknowledged, :resolved, :all, nil]
       assert_receive {:telemetry, [:beamlens, :coordinator, :done], _}, 0
     end
   end
