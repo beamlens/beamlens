@@ -4,55 +4,6 @@ defmodule Mix.Tasks.Beamlens.InstallTest do
 
   alias Mix.Tasks.Beamlens.Install
 
-  @providers %{
-    "anthropic" => %{
-      name: "Anthropic",
-      provider: "anthropic",
-      model: "claude-haiku-4-5-20251001",
-      env_var: "ANTHROPIC_API_KEY"
-    },
-    "openai" => %{
-      name: "OpenAI",
-      provider: "openai",
-      model: "gpt-5-mini",
-      env_var: "OPENAI_API_KEY"
-    },
-    "ollama" => %{
-      name: "Ollama",
-      provider: "openai-generic",
-      model: "qwen3",
-      base_url: "http://localhost:11434/v1"
-    },
-    "google-ai" => %{
-      name: "GoogleAI",
-      provider: "google-ai",
-      model: "gemini-3-flash-preview",
-      env_var: "GOOGLE_API_KEY"
-    },
-    "vertex-ai" => %{
-      name: "VertexAI",
-      provider: "vertex-ai",
-      model: "gemini-3-flash-preview"
-    },
-    "aws-bedrock" => %{
-      name: "Bedrock",
-      provider: "aws-bedrock",
-      model: "anthropic.claude-haiku-4-5-20251001-v1:0"
-    },
-    "azure-openai" => %{
-      name: "AzureOpenAI",
-      provider: "azure-openai",
-      model: "gpt-5-mini",
-      env_var: "AZURE_OPENAI_API_KEY"
-    },
-    "openrouter" => %{
-      name: "OpenRouter",
-      provider: "openrouter",
-      model: "openai/gpt-5-mini",
-      env_var: "OPENROUTER_API_KEY"
-    }
-  }
-
   describe "default installation (no provider)" do
     test "creates Application module with bare Beamlens child" do
       test_project()
@@ -139,6 +90,8 @@ defmodule Mix.Tasks.Beamlens.InstallTest do
 
   describe "provider configuration" do
     test "explicit --provider anthropic generates client_registry" do
+      config = Map.fetch!(Install.providers(), "anthropic")
+
       igniter =
         test_project()
         |> set_options(provider: "anthropic")
@@ -146,16 +99,16 @@ defmodule Mix.Tasks.Beamlens.InstallTest do
 
       content = get_file_content(igniter, "lib/test/application.ex")
       assert content =~ "client_registry:"
-      assert content =~ ~s("Anthropic")
-      assert content =~ ~s("anthropic")
-      assert content =~ "claude-haiku-4-5-20251001"
+      assert content =~ ~s("#{config.name}")
+      assert content =~ ~s("#{config.provider}")
+      assert content =~ config.default_model
     end
 
-    for {provider_key, config} <- @providers do
+    for {provider_key, _config} <- Install.providers() do
       @tag provider: provider_key
       test "configures #{provider_key} provider with correct defaults" do
         provider_key = unquote(provider_key)
-        config = unquote(Macro.escape(config))
+        config = Map.fetch!(Install.providers(), provider_key)
 
         igniter =
           test_project()
@@ -165,18 +118,20 @@ defmodule Mix.Tasks.Beamlens.InstallTest do
         content = get_file_content(igniter, "lib/test/application.ex")
         assert content =~ ~s("#{config.name}")
         assert content =~ ~s("#{config.provider}")
-        assert content =~ config.model
+        assert content =~ config.default_model
       end
     end
 
     test "ollama includes base_url configuration" do
+      config = Map.fetch!(Install.providers(), "ollama")
+
       igniter =
         test_project()
         |> set_options(provider: "ollama")
         |> Install.igniter()
 
       content = get_file_content(igniter, "lib/test/application.ex")
-      assert content =~ "http://localhost:11434/v1"
+      assert content =~ config.base_url
     end
 
     test "custom model overrides provider default" do
@@ -203,34 +158,28 @@ defmodule Mix.Tasks.Beamlens.InstallTest do
   end
 
   describe "environment variable notices" do
-    @env_var_providers [
-      {"openai", "OPENAI_API_KEY"},
-      {"anthropic", "ANTHROPIC_API_KEY"},
-      {"google-ai", "GOOGLE_API_KEY"},
-      {"azure-openai", "AZURE_OPENAI_API_KEY"},
-      {"openrouter", "OPENROUTER_API_KEY"}
-    ]
-
-    for {provider, env_var} <- @env_var_providers do
-      @tag provider: provider
-      test "#{provider} adds notice for #{env_var}" do
-        provider = unquote(provider)
-        env_var = unquote(env_var)
+    for {provider_key, config} <- Install.providers(), config.env_var != nil do
+      @tag provider: provider_key
+      test "#{provider_key} adds notice for #{config.env_var}" do
+        provider_key = unquote(provider_key)
+        config = Map.fetch!(Install.providers(), provider_key)
 
         test_project()
-        |> set_options(provider: provider)
+        |> set_options(provider: provider_key)
         |> Install.igniter()
-        |> assert_has_notice(&String.contains?(&1, env_var))
+        |> assert_has_notice(&String.contains?(&1, config.env_var))
       end
     end
   end
 
   describe "local provider notices" do
     test "ollama adds notice about running server" do
+      config = Map.fetch!(Install.providers(), "ollama")
+
       test_project()
       |> set_options(provider: "ollama")
       |> Install.igniter()
-      |> assert_has_notice(&String.contains?(&1, "http://localhost:11434"))
+      |> assert_has_notice(&String.contains?(&1, config.base_url))
     end
   end
 

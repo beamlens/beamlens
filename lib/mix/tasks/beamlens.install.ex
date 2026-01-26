@@ -20,7 +20,7 @@ defmodule Mix.Tasks.Beamlens.Install do
   ## Options
 
   * `--provider` - LLM provider to use. If not specified, uses the built-in default (Anthropic).
-    One of: anthropic, openai, ollama, google-ai, vertex-ai, aws-bedrock, azure-openai, openrouter.
+    One of: anthropic, openai, ollama, google-ai, vertex-ai, aws-bedrock, azure-openai, openrouter, openai-generic.
   * `--model` - Model name to use. Only applies when --provider is specified. Defaults vary by provider.
 
   ## Default Models by Provider
@@ -35,6 +35,7 @@ defmodule Mix.Tasks.Beamlens.Install do
   | aws-bedrock | anthropic.claude-haiku-4-5-20251001-v1:0 |
   | azure-openai | gpt-5-mini |
   | openrouter | openai/gpt-5-mini |
+  | openai-generic | your-model |
 
   This will:
   - Add beamlens to mix.exs dependencies
@@ -99,8 +100,19 @@ defmodule Mix.Tasks.Beamlens.Install do
       provider: "openrouter",
       default_model: "openai/gpt-5-mini",
       env_var: "OPENROUTER_API_KEY"
+    },
+    "openai-generic" => %ProviderConfig{
+      name: "OpenAIGeneric",
+      provider: "openai-generic",
+      default_model: "your-model",
+      base_url: "https://your-api-endpoint/v1",
+      notice:
+        "Configure base_url and model in your Application module for your OpenAI-compatible API."
     }
   }
+
+  @doc false
+  def providers, do: @providers
 
   def info(_argv, _composing_task) do
     %Igniter.Mix.Task.Info{
