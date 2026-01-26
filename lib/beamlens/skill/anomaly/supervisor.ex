@@ -8,6 +8,9 @@ defmodule Beamlens.Skill.Anomaly.Supervisor do
     * `BaselineStore` - ETS cache with optional DETS persistence
     * `Detector` - State machine for learning, detection, and cooldown
 
+  The Detector automatically excludes `Beamlens.Skill.Anomaly` from its monitored
+  skills to prevent self-referential calls that would cause deadlocks.
+
   All configuration is passed at runtime via the supervision tree.
   """
 

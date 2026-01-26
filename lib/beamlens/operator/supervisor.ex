@@ -218,6 +218,7 @@ defmodule Beamlens.Operator.Supervisor do
     end
   end
 
+  defp normalize_skill(:allocator), do: Beamlens.Skill.Allocator
   defp normalize_skill(:anomaly), do: Beamlens.Skill.Anomaly
   defp normalize_skill(:beam), do: Beamlens.Skill.Beam
   defp normalize_skill(:ets), do: Beamlens.Skill.Ets
@@ -225,6 +226,7 @@ defmodule Beamlens.Operator.Supervisor do
   defp normalize_skill(:gc), do: Beamlens.Skill.Gc
   defp normalize_skill(:logger), do: Beamlens.Skill.Logger
   defp normalize_skill(:os), do: Beamlens.Skill.Os
+  defp normalize_skill(:overload), do: Beamlens.Skill.Overload
   defp normalize_skill(:ports), do: Beamlens.Skill.Ports
   defp normalize_skill(:supervisor), do: Beamlens.Skill.Supervisor
   defp normalize_skill(:tracer), do: Beamlens.Skill.Tracer
