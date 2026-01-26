@@ -15,6 +15,7 @@ defmodule Beamlens.Evals.IntentDecompositionTest do
   alias Beamlens.Operator.Notification
   alias Beamlens.Operator.Tools.SendNotification
   alias Puck.Eval.Graders
+  alias Puck.Eval.Graders.LLM
 
   @moduletag :eval
 
@@ -121,6 +122,56 @@ defmodule Beamlens.Evals.IntentDecompositionTest do
       assert result.passed?,
              "Eval failed: #{inspect(result.grader_results, pretty: true)}"
     end
+
+    @tag timeout: 60_000
+    test "context field contains factual information only", context do
+      start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
+
+      {:ok, _pid} =
+        start_supervised(
+          {Operator,
+           skill: DecompositionSkill,
+           client_registry: context.client_registry,
+           name: {:via, Registry, {Beamlens.OperatorRegistry, DecompositionSkill}}}
+        )
+
+      {output, trajectory} =
+        Puck.Eval.collect(
+          fn ->
+            {:ok, notifications} =
+              Operator.run(DecompositionSkill, %{reason: "memory check"},
+                client_registry: context.client_registry,
+                timeout: 60_000
+              )
+
+            notifications
+          end,
+          timeout: 100
+        )
+
+      judge_client = build_judge_client()
+
+      context_rubric = """
+      - Context contains only factual, observable system state
+      - Context does NOT contain speculation (likely, probably, might, could, possibly, appears to, suggests, seems)
+      - Context describes what IS, not what MIGHT BE
+      - Context contains concrete values or states, not interpretations
+      """
+
+      context_grader =
+        LLM.rubric(judge_client, context_rubric)
+
+      context_texts = Enum.map_join(output, "\n\n---\n\n", & &1.context)
+
+      result =
+        Puck.Eval.grade(context_texts, trajectory, [
+          Graders.output_produced(SendNotification),
+          context_grader
+        ])
+
+      assert result.passed?,
+             "Eval failed: #{inspect(result.grader_results, pretty: true)}"
+    end
   end
 
   describe "coordinator grounding evals" do
@@ -176,6 +227,60 @@ defmodule Beamlens.Evals.IntentDecompositionTest do
     end
 
     @tag timeout: 180_000
+    test "single-source hypothesis is not grounded", context do
+      start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
+
+      start_supervised!(
+        {Coordinator, name: Coordinator, client_registry: context.client_registry}
+      )
+
+      notifications = [
+        build_notification(%{
+          operator: Beamlens.Skill.Beam,
+          context: "Production node",
+          observation: "Memory at 85%",
+          hypothesis: "ETS table growth"
+        })
+      ]
+
+      {output, trajectory} =
+        Puck.Eval.collect(
+          fn ->
+            {:ok, result} =
+              Coordinator.run(%{},
+                notifications: notifications,
+                client_registry: context.client_registry,
+                max_iterations: 20,
+                timeout: 150_000
+              )
+
+            result
+          end,
+          timeout: 300
+        )
+
+      judge_client = build_judge_client()
+
+      grounding_rubric = """
+      - Given a SINGLE notification source about memory usage
+      - The hypothesis "ETS table growth" should NOT be marked as grounded (hypothesis_grounded: false)
+      - A hypothesis requires corroboration from multiple independent sources to be grounded
+      - Without corroborating evidence, the hypothesis remains speculative
+      """
+
+      grounding_grader = LLM.rubric(judge_client, grounding_rubric)
+
+      result =
+        Puck.Eval.grade(output, trajectory, [
+          Graders.output_produced(ProduceInsight),
+          grounding_grader
+        ])
+
+      assert result.passed?,
+             "Eval failed: #{inspect(result.grader_results, pretty: true)}"
+    end
+
+    @tag timeout: 180_000
     test "corroborated hypotheses are marked as grounded", context do
       start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
 
@@ -198,10 +303,10 @@ defmodule Beamlens.Evals.IntentDecompositionTest do
         })
       ]
 
-      {_output, trajectory} =
+      {output, trajectory} =
         Puck.Eval.collect(
           fn ->
-            {:ok, _result} =
+            {:ok, result} =
               Coordinator.run(%{},
                 notifications: notifications,
                 client_registry: context.client_registry,
@@ -209,14 +314,26 @@ defmodule Beamlens.Evals.IntentDecompositionTest do
                 timeout: 150_000
               )
 
-            :ok
+            result
           end,
           timeout: 300
         )
 
+      judge_client = build_judge_client()
+
+      grounding_rubric = """
+      - Given TWO corroborating notifications about memory/ETS issues
+      - The hypothesis about ETS growth should be marked as grounded (hypothesis_grounded: true)
+      - The matched_observations list should reference both memory and ETS observations
+      - Corroboration from multiple independent sources strengthens the hypothesis
+      """
+
+      grounding_grader = LLM.rubric(judge_client, grounding_rubric)
+
       result =
-        Puck.Eval.grade(nil, trajectory, [
-          Graders.output_produced(ProduceInsight)
+        Puck.Eval.grade(output, trajectory, [
+          Graders.output_produced(ProduceInsight),
+          grounding_grader
         ])
 
       assert result.passed?,
@@ -235,5 +352,9 @@ defmodule Beamlens.Evals.IntentDecompositionTest do
     }
 
     Notification.new(Map.merge(defaults, attrs))
+  end
+
+  defp build_judge_client do
+    Puck.Client.new({Puck.Backends.ReqLLM, "anthropic:claude-haiku-4-5"})
   end
 end

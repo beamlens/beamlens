@@ -97,25 +97,6 @@ defmodule Beamlens.Integration.IntentDecompositionTest do
         assert is_binary(notification.observation), "observation should be present"
       end
     end
-
-    @tag timeout: 60_000
-    test "context field contains factual information only", context do
-      {:ok, _pid} = start_operator(context, skill: DecompositionSkill)
-
-      {:ok, notifications} =
-        Operator.run(DecompositionSkill, %{reason: "memory check"},
-          client_registry: context.client_registry,
-          timeout: 60_000
-        )
-
-      for notification <- notifications do
-        context_lower = String.downcase(notification.context)
-        refute String.contains?(context_lower, "likely")
-        refute String.contains?(context_lower, "probably")
-        refute String.contains?(context_lower, "might be")
-        refute String.contains?(context_lower, "could be")
-      end
-    end
   end
 
   describe "coordinator correlation" do
@@ -144,67 +125,6 @@ defmodule Beamlens.Integration.IntentDecompositionTest do
         assert is_list(insight.matched_observations)
         assert is_boolean(insight.hypothesis_grounded)
       end
-    end
-
-    @tag timeout: 180_000
-    test "single-source hypothesis is not grounded", context do
-      {:ok, pid} = start_coordinator(context)
-
-      notifications = [
-        build_decomposed_notification(%{
-          operator: Beamlens.Skill.Beam,
-          context: "Production node",
-          observation: "Memory at 85%",
-          hypothesis: "ETS table growth"
-        })
-      ]
-
-      {:ok, result} =
-        Coordinator.run(pid, %{},
-          notifications: notifications,
-          client_registry: context.client_registry,
-          max_iterations: 25,
-          timeout: 180_000
-        )
-
-      grounded_insights =
-        Enum.filter(result.insights, fn insight ->
-          insight.hypothesis_grounded == true
-        end)
-
-      assert Enum.empty?(grounded_insights),
-             "Single-source hypothesis should not be grounded"
-    end
-
-    @tag timeout: 180_000
-    test "corroborated hypotheses from multiple operators are grounded", context do
-      {:ok, pid} = start_coordinator(context)
-
-      notifications = [
-        build_decomposed_notification(%{
-          operator: Beamlens.Skill.Beam,
-          context: "Node running for 3 days",
-          observation: "Memory at 85%",
-          hypothesis: "ETS table growth"
-        }),
-        build_decomposed_notification(%{
-          operator: Beamlens.Skill.Ets,
-          context: "Node running for 3 days",
-          observation: "ETS tables using 500MB",
-          hypothesis: "Unbounded table growth"
-        })
-      ]
-
-      {:ok, result} =
-        Coordinator.run(pid, %{},
-          notifications: notifications,
-          client_registry: context.client_registry,
-          max_iterations: 30,
-          timeout: 180_000
-        )
-
-      refute result.insights == [],
-             "Expected at least one insight from correlated notifications"
     end
   end
 end

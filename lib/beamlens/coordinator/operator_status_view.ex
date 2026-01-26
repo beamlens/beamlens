@@ -4,6 +4,7 @@ defmodule Beamlens.Coordinator.OperatorStatusView do
   """
 
   @enforce_keys [:skill, :alive]
+  @derive Jason.Encoder
   defstruct [:skill, :alive, :state, :iteration, :running, :started_at]
 
   @type t :: %__MODULE__{

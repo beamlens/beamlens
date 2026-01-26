@@ -13,6 +13,7 @@ defmodule Beamlens.Coordinator.NotificationView do
     :observation,
     :detected_at
   ]
+  @derive Jason.Encoder
   defstruct [
     :id,
     :status,
