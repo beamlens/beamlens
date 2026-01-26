@@ -95,7 +95,6 @@ defmodule Beamlens.Integration.IntentDecompositionTest do
       for notification <- notifications do
         assert is_binary(notification.context), "context should be present"
         assert is_binary(notification.observation), "observation should be present"
-        assert notification.summary == notification.observation
       end
     end
 
@@ -204,7 +203,8 @@ defmodule Beamlens.Integration.IntentDecompositionTest do
           timeout: 180_000
         )
 
-      assert is_list(result.insights)
+      refute result.insights == [],
+             "Expected at least one insight from correlated notifications"
     end
   end
 end

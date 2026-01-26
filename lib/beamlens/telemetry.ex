@@ -213,7 +213,7 @@ defmodule Beamlens.Telemetry do
         "beamlens-notifications",
         [:beamlens, :operator, :notification_sent],
         fn _event, _measurements, metadata, _config ->
-          Logger.warning("beamlens notification: \#{metadata.notification.summary}")
+          Logger.warning("beamlens notification: \#{metadata.notification.observation}")
         end,
         nil
       )

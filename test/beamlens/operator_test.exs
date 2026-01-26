@@ -451,7 +451,6 @@ defmodule Beamlens.OperatorTest do
       assert notification.context == "Test context"
       assert notification.observation == "Test observation"
       assert notification.hypothesis == "Test hypothesis"
-      assert notification.summary == "Test observation"
       assert is_binary(notification.id)
       assert %DateTime{} = notification.detected_at
       assert is_binary(notification.trace_id)

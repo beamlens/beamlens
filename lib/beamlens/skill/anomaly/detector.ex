@@ -12,6 +12,8 @@ defmodule Beamlens.Skill.Anomaly.Detector do
 
   use GenServer
   alias Beamlens.Skill.Anomaly.BaselineStore
+  alias Beamlens.Skill.Anomaly.Detector.Metric
+  alias Beamlens.Skill.Anomaly.Detector.Status
   alias Beamlens.Skill.Anomaly.MetricStore
   alias Beamlens.Skill.Anomaly.Statistics
 
@@ -138,7 +140,7 @@ defmodule Beamlens.Skill.Anomaly.Detector do
     triggers_in_last_hour =
       Enum.count(state.trigger_history, &(now - &1 < @one_hour_ms))
 
-    status = %{
+    status = %Status{
       state: state.state,
       learning_start_time: state.learning_start_time,
       learning_elapsed_ms: learning_elapsed_ms,
@@ -174,7 +176,7 @@ defmodule Beamlens.Skill.Anomaly.Detector do
         snapshot = skill.snapshot()
 
         Enum.map(snapshot, fn {metric_name, value} ->
-          %{skill: skill, metric: metric_name, value: normalize_value(value)}
+          %Metric{skill: skill, metric: metric_name, value: normalize_value(value)}
         end)
       catch
         :exit, reason ->

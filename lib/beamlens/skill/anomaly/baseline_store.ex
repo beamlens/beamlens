@@ -152,7 +152,7 @@ defmodule Beamlens.Skill.Anomaly.BaselineStore do
 
   defp open_dets(dets_file, state) do
     dets_file_path = Path.expand(dets_file)
-    dets_table_name = :"beamlens_baselines_dets_#{System.unique_integer([:positive, :monotonic])}"
+    dets_table_name = :"#{state.ets_table}_dets"
 
     case :dets.open_file(
            dets_table_name,

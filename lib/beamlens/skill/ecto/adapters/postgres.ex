@@ -182,7 +182,6 @@ defmodule Beamlens.Skill.Ecto.Adapters.Postgres do
     column_names =
       columns
       |> Enum.reject(&MapSet.member?(excluded_set, &1))
-      |> Enum.map(&String.to_atom/1)
 
     column_indices =
       columns

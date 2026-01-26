@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Notification decomposition** - Notifications now include `context` (factual system state), `observation` (factual anomaly), and `hypothesis` (optional speculation) fields
+- **Insight grounding** - Insights track `matched_observations` (exact text that correlated) and `hypothesis_grounded` (whether speculation was corroborated)
+
 #### New Skills
 
 - **Anomaly** — Statistical anomaly detection with self-learning baselines. Auto-triggers Coordinator when anomalies escalate.
@@ -49,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   {Beamlens, skills: [Beamlens.Skill.Beam]}
   ```
 - **Breaking:** `Operator.run/2` and `Coordinator.run/2` raise `ArgumentError` if not configured in supervision tree
+- **Breaking:** `Notification.new/1` requires `context` and `observation` fields
+- **Breaking:** `Notification` no longer has a `summary` field - use `observation` instead
+- **Breaking:** `Insight.new/1` requires `matched_observations` and `hypothesis_grounded` fields
 
 ### Removed
 
@@ -57,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Anomaly detector no longer crashes when skill snapshot exits unexpectedly
 - Exception skill snapshot data now serializes correctly to JSON
 
 ## [0.2.0] - 2026-01-14

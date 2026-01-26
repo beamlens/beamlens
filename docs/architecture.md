@@ -93,12 +93,35 @@ send(notify_pid, {:operator_complete, self(), Beamlens.Skill.Beam, result})
   operator: Beamlens.Skill.Beam,
   anomaly_type: "memory_threshold_exceeded",
   severity: :warning,
-  summary: "Memory usage at 92%",
+  context: "Node running for 3 days, 500 processes",
+  observation: "Memory usage at 92%, exceeding threshold",
+  hypothesis: "Likely ETS table growth",
   snapshots: [...]
 }}
 ```
 
-See `lib/beamlens/operator.ex:435` for implementation.
+See `Beamlens.Operator` for implementation.
+
+### Intent Decomposition
+
+Notifications separate facts from speculation to enable better correlation:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `context` | Fact | System state at detection time |
+| `observation` | Fact | What anomaly was detected |
+| `hypothesis` | Speculation | What might be causing it (optional) |
+
+The Coordinator correlates on `context` + `observation` only. Hypotheses require corroboration.
+
+### Insight Grounding
+
+When producing insights, the Coordinator tracks how hypotheses were validated:
+
+| Field | Description |
+|-------|-------------|
+| `matched_observations` | Exact observation text that correlated |
+| `hypothesis_grounded` | Whether speculation was corroborated by multiple operators |
 
 #### Completion Message
 ```elixir
@@ -346,7 +369,7 @@ Subscribe to notifications:
 ```elixir
 :telemetry.attach("my-notifications", [:beamlens, :operator, :notification_sent], fn
   _event, _measurements, %{notification: notification}, _config ->
-    Logger.warning("Notification: #{notification.summary}")
+    Logger.warning("Notification: #{notification.observation}")
 end, nil)
 ```
 

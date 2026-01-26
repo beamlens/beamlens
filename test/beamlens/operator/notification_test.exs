@@ -21,7 +21,6 @@ defmodule Beamlens.Operator.NotificationTest do
       assert notification.severity == :warning
       assert notification.context == "Node running for 3 days, 500 processes active"
       assert notification.observation == "Memory at 85%, exceeding 60% threshold"
-      assert notification.summary == "Memory at 85%, exceeding 60% threshold"
       assert notification.snapshots == [%{id: "snap1", data: %{}}]
     end
 
@@ -219,7 +218,6 @@ defmodule Beamlens.Operator.NotificationTest do
       assert decoded["context"] == "Node running for 3 days"
       assert decoded["observation"] == "Memory at 85%"
       assert decoded["hypothesis"] == "ETS table growth"
-      assert decoded["summary"] == "Memory at 85%"
     end
   end
 end

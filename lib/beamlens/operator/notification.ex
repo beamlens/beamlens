@@ -27,7 +27,6 @@ defmodule Beamlens.Operator.Notification do
     * `:context` - Factual system state description
     * `:observation` - Factual anomaly description
     * `:hypothesis` - Speculative cause (optional)
-    * `:summary` - Brief description (computed from context/observation for backward compat)
     * `:snapshots` - List of referenced snapshots captured during investigation
     * `:detected_at` - When the anomaly was detected
     * `:node` - Node where the anomaly was detected
@@ -43,7 +42,6 @@ defmodule Beamlens.Operator.Notification do
         context: "Node running for 3 days, 500 processes active",
         observation: "Memory utilization at 72%, exceeding 60% warning threshold",
         hypothesis: "Likely due to ETS table growth in caching module",
-        summary: "Memory utilization at 72%, exceeding 60% warning threshold",
         snapshots: [
           %{id: "abc123", captured_at: ~U[2024-01-06 10:30:00Z], data: %{...}},
           %{id: "def456", captured_at: ~U[2024-01-06 10:30:30Z], data: %{...}}
@@ -64,7 +62,6 @@ defmodule Beamlens.Operator.Notification do
           context: String.t(),
           observation: String.t(),
           hypothesis: String.t() | nil,
-          summary: String.t(),
           snapshots: [map()],
           detected_at: DateTime.t(),
           node: atom(),
@@ -79,7 +76,6 @@ defmodule Beamlens.Operator.Notification do
     :severity,
     :context,
     :observation,
-    :summary,
     :snapshots,
     :detected_at,
     :node,
@@ -93,7 +89,6 @@ defmodule Beamlens.Operator.Notification do
     :context,
     :observation,
     :hypothesis,
-    :summary,
     :snapshots,
     :detected_at,
     :node,
@@ -120,8 +115,6 @@ defmodule Beamlens.Operator.Notification do
     * `:node` - Defaults to current node
     * `:trace_id` - Auto-generated if not provided
 
-  The `summary` field is computed from `observation` for backward compatibility.
-
   ## Example
 
       Notification.new(%{
@@ -147,7 +140,6 @@ defmodule Beamlens.Operator.Notification do
       context: context,
       observation: observation,
       hypothesis: hypothesis,
-      summary: observation,
       snapshots: Map.fetch!(attrs, :snapshots),
       detected_at: Map.get(attrs, :detected_at, DateTime.utc_now()),
       node: Map.get(attrs, :node, Node.self()),
