@@ -64,6 +64,7 @@ end
 Use the Igniter installer for one-command setup:
 
 ```bash
+mix archive.install hex igniter_new
 mix igniter.install beamlens
 ```
 
