@@ -57,7 +57,7 @@ defmodule Beamlens.MixProject do
       {:ecto_psql_extras, "~> 0.8", optional: true},
       {:tower, "~> 0.8.6", optional: true},
       {:recon, "~> 2.3"},
-      {:igniter, "~> 0.7", optional: true},
+      {:igniter, "~> 0.6.0", optional: true},
       {:req_llm, "~> 1.0", only: :test, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

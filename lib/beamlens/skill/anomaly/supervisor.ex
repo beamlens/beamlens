@@ -34,12 +34,6 @@ defmodule Beamlens.Skill.Anomaly.Supervisor do
 
   @impl true
   def init(opts) do
-    enabled = Keyword.get(opts, :enabled, false)
-
-    unless enabled do
-      raise ArgumentError, "Anomaly skill requires enabled: true in configuration"
-    end
-
     collection_interval_ms =
       Keyword.get(opts, :collection_interval_ms, @default_collection_interval_ms)
 
@@ -56,7 +50,8 @@ defmodule Beamlens.Skill.Anomaly.Supervisor do
     dets_file = Keyword.get(opts, :dets_file)
     auto_save_interval_ms = Keyword.get(opts, :auto_save_interval_ms, :timer.minutes(5))
 
-    skills = Keyword.get(opts, :skills, Beamlens.Supervisor.registered_skills())
+    all_skills = Keyword.get(opts, :skills, Beamlens.Supervisor.registered_skills())
+    skills = Enum.reject(all_skills, &(&1 == Beamlens.Skill.Anomaly))
 
     children = [
       {MetricStore,

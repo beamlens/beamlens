@@ -39,12 +39,14 @@ defmodule Beamlens.Operator.Supervisor do
   alias Beamlens.Operator
 
   @builtin_skill_modules [
+    Beamlens.Skill.Allocator,
     Beamlens.Skill.Anomaly,
     Beamlens.Skill.Beam,
     Beamlens.Skill.Ets,
     Beamlens.Skill.Gc,
     Beamlens.Skill.Logger,
     Beamlens.Skill.Os,
+    Beamlens.Skill.Overload,
     Beamlens.Skill.Ports,
     Beamlens.Skill.Supervisor,
     Beamlens.Skill.Tracer,

@@ -173,7 +173,7 @@ defmodule Beamlens.Supervisor do
   defp monitor_child(skills, skill_configs) do
     if Beamlens.Skill.Anomaly in skills do
       monitor_opts = Map.get(skill_configs, Beamlens.Skill.Anomaly, [])
-      enabled = Keyword.get(monitor_opts, :enabled, false)
+      enabled = Keyword.get(monitor_opts, :enabled, true)
 
       if enabled do
         [{Beamlens.Skill.Anomaly.Supervisor, monitor_opts}]
