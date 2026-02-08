@@ -584,23 +584,13 @@ defmodule Beamlens.Coordinator do
         {:noreply, new_state, {:continue, :loop}}
 
       unread_count > 0 ->
-        emit_telemetry(:done_rejected, state, %{trace_id: trace_id, unread_count: unread_count})
+        emit_telemetry(:done, state, %{
+          trace_id: trace_id,
+          has_unread: true,
+          unread_count: unread_count
+        })
 
-        error_message =
-          "Cannot complete analysis: #{unread_count} unread notification(s) remain. " <>
-            "You must acknowledge and process all notifications before calling done(). " <>
-            "Use get_notifications(status: \"unread\") to see them."
-
-        new_context = Utils.add_result(state.context, %{error: error_message})
-
-        new_state = %{
-          state
-          | context: new_context,
-            iteration: state.iteration + 1,
-            pending_trace_id: nil
-        }
-
-        {:noreply, new_state, {:continue, :loop}}
+        finish(state)
 
       true ->
         emit_telemetry(:done, state, %{trace_id: trace_id, has_unread: false})
