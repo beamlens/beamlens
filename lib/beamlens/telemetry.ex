@@ -147,7 +147,7 @@ defmodule Beamlens.Telemetry do
 
   * `[:beamlens, :coordinator, :done]` - Coordinator analysis loop completed
     - Measurements: `%{system_time: integer}`
-    - Metadata: `%{trace_id: String.t(), has_unread: boolean}`
+    - Metadata: `%{trace_id: String.t(), has_unread: boolean, unread_count: non_neg_integer}`
 
   * `[:beamlens, :coordinator, :loop_stopped]` - Coordinator loop stopped
     - Measurements: `%{system_time: integer}`

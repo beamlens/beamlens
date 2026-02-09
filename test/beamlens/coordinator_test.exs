@@ -591,6 +591,42 @@ defmodule Beamlens.CoordinatorTest do
       :telemetry.detach({ref, :done})
     end
 
+    test "allows done with unread notifications and replies to caller" do
+      {:ok, pid} = start_coordinator()
+
+      notification = build_test_notification()
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      caller_ref = make_ref()
+      caller = {self(), caller_ref}
+
+      :sys.replace_state(pid, fn state ->
+        notifications = %{notification.id => %{notification: notification, status: :unread}}
+
+        %{
+          state
+          | notifications: notifications,
+            status: :running,
+            pending_task: task,
+            caller: caller,
+            iteration: 3
+        }
+      end)
+
+      action_map = %{intent: "done"}
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      assert_receive {^caller_ref, {:ok, %{insights: [], operator_results: []}}}, 1000
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+      assert state.notifications == %{}
+      assert state.iteration == 0
+
+      stop_coordinator(pid)
+    end
+
     test "rejects done when operators are still running" do
       ref = make_ref()
       parent = self()
