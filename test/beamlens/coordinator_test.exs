@@ -682,6 +682,55 @@ defmodule Beamlens.CoordinatorTest do
     end
   end
 
+  describe "invalid intent handling" do
+    test "invalid intent feeds error back to context and continues loop" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :invalid_intent},
+        [:beamlens, :coordinator, :invalid_intent],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :invalid_intent, metadata})
+        end,
+        nil
+      )
+
+      {:ok, pid} = start_coordinator()
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "test-trace",
+            iteration: 3,
+            client: blocking_client()
+        }
+      end)
+
+      action_map = %{intent: "resolve"}
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      assert_receive {:telemetry, :invalid_intent, %{trace_id: "test-trace"}}, 1000
+
+      state = :sys.get_state(pid)
+
+      assert state.status == :running
+      assert state.iteration == 4
+
+      last_message = List.last(state.context.messages)
+      content_text = extract_content_text(last_message.content)
+      assert content_text =~ "Invalid tool selection"
+
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :invalid_intent})
+    end
+  end
+
   describe "error handling" do
     test "LLM error stops loop" do
       ref = make_ref()
