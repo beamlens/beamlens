@@ -317,8 +317,31 @@ defmodule Beamlens.Coordinator do
 
     case result do
       {:ok, response, new_context} ->
-        parsed = ensure_parsed(response.content)
-        handle_action(parsed, %{state | context: new_context}, state.pending_trace_id)
+        state = %{state | context: new_context}
+
+        case ensure_parsed(response.content) do
+          {:ok, parsed} ->
+            handle_action(parsed, state, state.pending_trace_id)
+
+          {:error, reason} ->
+            emit_telemetry(:invalid_intent, state, %{
+              trace_id: state.pending_trace_id,
+              reason: reason
+            })
+
+            error_message = "Invalid tool selection: #{inspect(reason)}"
+
+            new_context = Utils.add_result(state.context, %{error: error_message})
+
+            new_state = %{
+              state
+              | context: new_context,
+                iteration: state.iteration + 1,
+                pending_trace_id: nil
+            }
+
+            {:noreply, new_state, {:continue, :loop}}
+        end
 
       {:error, reason} ->
         emit_telemetry(:llm_error, state, %{trace_id: state.pending_trace_id, reason: reason})
@@ -857,11 +880,10 @@ defmodule Beamlens.Coordinator do
     Enum.count(notifications, fn {_, %{status: s}} -> s == status end)
   end
 
-  defp ensure_parsed(%{__struct__: _} = struct), do: struct
+  defp ensure_parsed(%{__struct__: _} = struct), do: {:ok, struct}
 
   defp ensure_parsed(map) when is_map(map) do
-    {:ok, parsed} = Zoi.parse(Tools.schema(), map)
-    parsed
+    Zoi.parse(Tools.schema(), map)
   end
 
   defp build_puck_client(client_registry, opts) when is_list(opts) do
