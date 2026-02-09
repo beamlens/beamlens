@@ -3122,7 +3122,6 @@ defmodule Beamlens.CoordinatorTest do
       state = :sys.get_state(pid)
       assert state.strategy == Beamlens.Coordinator.Strategy.AgentLoop
 
-      # Replace client with one that returns a done action so InvocationStrategy can finish
       done_backend =
         Puck.Client.new({Puck.Backends.Mock, response: %{content: %{intent: "done"}}})
 
@@ -3138,13 +3137,9 @@ defmodule Beamlens.CoordinatorTest do
       stop_coordinator(pid)
     end
 
-    test "strategy with handles?/1 callback" do
-      defmodule AutoStrategy do
+    test "startup strategy used as fallback when run/3 has no :strategy" do
+      defmodule StartupStrategy do
         @behaviour Beamlens.Coordinator.Strategy
-
-        @impl true
-        def handles?(%{reason: "auto:" <> _}), do: true
-        def handles?(_), do: false
 
         @impl true
         def handle_action(_action, state, _trace_id) do
@@ -3152,8 +3147,61 @@ defmodule Beamlens.CoordinatorTest do
         end
       end
 
-      assert AutoStrategy.handles?(%{reason: "auto:test"})
-      refute AutoStrategy.handles?(%{reason: "other"})
+      {:ok, pid} = start_coordinator(strategy: StartupStrategy)
+
+      state = :sys.get_state(pid)
+      assert state.strategy == StartupStrategy
+
+      done_backend =
+        Puck.Client.new({Puck.Backends.Mock, response: %{content: %{intent: "done"}}})
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: done_backend}
+      end)
+
+      result = Coordinator.run(pid, %{reason: "test"}, timeout: 2_000)
+
+      assert {:ok, %{insights: [], operator_results: []}} = result
+
+      stop_coordinator(pid)
+    end
+
+    test "queued invocation uses its own per-invocation strategy" do
+      defmodule QueuedStrategy do
+        @behaviour Beamlens.Coordinator.Strategy
+
+        @impl true
+        def handle_action(_action, state, _trace_id) do
+          {:finish, state}
+        end
+      end
+
+      {:ok, pid} = start_coordinator()
+
+      done_backend =
+        Puck.Client.new({Puck.Backends.Mock, response: %{content: %{intent: "done"}}})
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: done_backend}
+      end)
+
+      task1 =
+        Task.async(fn ->
+          Coordinator.run(pid, %{reason: "first"}, timeout: 5_000)
+        end)
+
+      task2 =
+        Task.async(fn ->
+          Coordinator.run(pid, %{reason: "second"}, strategy: QueuedStrategy, timeout: 5_000)
+        end)
+
+      {:ok, _} = Task.await(task1, 5_000)
+      {:ok, _} = Task.await(task2, 5_000)
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+
+      stop_coordinator(pid)
     end
 
     test "strategy is injected via :sys.replace_state/2" do

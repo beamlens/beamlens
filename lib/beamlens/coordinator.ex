@@ -22,6 +22,15 @@ defmodule Beamlens.Coordinator do
       # result contains:
       # %{insights: [...], operator_results: [...]}
 
+  ## Strategy
+
+  The coordinator delegates tool dispatch to a pluggable strategy module.
+  The default strategy is `Beamlens.Coordinator.Strategy.AgentLoop`, which
+  implements an iterative agentic loop with tool-calling. Pass `:strategy`
+  to `start_link/1` or `run/2` to use a different strategy.
+
+  See `Beamlens.Coordinator.Strategy` for how to implement custom strategies.
+
   ## Status
 
   Coordinator has a run status:
@@ -81,6 +90,7 @@ defmodule Beamlens.Coordinator do
     * `:puck_client` - Optional `Puck.Client` to use instead of BAML
     * `:compaction_max_tokens` - Token threshold for compaction (default: 50_000)
     * `:compaction_keep_last` - Messages to keep verbatim after compaction (default: 5)
+    * `:strategy` - Strategy module for tool dispatch (default: `Beamlens.Coordinator.Strategy.AgentLoop`)
 
   """
   def start_link(opts) do
@@ -120,6 +130,7 @@ defmodule Beamlens.Coordinator do
       `{:error, :deadline_exceeded}`. Unlike `:timeout`, this cancels the
       server-side work (stops operators, shuts down the LLM task).
     * `:skills` - List of skill atoms to make available (default: configured operators)
+    * `:strategy` - Strategy module for tool dispatch (default: coordinator's configured strategy)
 
   ## Returns
 
@@ -517,7 +528,7 @@ defmodule Beamlens.Coordinator do
 
   def handle_call({:invoke, context, notifications, opts}, from, %{status: :idle} = state) do
     deadline = Keyword.get(opts, :deadline, Keyword.get(opts, :timeout, @default_deadline))
-    strategy = resolve_strategy(opts, state)
+    strategy = Keyword.get(opts, :strategy, state.strategy)
     state = prepare_invocation(state, context, notifications, from, deadline)
     {:noreply, %{state | status: :running, strategy: strategy}, {:continue, :loop}}
   end
@@ -534,25 +545,6 @@ defmodule Beamlens.Coordinator do
 
   def handle_call(:cancel, _from, state) do
     {:reply, :ok, state}
-  end
-
-  defp resolve_strategy(opts, state) do
-    case Keyword.get(opts, :strategy) do
-      nil -> state.strategy
-      :auto -> auto_resolve_strategy(opts, state)
-      module when is_atom(module) -> module
-    end
-  end
-
-  defp auto_resolve_strategy(opts, state) do
-    context = Keyword.get(opts, :context, %{})
-
-    @default_strategy
-    |> List.wrap()
-    |> Enum.find(fn strategy ->
-      function_exported?(strategy, :handles?, 1) and strategy.handles?(context)
-    end)
-    |> Kernel.||(state.strategy)
   end
 
   defp dispatch_action(content, state) do
@@ -631,11 +623,14 @@ defmodule Beamlens.Coordinator do
         deadline =
           Keyword.get(next_opts, :deadline, Keyword.get(next_opts, :timeout, @default_deadline))
 
+        strategy = Keyword.get(next_opts, :strategy, state.strategy)
+
         new_state =
           state
           |> prepare_invocation(next_context, next_notifications, next_caller, deadline)
           |> Map.put(:invocation_queue, remaining_queue)
           |> Map.put(:status, :running)
+          |> Map.put(:strategy, strategy)
 
         {:noreply, new_state, {:continue, :loop}}
 
@@ -952,7 +947,8 @@ defmodule Beamlens.Coordinator do
     """
   end
 
-  defp emit_telemetry(event, state, extra \\ %{}) do
+  @doc false
+  def emit_telemetry(event, state, extra \\ %{}) do
     :telemetry.execute(
       [:beamlens, :coordinator, event],
       %{system_time: System.system_time()},

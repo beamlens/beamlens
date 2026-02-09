@@ -21,18 +21,9 @@ defmodule Beamlens.Coordinator.Strategy do
 
         @impl true
         def handle_action(%MyTool{} = action, state, trace_id) do
-          # custom handling
           {:noreply, state, {:continue, :loop}}
         end
       end
-
-  ## Auto-routing
-
-  Strategies can optionally implement `handles?/1` for auto-routing:
-
-      @impl true
-      def handles?(%{reason: "pipeline:" <> _}), do: true
-      def handles?(_context), do: false
 
   """
 
@@ -40,8 +31,4 @@ defmodule Beamlens.Coordinator.Strategy do
               {:noreply, struct()}
               | {:noreply, struct(), {:continue, :loop}}
               | {:finish, struct()}
-
-  @callback handles?(context :: map()) :: boolean()
-
-  @optional_callbacks [handles?: 1]
 end

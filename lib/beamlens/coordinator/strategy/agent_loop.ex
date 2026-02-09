@@ -38,7 +38,7 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
         NotificationView.from_entry(id, entry)
       end)
 
-    emit_telemetry(:get_notifications, state, %{
+    Coordinator.emit_telemetry(:get_notifications, state, %{
       trace_id: trace_id,
       status: status,
       count: length(result)
@@ -56,6 +56,7 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     {:noreply, new_state, {:continue, :loop}}
   end
 
+  @impl true
   def handle_action(
         %UpdateNotificationStatuses{notification_ids: ids, status: status, reason: reason},
         state,
@@ -66,7 +67,7 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     result = %{updated: ids, status: status}
     result = if reason, do: Map.put(result, :reason, reason), else: result
 
-    emit_telemetry(:update_notification_statuses, state, %{
+    Coordinator.emit_telemetry(:update_notification_statuses, state, %{
       trace_id: trace_id,
       notification_ids: ids,
       status: status
@@ -85,6 +86,7 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     {:noreply, new_state, {:continue, :loop}}
   end
 
+  @impl true
   def handle_action(%ProduceInsight{} = tool, state, trace_id) do
     insight =
       Insight.new(%{
@@ -97,7 +99,7 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
         confidence: tool.confidence
       })
 
-    emit_telemetry(:insight_produced, state, %{
+    Coordinator.emit_telemetry(:insight_produced, state, %{
       trace_id: trace_id,
       insight: insight
     })
@@ -123,6 +125,7 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     {:noreply, new_state, {:continue, :loop}}
   end
 
+  @impl true
   def handle_action(%Done{}, state, trace_id) do
     running_operator_count = map_size(state.running_operators)
     unread_count = Coordinator.count_by_status(state.notifications, :unread)
@@ -130,7 +133,7 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     if running_operator_count > 0 do
       reject_with_running_operators(state, trace_id, :done_rejected, "complete analysis")
     else
-      emit_telemetry(:done, state, %{
+      Coordinator.emit_telemetry(:done, state, %{
         trace_id: trace_id,
         has_unread: unread_count > 0,
         unread_count: unread_count
@@ -140,8 +143,9 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     end
   end
 
+  @impl true
   def handle_action(%Think{thought: thought}, state, trace_id) do
-    emit_telemetry(:think, state, %{trace_id: trace_id, thought: thought})
+    Coordinator.emit_telemetry(:think, state, %{trace_id: trace_id, thought: thought})
 
     result = %{thought: thought, recorded: true}
     new_context = Utils.add_result(state.context, result)
@@ -156,8 +160,9 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     {:noreply, new_state, {:continue, :loop}}
   end
 
+  @impl true
   def handle_action(%InvokeOperators{skills: skills, context: context}, state, trace_id) do
-    emit_telemetry(:invoke_operators, state, %{trace_id: trace_id, skills: skills})
+    Coordinator.emit_telemetry(:invoke_operators, state, %{trace_id: trace_id, skills: skills})
 
     new_running =
       Enum.reduce(skills, state.running_operators, fn skill, acc ->
@@ -179,8 +184,9 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     {:noreply, new_state, {:continue, :loop}}
   end
 
+  @impl true
   def handle_action(%MessageOperator{skill: skill, message: message}, state, trace_id) do
-    emit_telemetry(:message_operator, state, %{trace_id: trace_id, skill: skill})
+    Coordinator.emit_telemetry(:message_operator, state, %{trace_id: trace_id, skill: skill})
 
     skill_module = Coordinator.resolve_skill_module(skill)
 
@@ -213,20 +219,17 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     {:noreply, new_state, {:continue, :loop}}
   end
 
+  @impl true
   def handle_action(%GetOperatorStatuses{}, state, trace_id) do
-    emit_telemetry(:get_operator_statuses, state, %{trace_id: trace_id})
+    Coordinator.emit_telemetry(:get_operator_statuses, state, %{trace_id: trace_id})
 
     statuses =
       Enum.map(state.running_operators, fn {pid, %{skill: skill, started_at: started_at}} ->
-        if Process.alive?(pid) do
-          try do
-            status = Operator.status(pid)
-            OperatorStatusView.alive(skill, status, started_at)
-          catch
-            :exit, _ -> OperatorStatusView.dead(skill)
-          end
-        else
-          OperatorStatusView.dead(skill)
+        try do
+          status = Operator.status(pid)
+          OperatorStatusView.alive(skill, status, started_at)
+        catch
+          :exit, _ -> OperatorStatusView.dead(skill)
         end
       end)
 
@@ -242,11 +245,12 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     {:noreply, new_state, {:continue, :loop}}
   end
 
+  @impl true
   def handle_action(%Schedule{ms: ms, reason: reason}, state, trace_id) do
     if map_size(state.running_operators) > 0 do
       reject_with_running_operators(state, trace_id, :schedule_rejected, "schedule follow-up")
     else
-      emit_telemetry(:schedule, state, %{
+      Coordinator.emit_telemetry(:schedule, state, %{
         trace_id: trace_id,
         ms: ms,
         reason: reason
@@ -258,8 +262,9 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     end
   end
 
+  @impl true
   def handle_action(%Wait{ms: ms}, state, trace_id) do
-    emit_telemetry(:wait, state, %{trace_id: trace_id, ms: ms})
+    Coordinator.emit_telemetry(:wait, state, %{trace_id: trace_id, ms: ms})
 
     Process.send_after(self(), :continue_after_wait, ms)
 
@@ -278,7 +283,7 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
   defp reject_with_running_operators(state, trace_id, telemetry_event, action_name) do
     running_operator_count = map_size(state.running_operators)
 
-    emit_telemetry(telemetry_event, state, %{
+    Coordinator.emit_telemetry(telemetry_event, state, %{
       trace_id: trace_id,
       running_operator_count: running_operator_count
     })
@@ -303,19 +308,5 @@ defmodule Beamlens.Coordinator.Strategy.AgentLoop do
     }
 
     {:noreply, new_state, {:continue, :loop}}
-  end
-
-  defp emit_telemetry(event, state, extra) do
-    :telemetry.execute(
-      [:beamlens, :coordinator, event],
-      %{system_time: System.system_time()},
-      Map.merge(
-        %{
-          running: state.status == :running,
-          notification_count: map_size(state.notifications)
-        },
-        extra
-      )
-    )
   end
 end
