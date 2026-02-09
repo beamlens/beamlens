@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Coordinator no longer gets stuck in `:running` when the LLM calls `done()` with unread notifications remaining
+- `mix compile` no longer fails in prod when `igniter` is not a dependency
 
 ## [0.3.0] - 2026-01-25
 
