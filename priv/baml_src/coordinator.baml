@@ -69,12 +69,18 @@ class CoordinatorWait {
   ms int @description("Milliseconds to wait before continuing")
 }
 
+class CoordinatorSchedule {
+  intent "schedule"
+  ms int @description("Milliseconds to wait before re-invoking the coordinator")
+  reason string @description("Context for the follow-up investigation")
+}
+
 // ============================================================================
 // COORDINATOR FUNCTION
 // ============================================================================
 // Runs until LLM calls done() to signal completion.
 
-function CoordinatorRun(messages: Message[], operator_descriptions: string, available_skills: string) -> CoordinatorGetNotifications | CoordinatorUpdateNotificationStatuses | CoordinatorProduceInsight | CoordinatorDone | CoordinatorThink | CoordinatorInvokeOperators | CoordinatorMessageOperator | CoordinatorGetOperatorStatuses | CoordinatorWait {
+function CoordinatorRun(messages: Message[], operator_descriptions: string, available_skills: string) -> CoordinatorGetNotifications | CoordinatorUpdateNotificationStatuses | CoordinatorProduceInsight | CoordinatorDone | CoordinatorThink | CoordinatorInvokeOperators | CoordinatorMessageOperator | CoordinatorGetOperatorStatuses | CoordinatorWait | CoordinatorSchedule {
   client Default
   prompt #"
 {{ _.role("system") }}
@@ -148,6 +154,14 @@ Signal that you have completed your analysis. Use when:
 - You've produced all relevant insights
 - You're ready to return results
 
+### schedule(ms, reason)
+Schedule a follow-up investigation after the specified delay. Use when:
+- You've finished the current analysis but want to check back later
+- Trends need time to develop before re-evaluation
+- You want to monitor whether a condition resolves on its own
+This completes the current investigation (like done) and schedules a new one.
+All operators must be complete before scheduling.
+
 ### think(thought)
 Use this to reason through complex decisions before acting. Your thought
 will be recorded but no action is taken. Good for:
@@ -179,6 +193,7 @@ will be recorded but no action is taken. Good for:
 - wait
 - think
 - done
+- schedule
 
 Do NOT invent tool names like "acknowledge_notification" - use "update_notification_statuses" instead.
 
@@ -341,6 +356,31 @@ test CoordinatorRun_InsightHypothesisGroundedFalseForSingleSource {
     this.intent == "produce_insight" and
     this.hypothesis_grounded == false
   }})
+}
+
+test CoordinatorRun_SchedulesFollowUp {
+  functions [CoordinatorRun]
+  args {
+    messages [
+      { role "user", content "Reason: Memory usage trending upward" },
+      { role "assistant", content #"{"intent":"get_notifications"}"# },
+      { role "user", content "[]" },
+      { role "assistant", content #"{"intent":"invoke_operators","skills":["Beamlens.Skill.Beam"]}"# },
+      { role "user", content #"{"started":["Beamlens.Skill.Beam"],"count":1}"# },
+      { role "assistant", content #"{"intent":"wait","ms":5000}"# },
+      { role "user", content #"{"waited":5000}"# },
+      { role "assistant", content #"{"intent":"get_operator_statuses"}"# },
+      { role "user", content "[]" },
+      { role "assistant", content #"{"intent":"get_notifications"}"# },
+      { role "user", content #"[{"id":"n1","status":"unread","operator":"Beamlens.Skill.Beam","context":"Node running for 2 days","observation":"Memory at 72%, up from 68% an hour ago","severity":"info"}]"# },
+      { role "assistant", content #"{"intent":"update_notification_statuses","notification_ids":["n1"],"status":"acknowledged"}"# },
+      { role "user", content #"{"updated":["n1"]}"# },
+      { role "user", content "This is a non-critical upward trend. Rather than concluding now, schedule a follow-up to check whether memory continues rising. Use the schedule tool." }
+    ]
+    operator_descriptions "- Beamlens.Skill.Beam: BEAM VM health: memory, processes, schedulers, atoms"
+    available_skills "Beamlens.Skill.Beam"
+  }
+  @@assert(schedules_followup, {{ this.intent == "schedule" }})
 }
 
 test CoordinatorRun_InsightHypothesisGroundedTrueForCorroboratedHypotheses {

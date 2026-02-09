@@ -12,6 +12,7 @@ defmodule Beamlens.Coordinator.Tools do
   - MessageOperator: Send message to running operator, get LLM response
   - GetOperatorStatuses: Check status of running operators
   - Wait: Pause loop for specified duration
+  - Schedule: Schedule a follow-up investigation after a delay
   """
 
   defmodule GetNotifications do
@@ -117,6 +118,17 @@ defmodule Beamlens.Coordinator.Tools do
           }
   end
 
+  defmodule Schedule do
+    @moduledoc false
+    defstruct [:intent, :ms, :reason]
+
+    @type t :: %__MODULE__{
+            intent: String.t(),
+            ms: pos_integer(),
+            reason: String.t()
+          }
+  end
+
   @doc """
   Returns a Zoi union schema for parsing coordinator tool responses.
 
@@ -132,7 +144,8 @@ defmodule Beamlens.Coordinator.Tools do
       invoke_operators_schema(),
       message_operator_schema(),
       get_operator_statuses_schema(),
-      wait_schema()
+      wait_schema(),
+      schedule_schema()
     ])
   end
 
@@ -220,6 +233,15 @@ defmodule Beamlens.Coordinator.Tools do
       ms: Zoi.integer()
     })
     |> Zoi.transform(fn data -> {:ok, struct!(Wait, data)} end)
+  end
+
+  defp schedule_schema do
+    Zoi.object(%{
+      intent: Zoi.literal("schedule"),
+      ms: Zoi.integer(),
+      reason: Zoi.string()
+    })
+    |> Zoi.transform(fn data -> {:ok, struct!(Schedule, data)} end)
   end
 
   defp atomize_status("unread"), do: {:ok, :unread}

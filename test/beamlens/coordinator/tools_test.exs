@@ -10,6 +10,7 @@ defmodule Beamlens.Coordinator.ToolsTest do
     InvokeOperators,
     MessageOperator,
     ProduceInsight,
+    Schedule,
     Think,
     UpdateNotificationStatuses,
     Wait
@@ -278,6 +279,32 @@ defmodule Beamlens.Coordinator.ToolsTest do
       assert {:ok, result} = Zoi.parse(schema, input)
       assert %Wait{} = result
       assert result.ms == 5000
+    end
+  end
+
+  describe "schema/0 - Schedule" do
+    test "parses schedule with ms and reason" do
+      schema = Tools.schema()
+      input = %{intent: "schedule", ms: 60_000, reason: "check back"}
+
+      assert {:ok, result} = Zoi.parse(schema, input)
+      assert %Schedule{} = result
+      assert result.ms == 60_000
+      assert result.reason == "check back"
+    end
+
+    test "rejects schedule with missing ms" do
+      schema = Tools.schema()
+      input = %{intent: "schedule", reason: "check back"}
+
+      assert {:error, _} = Zoi.parse(schema, input)
+    end
+
+    test "rejects schedule with missing reason" do
+      schema = Tools.schema()
+      input = %{intent: "schedule", ms: 60_000}
+
+      assert {:error, _} = Zoi.parse(schema, input)
     end
   end
 

@@ -30,7 +30,7 @@ graph TD
 
 \* Conditional children - started based on enabled skills
 
-Operators and Coordinator are static, always-running processes invoked via `Beamlens.Operator.run/2` or `Beamlens.Coordinator.run/2`.
+Operators and Coordinator are static, always-running processes invoked via `Beamlens.Operator.run/2` or `Beamlens.Coordinator.run/2`. The Coordinator can also schedule self-invocations for deferred follow-up investigations.
 
 ## Inter-Process Communication
 
@@ -184,6 +184,14 @@ User
   ├─ {:ok, result}
 ```
 
+### Scheduled Self-Invocation
+
+The Coordinator can schedule follow-up investigations via the `schedule` tool.
+The LLM calls `schedule(ms, reason)` to complete the current investigation and
+set a timer. When the timer fires and the Coordinator is idle, a new
+investigation starts with no caller — results are observable via telemetry only.
+Manual invocations or queued items cancel any pending schedule.
+
 ### Alternative: Standalone Operators
 
 Operators can run without a coordinator:
@@ -283,6 +291,7 @@ The Coordinator is a GenServer that correlates operator notifications into unifi
 | `message_operator` | Send message to running operator, get LLM response |
 | `get_operator_statuses` | Check status of running operators |
 | `wait` | Pause loop for specified duration |
+| `schedule` | Schedule a follow-up investigation after a delay |
 
 ### Correlation Types
 
@@ -359,6 +368,9 @@ Operators and the Coordinator emit telemetry events for observability. Key event
 | `[:beamlens, :coordinator, :iteration_start]` | Analysis loop iteration began |
 | `[:beamlens, :coordinator, :insight_produced]` | Insight created from correlated notifications |
 | `[:beamlens, :coordinator, :done]` | Analysis loop completed |
+| `[:beamlens, :coordinator, :schedule]` | Follow-up investigation scheduled |
+| `[:beamlens, :coordinator, :schedule_rejected]` | Schedule rejected (operators still running) |
+| `[:beamlens, :coordinator, :scheduled_reinvoke]` | Scheduled timer fired, re-invocation started |
 | `[:beamlens, :llm, :start]` | LLM call started |
 | `[:beamlens, :llm, :stop]` | LLM call completed |
 | `[:beamlens, :compaction, :start]` | Context compaction started |
