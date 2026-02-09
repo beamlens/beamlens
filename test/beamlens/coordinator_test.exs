@@ -123,7 +123,7 @@ defmodule Beamlens.CoordinatorTest do
     end
   end
 
-  defp await_coordinator_running(timeout \\ 1_000) do
+  defp attach_coordinator_running_handler do
     handler_id = {make_ref(), :await_running}
 
     :telemetry.attach(
@@ -135,6 +135,10 @@ defmodule Beamlens.CoordinatorTest do
       %{pid: self()}
     )
 
+    handler_id
+  end
+
+  defp await_coordinator_running(handler_id, timeout \\ 1_000) do
     result =
       receive do
         :coordinator_running -> :ok
@@ -2507,12 +2511,14 @@ defmodule Beamlens.CoordinatorTest do
         %{state | client: blocking_client()}
       end)
 
+      handler_id = attach_coordinator_running_handler()
+
       caller_pid =
         spawn(fn ->
           Coordinator.run(pid, %{reason: "test"}, deadline: 60_000, timeout: 60_000)
         end)
 
-      await_coordinator_running()
+      await_coordinator_running(handler_id)
 
       Process.exit(caller_pid, :kill)
 
@@ -2546,12 +2552,14 @@ defmodule Beamlens.CoordinatorTest do
         %{state | client: blocking_client()}
       end)
 
+      handler_id = attach_coordinator_running_handler()
+
       task =
         Task.async(fn ->
           Coordinator.run(pid, %{reason: "test"}, deadline: 60_000, timeout: 60_000)
         end)
 
-      await_coordinator_running()
+      await_coordinator_running(handler_id)
 
       assert :ok = Coordinator.cancel(pid)
 
@@ -2649,13 +2657,14 @@ defmodule Beamlens.CoordinatorTest do
       end)
 
       parent = self()
+      handler_id = attach_coordinator_running_handler()
 
       task1 =
         Task.async(fn ->
           Coordinator.run(pid, %{reason: "first"}, deadline: 60_000, timeout: 60_000)
         end)
 
-      await_coordinator_running()
+      await_coordinator_running(handler_id)
 
       _task2 =
         Task.async(fn ->
