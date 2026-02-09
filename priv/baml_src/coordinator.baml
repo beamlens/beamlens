@@ -69,12 +69,18 @@ class CoordinatorWait {
   ms int @description("Milliseconds to wait before continuing")
 }
 
+class CoordinatorSchedule {
+  intent "schedule"
+  ms int @description("Milliseconds to wait before re-invoking the coordinator")
+  reason string @description("Context for the follow-up investigation")
+}
+
 // ============================================================================
 // COORDINATOR FUNCTION
 // ============================================================================
 // Runs until LLM calls done() to signal completion.
 
-function CoordinatorRun(messages: Message[], operator_descriptions: string, available_skills: string) -> CoordinatorGetNotifications | CoordinatorUpdateNotificationStatuses | CoordinatorProduceInsight | CoordinatorDone | CoordinatorThink | CoordinatorInvokeOperators | CoordinatorMessageOperator | CoordinatorGetOperatorStatuses | CoordinatorWait {
+function CoordinatorRun(messages: Message[], operator_descriptions: string, available_skills: string) -> CoordinatorGetNotifications | CoordinatorUpdateNotificationStatuses | CoordinatorProduceInsight | CoordinatorDone | CoordinatorThink | CoordinatorInvokeOperators | CoordinatorMessageOperator | CoordinatorGetOperatorStatuses | CoordinatorWait | CoordinatorSchedule {
   client Default
   prompt #"
 {{ _.role("system") }}
@@ -148,6 +154,14 @@ Signal that you have completed your analysis. Use when:
 - You've produced all relevant insights
 - You're ready to return results
 
+### schedule(ms, reason)
+Schedule a follow-up investigation after the specified delay. Use when:
+- You've finished the current analysis but want to check back later
+- Trends need time to develop before re-evaluation
+- You want to monitor whether a condition resolves on its own
+This completes the current investigation (like done) and schedules a new one.
+All operators must be complete before scheduling.
+
 ### think(thought)
 Use this to reason through complex decisions before acting. Your thought
 will be recorded but no action is taken. Good for:
@@ -179,6 +193,7 @@ will be recorded but no action is taken. Good for:
 - wait
 - think
 - done
+- schedule
 
 Do NOT invent tool names like "acknowledge_notification" - use "update_notification_statuses" instead.
 

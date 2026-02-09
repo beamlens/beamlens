@@ -2638,6 +2638,285 @@ defmodule Beamlens.CoordinatorTest do
     end
   end
 
+  describe "handle_action - Schedule" do
+    test "schedule finishes and goes idle" do
+      {:ok, pid} = start_coordinator()
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      caller_ref = make_ref()
+      caller = {self(), caller_ref}
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "test-trace",
+            caller: caller,
+            iteration: 3
+        }
+      end)
+
+      action_map = %{intent: "schedule", ms: 60_000, reason: "check back later"}
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      assert_receive {^caller_ref, {:ok, %{insights: [], operator_results: []}}}, 1000
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+
+      stop_coordinator(pid)
+    end
+
+    test "schedule rejected when operators running" do
+      {:ok, pid} = start_coordinator()
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      fake_operator_pid = spawn(fn -> :timer.sleep(:infinity) end)
+      fake_ref = make_ref()
+
+      :sys.replace_state(pid, fn state ->
+        running_operators = %{
+          fake_operator_pid => %{
+            skill: Beamlens.Skill.Beam,
+            ref: fake_ref,
+            started_at: DateTime.utc_now()
+          }
+        }
+
+        %{
+          state
+          | running_operators: running_operators,
+            status: :running,
+            pending_task: task,
+            pending_trace_id: "test-trace",
+            iteration: 5,
+            client: blocking_client()
+        }
+      end)
+
+      action_map = %{intent: "schedule", ms: 60_000, reason: "check back"}
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      state = :sys.get_state(pid)
+      assert state.status == :running
+      assert state.iteration == 6
+
+      last_message = List.last(state.context.messages)
+      content_text = extract_content_text(last_message.content)
+      assert content_text =~ "Cannot schedule"
+
+      Process.exit(fake_operator_pid, :kill)
+      stop_coordinator(pid)
+    end
+
+    test "scheduled reinvoke fires when idle" do
+      {:ok, pid} = start_coordinator()
+
+      handler_id = attach_coordinator_running_handler()
+
+      send(pid, {:scheduled_reinvoke, "follow-up check"})
+
+      await_coordinator_running(handler_id)
+
+      state = :sys.get_state(pid)
+      assert state.status == :running
+      assert state.caller == nil
+      assert state.iteration == 0
+
+      stop_coordinator(pid)
+    end
+
+    test "scheduled reinvoke discarded when running" do
+      {:ok, pid} = start_coordinator()
+
+      :sys.replace_state(pid, fn state ->
+        %{state | status: :running, client: blocking_client()}
+      end)
+
+      send(pid, {:scheduled_reinvoke, "should be discarded"})
+
+      state = :sys.get_state(pid)
+      assert state.status == :running
+
+      stop_coordinator(pid)
+    end
+
+    test "manual invoke cancels pending schedule" do
+      {:ok, pid} = start_coordinator()
+
+      timer_ref = Process.send_after(pid, {:scheduled_reinvoke, "old reason"}, 60_000)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | scheduled_timer_ref: timer_ref, client: blocking_client()}
+      end)
+
+      handler_id = attach_coordinator_running_handler()
+
+      spawn(fn ->
+        Coordinator.run(pid, %{reason: "manual invoke"}, deadline: 60_000, timeout: 60_000)
+      end)
+
+      await_coordinator_running(handler_id)
+
+      state = :sys.get_state(pid)
+      assert state.scheduled_timer_ref == nil
+      assert Process.read_timer(timer_ref) == false
+
+      stop_coordinator(pid)
+    end
+
+    test "schedule emits telemetry" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :schedule},
+        [:beamlens, :coordinator, :schedule],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :schedule, metadata})
+        end,
+        nil
+      )
+
+      {:ok, pid} = start_coordinator()
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | status: :running, pending_task: task, pending_trace_id: "test-trace"}
+      end)
+
+      action_map = %{intent: "schedule", ms: 30_000, reason: "recheck memory"}
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      assert_receive {:telemetry, :schedule, %{ms: 30_000, reason: "recheck memory"}}, 1000
+
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :schedule})
+    end
+
+    test "full end-to-end: schedule -> timer fires -> reinvoke completes" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :scheduled_reinvoke},
+        [:beamlens, :coordinator, :scheduled_reinvoke],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :scheduled_reinvoke, metadata})
+        end,
+        nil
+      )
+
+      done_action = %Beamlens.Coordinator.Tools.Done{intent: "done"}
+
+      client =
+        Puck.Test.mock_client(
+          [
+            %Beamlens.Coordinator.Tools.Schedule{
+              intent: "schedule",
+              ms: 10,
+              reason: "quick recheck"
+            },
+            done_action
+          ],
+          default: done_action
+        )
+
+      {:ok, pid} =
+        Coordinator.start_link(
+          name: :"test_coord_schedule_e2e_#{:erlang.unique_integer([:positive])}",
+          puck_client: client
+        )
+
+      {:ok, _result} = Coordinator.run(pid, %{reason: "initial"}, timeout: 5_000)
+
+      assert_receive {:telemetry, :scheduled_reinvoke, %{reason: "quick recheck"}}, 2_000
+
+      wait_until(fn ->
+        state = :sys.get_state(pid)
+        state.status == :idle
+      end)
+
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :scheduled_reinvoke})
+    end
+
+    test "scheduled reinvoke with no caller completes without crash" do
+      done_action = %Beamlens.Coordinator.Tools.Done{intent: "done"}
+
+      client =
+        Puck.Test.mock_client(
+          [done_action],
+          default: done_action
+        )
+
+      {:ok, pid} =
+        Coordinator.start_link(
+          name: :"test_coord_schedule_no_caller_#{:erlang.unique_integer([:positive])}",
+          puck_client: client
+        )
+
+      send(pid, {:scheduled_reinvoke, "no caller test"})
+
+      wait_until(fn ->
+        state = :sys.get_state(pid)
+        state.status == :idle
+      end)
+
+      assert Process.alive?(pid)
+
+      stop_coordinator(pid)
+    end
+
+    test "queued invocation cancels schedule timer" do
+      done_action = %Beamlens.Coordinator.Tools.Done{intent: "done"}
+
+      client =
+        Puck.Test.mock_client(
+          [done_action, done_action],
+          default: done_action
+        )
+
+      {:ok, pid} =
+        Coordinator.start_link(
+          name: :"test_coord_schedule_queue_#{:erlang.unique_integer([:positive])}",
+          puck_client: client
+        )
+
+      timer_ref = Process.send_after(pid, {:scheduled_reinvoke, "old reason"}, 60_000)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | scheduled_timer_ref: timer_ref}
+      end)
+
+      parent = self()
+
+      spawn(fn ->
+        result = Coordinator.run(pid, %{reason: "first"}, timeout: 5_000)
+        send(parent, {:first_result, result})
+      end)
+
+      spawn(fn ->
+        result = Coordinator.run(pid, %{reason: "second"}, timeout: 5_000)
+        send(parent, {:second_result, result})
+      end)
+
+      assert_receive {:first_result, {:ok, _}}, 5_000
+      assert_receive {:second_result, {:ok, _}}, 5_000
+
+      assert Process.read_timer(timer_ref) == false
+
+      stop_coordinator(pid)
+    end
+  end
+
   describe "queued invocations after cancellation" do
     test "queued invocations proceed after cancellation" do
       done_client =

@@ -213,6 +213,18 @@ defmodule Beamlens.Telemetry do
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{running: boolean, notification_count: integer}`
 
+  * `[:beamlens, :coordinator, :schedule]` - Coordinator scheduled a follow-up investigation
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), ms: integer, reason: String.t()}`
+
+  * `[:beamlens, :coordinator, :schedule_rejected]` - Schedule rejected because operators are still running
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), running_operator_count: integer}`
+
+  * `[:beamlens, :coordinator, :scheduled_reinvoke]` - Coordinator re-invoked by a scheduled timer
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{reason: String.t()}`
+
   ## Compaction Events
 
   * `[:beamlens, :compaction, :start]` - Context compaction starting
@@ -295,6 +307,9 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :coordinator, :deadline_exceeded],
       [:beamlens, :coordinator, :caller_down],
       [:beamlens, :coordinator, :cancelled],
+      [:beamlens, :coordinator, :schedule],
+      [:beamlens, :coordinator, :schedule_rejected],
+      [:beamlens, :coordinator, :scheduled_reinvoke],
       [:beamlens, :compaction, :start],
       [:beamlens, :compaction, :stop]
     ]

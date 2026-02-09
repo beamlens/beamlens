@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coordinator enforces a server-side deadline to stop runaway investigations when the caller times out
 - Coordinator monitors the caller process and cancels if the caller exits
 - `Beamlens.Coordinator.cancel/1` to gracefully halt a running investigation
+- `Schedule` coordinator tool for deferred re-invocation after the current analysis completes
 
 ### Fixed
 

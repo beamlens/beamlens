@@ -47,6 +47,7 @@ defmodule Beamlens.Coordinator do
     InvokeOperators,
     MessageOperator,
     ProduceInsight,
+    Schedule,
     Think,
     UpdateNotificationStatuses,
     Wait
@@ -70,6 +71,7 @@ defmodule Beamlens.Coordinator do
     :skills,
     :caller_monitor_ref,
     :deadline_timer_ref,
+    :scheduled_timer_ref,
     max_iterations: 25,
     notifications: %{},
     iteration: 0,
@@ -273,6 +275,7 @@ defmodule Beamlens.Coordinator do
     end
 
     cancel_deadline_timer(state)
+    cancel_scheduled_timer(state)
     demonitor_caller(state)
     :ok
   end
@@ -473,6 +476,34 @@ defmodule Beamlens.Coordinator do
     end
   end
 
+  def handle_info({:scheduled_reinvoke, reason}, %{status: :idle} = state) do
+    emit_telemetry(:scheduled_reinvoke, state, %{reason: reason})
+
+    deadline_timer_ref = Process.send_after(self(), :deadline_exceeded, 300_000)
+    initial_context = build_initial_context(%{reason: reason})
+
+    new_state = %{
+      state
+      | status: :running,
+        context: initial_context,
+        notifications: %{},
+        insights: [],
+        operator_results: [],
+        running_operators: %{},
+        iteration: 0,
+        caller: nil,
+        caller_monitor_ref: nil,
+        deadline_timer_ref: deadline_timer_ref,
+        scheduled_timer_ref: nil
+    }
+
+    {:noreply, new_state, {:continue, :loop}}
+  end
+
+  def handle_info({:scheduled_reinvoke, _reason}, state) do
+    {:noreply, %{state | scheduled_timer_ref: nil}}
+  end
+
   def handle_info(:continue_after_wait, state) do
     {:noreply, state, {:continue, :loop}}
   end
@@ -527,9 +558,10 @@ defmodule Beamlens.Coordinator do
   end
 
   def handle_call({:invoke, context, notifications, opts}, from, %{status: :idle} = state) do
+    cancel_scheduled_timer(state)
     deadline = Keyword.get(opts, :deadline, Keyword.get(opts, :timeout, 300_000))
     state = prepare_invocation(state, context, notifications, from, deadline)
-    {:noreply, %{state | status: :running}, {:continue, :loop}}
+    {:noreply, %{state | status: :running, scheduled_timer_ref: nil}, {:continue, :loop}}
   end
 
   def handle_call({:invoke, context, notifications, opts}, from, %{status: :running} = state) do
@@ -777,6 +809,48 @@ defmodule Beamlens.Coordinator do
     {:noreply, new_state, {:continue, :loop}}
   end
 
+  defp handle_action(%Schedule{ms: ms, reason: reason}, state, trace_id) do
+    running_operator_count = map_size(state.running_operators)
+
+    if running_operator_count > 0 do
+      emit_telemetry(:schedule_rejected, state, %{
+        trace_id: trace_id,
+        running_operator_count: running_operator_count
+      })
+
+      running_skills =
+        state.running_operators
+        |> Map.values()
+        |> Enum.map_join(", ", &inspect(&1.skill))
+
+      error_message =
+        "Cannot schedule follow-up: #{running_operator_count} operator(s) still running (#{running_skills}). " <>
+          "You must wait for all operators to complete before calling schedule(). " <>
+          "Use get_operator_statuses() to check their progress, or wait() to give them time."
+
+      new_context = Utils.add_result(state.context, %{error: error_message})
+
+      new_state = %{
+        state
+        | context: new_context,
+          iteration: state.iteration + 1,
+          pending_trace_id: nil
+      }
+
+      {:noreply, new_state, {:continue, :loop}}
+    else
+      emit_telemetry(:schedule, state, %{
+        trace_id: trace_id,
+        ms: ms,
+        reason: reason
+      })
+
+      timer_ref = Process.send_after(self(), {:scheduled_reinvoke, reason}, ms)
+
+      finish(%{state | scheduled_timer_ref: timer_ref})
+    end
+  end
+
   defp handle_action(%Wait{ms: ms}, state, trace_id) do
     emit_telemetry(:wait, state, %{trace_id: trace_id, ms: ms})
 
@@ -837,6 +911,8 @@ defmodule Beamlens.Coordinator do
   defp dequeue_or_idle(state) do
     case :queue.out(state.invocation_queue) do
       {{:value, {next_caller, next_context, next_notifications, next_opts}}, remaining_queue} ->
+        cancel_scheduled_timer(state)
+
         deadline =
           Keyword.get(next_opts, :deadline, Keyword.get(next_opts, :timeout, 300_000))
 
@@ -845,6 +921,7 @@ defmodule Beamlens.Coordinator do
           |> prepare_invocation(next_context, next_notifications, next_caller, deadline)
           |> Map.put(:invocation_queue, remaining_queue)
           |> Map.put(:status, :running)
+          |> Map.put(:scheduled_timer_ref, nil)
 
         {:noreply, new_state, {:continue, :loop}}
 
@@ -900,6 +977,12 @@ defmodule Beamlens.Coordinator do
   end
 
   defp cancel_deadline_timer(_state), do: :ok
+
+  defp cancel_scheduled_timer(%{scheduled_timer_ref: ref}) when is_reference(ref) do
+    Process.cancel_timer(ref)
+  end
+
+  defp cancel_scheduled_timer(_state), do: :ok
 
   defp demonitor_caller(%{caller_monitor_ref: ref}) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
