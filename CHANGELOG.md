@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Coordinator no longer crashes when the LLM returns an invalid or unparseable tool selection
+
 ## [0.3.1] - 2026-02-09
 
 ### Fixed

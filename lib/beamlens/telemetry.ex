@@ -153,6 +153,10 @@ defmodule Beamlens.Telemetry do
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{reason: atom()}`
 
+  * `[:beamlens, :coordinator, :invalid_intent]` - LLM returned an unparseable tool selection
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{trace_id: String.t(), reason: term()}`
+
   * `[:beamlens, :coordinator, :llm_error]` - Coordinator LLM call failed
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{trace_id: String.t(), reason: term()}`
@@ -264,6 +268,7 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :coordinator, :insight_produced],
       [:beamlens, :coordinator, :done],
       [:beamlens, :coordinator, :loop_stopped],
+      [:beamlens, :coordinator, :invalid_intent],
       [:beamlens, :coordinator, :llm_error],
       [:beamlens, :coordinator, :unexpected_message],
       [:beamlens, :coordinator, :invoke_operators],
