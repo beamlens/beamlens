@@ -358,6 +358,31 @@ test CoordinatorRun_InsightHypothesisGroundedFalseForSingleSource {
   }})
 }
 
+test CoordinatorRun_SchedulesFollowUp {
+  functions [CoordinatorRun]
+  args {
+    messages [
+      { role "user", content "Reason: Memory usage trending upward" },
+      { role "assistant", content #"{"intent":"get_notifications"}"# },
+      { role "user", content "[]" },
+      { role "assistant", content #"{"intent":"invoke_operators","skills":["Beamlens.Skill.Beam"]}"# },
+      { role "user", content #"{"started":["Beamlens.Skill.Beam"],"count":1}"# },
+      { role "assistant", content #"{"intent":"wait","ms":5000}"# },
+      { role "user", content #"{"waited":5000}"# },
+      { role "assistant", content #"{"intent":"get_operator_statuses"}"# },
+      { role "user", content "[]" },
+      { role "assistant", content #"{"intent":"get_notifications"}"# },
+      { role "user", content #"[{"id":"n1","status":"unread","operator":"Beamlens.Skill.Beam","context":"Node running for 2 days","observation":"Memory at 72%, up from 68% an hour ago","severity":"info"}]"# },
+      { role "assistant", content #"{"intent":"update_notification_statuses","notification_ids":["n1"],"status":"acknowledged"}"# },
+      { role "user", content #"{"updated":["n1"]}"# },
+      { role "user", content "This is a non-critical upward trend. Rather than concluding now, schedule a follow-up to check whether memory continues rising. Use the schedule tool." }
+    ]
+    operator_descriptions "- Beamlens.Skill.Beam: BEAM VM health: memory, processes, schedulers, atoms"
+    available_skills "Beamlens.Skill.Beam"
+  }
+  @@assert(schedules_followup, {{ this.intent == "schedule" }})
+}
+
 test CoordinatorRun_InsightHypothesisGroundedTrueForCorroboratedHypotheses {
   functions [CoordinatorRun]
   args {

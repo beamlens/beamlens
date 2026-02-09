@@ -2671,6 +2671,18 @@ defmodule Beamlens.CoordinatorTest do
     end
 
     test "schedule rejected when operators running" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :schedule_rejected},
+        [:beamlens, :coordinator, :schedule_rejected],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :schedule_rejected, metadata})
+        end,
+        nil
+      )
+
       {:ok, pid} = start_coordinator()
 
       task = Task.async(fn -> :ok end)
@@ -2710,11 +2722,26 @@ defmodule Beamlens.CoordinatorTest do
       content_text = extract_content_text(last_message.content)
       assert content_text =~ "Cannot schedule"
 
+      assert_receive {:telemetry, :schedule_rejected, %{running_operator_count: 1}}
+
       Process.exit(fake_operator_pid, :kill)
       stop_coordinator(pid)
+      :telemetry.detach({ref, :schedule_rejected})
     end
 
     test "scheduled reinvoke fires when idle" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :scheduled_reinvoke},
+        [:beamlens, :coordinator, :scheduled_reinvoke],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :scheduled_reinvoke, metadata})
+        end,
+        nil
+      )
+
       {:ok, pid} = start_coordinator()
 
       handler_id = attach_coordinator_running_handler()
@@ -2728,7 +2755,10 @@ defmodule Beamlens.CoordinatorTest do
       assert state.caller == nil
       assert state.iteration == 0
 
+      assert_receive {:telemetry, :scheduled_reinvoke, %{reason: "follow-up check"}}
+
       stop_coordinator(pid)
+      :telemetry.detach({ref, :scheduled_reinvoke})
     end
 
     test "scheduled reinvoke discarded when running" do
