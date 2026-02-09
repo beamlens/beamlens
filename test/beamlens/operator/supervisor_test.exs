@@ -250,6 +250,83 @@ defmodule Beamlens.Operator.SupervisorTest do
     end
   end
 
+  describe "list_operators/0 timeout" do
+    setup do
+      :persistent_term.erase({Beamlens.Supervisor, :skills})
+      start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
+
+      on_exit(fn ->
+        :persistent_term.erase({Beamlens.Supervisor, :skills})
+      end)
+
+      :ok
+    end
+
+    test "returns busy status when operator is unresponsive" do
+      :persistent_term.put({Beamlens.Supervisor, :skills}, [TestSkill])
+
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          skills: [TestSkill]
+        )
+
+      [{pid, _}] = Registry.lookup(Beamlens.OperatorRegistry, TestSkill)
+
+      :sys.suspend(pid)
+
+      task =
+        Task.async(fn ->
+          OperatorSupervisor.list_operators()
+        end)
+
+      operators = Task.await(task, 10_000)
+
+      assert length(operators) == 1
+      [operator] = operators
+      assert operator.state == :busy
+      assert operator.running == true
+
+      :sys.resume(pid)
+      Supervisor.stop(supervisor)
+    end
+  end
+
+  describe "operator_status/1 timeout" do
+    setup do
+      :persistent_term.erase({Beamlens.Supervisor, :skills})
+      start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
+
+      on_exit(fn ->
+        :persistent_term.erase({Beamlens.Supervisor, :skills})
+      end)
+
+      :ok
+    end
+
+    test "returns error tuple when operator is unresponsive" do
+      {:ok, supervisor} =
+        OperatorSupervisor.start_link(
+          name: nil,
+          skills: [TestSkill]
+        )
+
+      [{pid, _}] = Registry.lookup(Beamlens.OperatorRegistry, TestSkill)
+
+      :sys.suspend(pid)
+
+      task =
+        Task.async(fn ->
+          OperatorSupervisor.operator_status(TestSkill)
+        end)
+
+      assert {:error, :timeout} = Task.await(task, 10_000)
+
+      :sys.resume(pid)
+      Supervisor.stop(supervisor)
+    end
+  end
+
   describe "resolve_skill/1" do
     test "resolves valid skill module" do
       assert {:ok, TestSkill} = OperatorSupervisor.resolve_skill(TestSkill)
