@@ -1272,6 +1272,106 @@ defmodule Beamlens.CoordinatorTest do
     end
   end
 
+  describe "handle_action - MessageOperator timeout" do
+    test "coordinator survives when operator exits during message" do
+      {:ok, pid} = start_coordinator()
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      fake_operator_pid =
+        spawn(fn ->
+          receive do
+            {:"$gen_call", _from, {:message, _msg}} ->
+              Process.exit(self(), :kill)
+          end
+        end)
+
+      :sys.replace_state(pid, fn state ->
+        running_operators =
+          Map.put(state.running_operators, fake_operator_pid, %{
+            skill: Beamlens.Skill.Beam,
+            ref: make_ref(),
+            started_at: DateTime.utc_now()
+          })
+
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "test-trace",
+            running_operators: running_operators,
+            client: blocking_client()
+        }
+      end)
+
+      action_map = %{
+        intent: "message_operator",
+        skill: "Beamlens.Skill.Beam",
+        message: "test message"
+      }
+
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      state = :sys.get_state(pid)
+      assert Process.alive?(pid)
+
+      last_message = List.last(state.context.messages)
+      content_text = extract_content_text(last_message.content)
+      assert content_text =~ "timed out"
+
+      stop_coordinator(pid)
+    end
+  end
+
+  describe "handle_action - GetOperatorStatuses timeout" do
+    test "coordinator survives when operator exits during status check" do
+      {:ok, pid} = start_coordinator()
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      fake_operator_pid =
+        spawn(fn ->
+          receive do
+            {:"$gen_call", _from, :status} ->
+              Process.exit(self(), :kill)
+          end
+        end)
+
+      :sys.replace_state(pid, fn state ->
+        running_operators =
+          Map.put(state.running_operators, fake_operator_pid, %{
+            skill: Beamlens.Skill.Beam,
+            ref: make_ref(),
+            started_at: DateTime.utc_now()
+          })
+
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "test-trace",
+            running_operators: running_operators,
+            client: blocking_client()
+        }
+      end)
+
+      action_map = %{intent: "get_operator_statuses"}
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      state = :sys.get_state(pid)
+      assert Process.alive?(pid)
+
+      last_message = List.last(state.context.messages)
+      content_text = extract_content_text(last_message.content)
+      assert content_text =~ "alive"
+      assert content_text =~ "false"
+
+      stop_coordinator(pid)
+    end
+  end
+
   describe "handle_action - GetOperatorStatuses" do
     test "returns empty list when no operators running" do
       {:ok, pid} = start_coordinator()

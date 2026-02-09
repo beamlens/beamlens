@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Coordinator no longer crashes when an operator GenServer times out during `message_operator` or `get_operator_statuses` actions
+- `list_operators/0` and `operator_status/1` no longer crash when an operator is unresponsive
 - Coordinator no longer gets stuck in `:running` when the LLM calls `done()` with unread notifications remaining
 - `mix compile` no longer fails in prod when `igniter` is not a dependency
 

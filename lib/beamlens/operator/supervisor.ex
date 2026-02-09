@@ -121,8 +121,13 @@ defmodule Beamlens.Operator.Supervisor do
       base_status =
         case Registry.lookup(Beamlens.OperatorRegistry, name) do
           [{pid, _}] ->
-            status = Operator.status(pid)
-            Map.put(status, :name, name)
+            try do
+              status = Operator.status(pid)
+              Map.put(status, :name, name)
+            catch
+              :exit, _ ->
+                %{operator: name, name: name, running: true, state: :busy, iteration: 0}
+            end
 
           [] ->
             %{
@@ -147,7 +152,11 @@ defmodule Beamlens.Operator.Supervisor do
   def operator_status(name) do
     case Registry.lookup(Beamlens.OperatorRegistry, name) do
       [{pid, _}] ->
-        {:ok, Operator.status(pid)}
+        try do
+          {:ok, Operator.status(pid)}
+        catch
+          :exit, _ -> {:error, :timeout}
+        end
 
       [] ->
         {:error, :not_found}

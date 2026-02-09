@@ -642,9 +642,13 @@ defmodule Beamlens.Coordinator do
           %{skill: skill, error: "operator not running"}
 
         {pid, _info} ->
-          case Operator.message(pid, message) do
-            {:ok, response} -> response
-            {:error, reason} -> %{skill: skill, error: inspect(reason)}
+          try do
+            case Operator.message(pid, message) do
+              {:ok, response} -> response
+              {:error, reason} -> %{skill: skill, error: inspect(reason)}
+            end
+          catch
+            :exit, _ -> %{skill: skill, error: "operator timed out"}
           end
       end
 
@@ -666,8 +670,12 @@ defmodule Beamlens.Coordinator do
     statuses =
       Enum.map(state.running_operators, fn {pid, %{skill: skill, started_at: started_at}} ->
         if Process.alive?(pid) do
-          status = Operator.status(pid)
-          OperatorStatusView.alive(skill, status, started_at)
+          try do
+            status = Operator.status(pid)
+            OperatorStatusView.alive(skill, status, started_at)
+          catch
+            :exit, _ -> OperatorStatusView.dead(skill)
+          end
         else
           OperatorStatusView.dead(skill)
         end
