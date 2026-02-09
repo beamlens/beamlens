@@ -573,6 +573,21 @@ defmodule Beamlens.OperatorTest do
     end
   end
 
+  describe "CompletionResult JSON encoding" do
+    alias Beamlens.Operator.CompletionResult
+
+    test "encodes to JSON" do
+      result = %CompletionResult{
+        state: :healthy,
+        notifications: [],
+        snapshots: []
+      }
+
+      assert {:ok, json} = Jason.encode(result)
+      assert %{"state" => "healthy"} = Jason.decode!(json)
+    end
+  end
+
   describe "puck_client override" do
     test "uses provided puck_client for loop responses" do
       responses = [

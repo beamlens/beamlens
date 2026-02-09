@@ -7,6 +7,7 @@ defmodule Beamlens.Operator.CompletionResult do
 
   alias Beamlens.Operator.{Notification, Snapshot}
 
+  @derive Jason.Encoder
   defstruct [:state, :notifications, :snapshots]
 
   @type t :: %__MODULE__{
