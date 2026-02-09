@@ -106,6 +106,46 @@ defmodule Beamlens.CoordinatorTest do
     send(coordinator_pid, {:operator_notification, fake_operator_pid, notification})
   end
 
+  defp wait_until(fun, timeout \\ 1_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_wait_until(fun, deadline, timeout)
+  end
+
+  defp do_wait_until(fun, deadline, timeout) do
+    if fun.() do
+      :ok
+    else
+      if System.monotonic_time(:millisecond) > deadline,
+        do: flunk("wait_until timed out after #{timeout}ms")
+
+      :timer.sleep(5)
+      do_wait_until(fun, deadline, timeout)
+    end
+  end
+
+  defp await_coordinator_running(timeout \\ 1_000) do
+    handler_id = {make_ref(), :await_running}
+
+    :telemetry.attach(
+      handler_id,
+      [:beamlens, :coordinator, :iteration_start],
+      fn _event, _measurements, _metadata, %{pid: pid} ->
+        send(pid, :coordinator_running)
+      end,
+      %{pid: self()}
+    )
+
+    result =
+      receive do
+        :coordinator_running -> :ok
+      after
+        timeout -> flunk("coordinator did not start running within #{timeout}ms")
+      end
+
+    :telemetry.detach(handler_id)
+    result
+  end
+
   defp extract_content_text(content) when is_binary(content), do: content
 
   defp extract_content_text(content) when is_list(content) do
@@ -2360,6 +2400,289 @@ defmodule Beamlens.CoordinatorTest do
       [part] = message.content
       assert is_binary(part.text)
       assert part.text =~ "<process crashed>"
+    end
+  end
+
+  describe "server-side deadline" do
+    test "deadline fires and cancels running investigation" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :deadline_exceeded},
+        [:beamlens, :coordinator, :deadline_exceeded],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :deadline_exceeded, metadata})
+        end,
+        nil
+      )
+
+      {:ok, pid} = start_coordinator()
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: blocking_client()}
+      end)
+
+      task =
+        Task.async(fn ->
+          Coordinator.run(pid, %{reason: "test"}, deadline: 50, timeout: 5_000)
+        end)
+
+      assert_receive {:telemetry, :deadline_exceeded, _}, 2_000
+
+      result = Task.await(task, 2_000)
+      assert result == {:error, :deadline_exceeded}
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :deadline_exceeded})
+    end
+
+    test "stale deadline_exceeded when idle does not crash" do
+      {:ok, pid} = start_coordinator()
+
+      send(pid, :deadline_exceeded)
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+      assert Process.alive?(pid)
+
+      stop_coordinator(pid)
+    end
+
+    test "deadline cancelled on normal finish" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :deadline_exceeded},
+        [:beamlens, :coordinator, :deadline_exceeded],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :deadline_exceeded, metadata})
+        end,
+        nil
+      )
+
+      client =
+        Puck.Test.mock_client(
+          [%Beamlens.Coordinator.Tools.Done{intent: "done"}],
+          default: %Beamlens.Coordinator.Tools.Done{intent: "done"}
+        )
+
+      {:ok, pid} =
+        Coordinator.start_link(
+          name: :"test_coord_deadline_#{:erlang.unique_integer([:positive])}",
+          puck_client: client
+        )
+
+      {:ok, _result} =
+        Coordinator.run(pid, %{reason: "test"}, deadline: 60_000, timeout: 60_000)
+
+      refute_receive {:telemetry, :deadline_exceeded, _}, 100
+
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :deadline_exceeded})
+    end
+  end
+
+  describe "caller process monitoring" do
+    test "caller death triggers cleanup" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :caller_down},
+        [:beamlens, :coordinator, :caller_down],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :caller_down, metadata})
+        end,
+        nil
+      )
+
+      {:ok, pid} = start_coordinator()
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: blocking_client()}
+      end)
+
+      caller_pid =
+        spawn(fn ->
+          Coordinator.run(pid, %{reason: "test"}, deadline: 60_000, timeout: 60_000)
+        end)
+
+      await_coordinator_running()
+
+      Process.exit(caller_pid, :kill)
+
+      assert_receive {:telemetry, :caller_down, _}, 2_000
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :caller_down})
+    end
+  end
+
+  describe "cancel/1" do
+    test "stops running investigation" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :cancelled},
+        [:beamlens, :coordinator, :cancelled],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :cancelled, metadata})
+        end,
+        nil
+      )
+
+      {:ok, pid} = start_coordinator()
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: blocking_client()}
+      end)
+
+      task =
+        Task.async(fn ->
+          Coordinator.run(pid, %{reason: "test"}, deadline: 60_000, timeout: 60_000)
+        end)
+
+      await_coordinator_running()
+
+      assert :ok = Coordinator.cancel(pid)
+
+      assert_receive {:telemetry, :cancelled, _}, 2_000
+
+      result = Task.await(task, 2_000)
+      assert result == {:error, :cancelled}
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :cancelled})
+    end
+
+    test "cancel when idle is a no-op" do
+      {:ok, pid} = start_coordinator()
+
+      assert :ok = Coordinator.cancel(pid)
+      assert Process.alive?(pid)
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+
+      stop_coordinator(pid)
+    end
+
+    test "operators stopped on cancellation" do
+      {:ok, pid} = start_coordinator()
+
+      fake_operator_pid =
+        spawn(fn ->
+          receive do
+            _ -> :ok
+          end
+        end)
+
+      operator_monitor = Process.monitor(fake_operator_pid)
+      fake_ref = make_ref()
+
+      caller_ref = make_ref()
+      caller = {self(), caller_ref}
+
+      :sys.replace_state(pid, fn state ->
+        running_operators = %{
+          fake_operator_pid => %Beamlens.Coordinator.RunningOperator{
+            skill: Beamlens.Skill.Beam,
+            ref: fake_ref,
+            started_at: DateTime.utc_now()
+          }
+        }
+
+        %{
+          state
+          | running_operators: running_operators,
+            status: :running,
+            pending_task: nil,
+            caller: caller,
+            caller_monitor_ref: Process.monitor(self()),
+            deadline_timer_ref: Process.send_after(self(), :deadline_exceeded, 60_000),
+            client: blocking_client()
+        }
+      end)
+
+      send(pid, :cancel_invocation)
+
+      assert_receive {^caller_ref, {:error, :cancelled}}, 2_000
+
+      assert_receive {:DOWN, ^operator_monitor, :process, ^fake_operator_pid, _}, 2_000
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+      assert map_size(state.running_operators) == 0
+
+      stop_coordinator(pid)
+    end
+  end
+
+  describe "queued invocations after cancellation" do
+    test "queued invocations proceed after cancellation" do
+      done_client =
+        Puck.Test.mock_client(
+          [%Beamlens.Coordinator.Tools.Done{intent: "done"}],
+          default: %Beamlens.Coordinator.Tools.Done{intent: "done"}
+        )
+
+      {:ok, pid} =
+        Coordinator.start_link(
+          name: :"test_coord_queue_cancel_#{:erlang.unique_integer([:positive])}",
+          puck_client: done_client
+        )
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: blocking_client()}
+      end)
+
+      parent = self()
+
+      task1 =
+        Task.async(fn ->
+          Coordinator.run(pid, %{reason: "first"}, deadline: 60_000, timeout: 60_000)
+        end)
+
+      await_coordinator_running()
+
+      _task2 =
+        Task.async(fn ->
+          result =
+            Coordinator.run(pid, %{reason: "second"}, deadline: 60_000, timeout: 60_000)
+
+          send(parent, {:task2_result, result})
+          result
+        end)
+
+      wait_until(fn ->
+        state = :sys.get_state(pid)
+        :queue.len(state.invocation_queue) == 1
+      end)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: done_client}
+      end)
+
+      Coordinator.cancel(pid)
+
+      result1 = Task.await(task1, 2_000)
+      assert result1 == {:error, :cancelled}
+
+      assert_receive {:task2_result, {:ok, _}}, 5_000
+
+      stop_coordinator(pid)
     end
   end
 end

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Coordinator enforces a server-side deadline to stop runaway investigations when the caller times out
+- Coordinator monitors the caller process and cancels if the caller exits
+- `Beamlens.Coordinator.cancel/1` to gracefully halt a running investigation
+
 ### Fixed
 
 - `CompletionResult` now derives `Jason.Encoder` so coordinator results can be JSON-encoded

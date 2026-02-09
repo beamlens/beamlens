@@ -201,6 +201,18 @@ defmodule Beamlens.Telemetry do
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{iteration: integer}`
 
+  * `[:beamlens, :coordinator, :deadline_exceeded]` - Coordinator cancelled due to server-side deadline
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{running: boolean, notification_count: integer}`
+
+  * `[:beamlens, :coordinator, :caller_down]` - Coordinator cancelled because caller process exited
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{running: boolean, notification_count: integer}`
+
+  * `[:beamlens, :coordinator, :cancelled]` - Coordinator cancelled via `cancel/1`
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{running: boolean, notification_count: integer}`
+
   ## Compaction Events
 
   * `[:beamlens, :compaction, :start]` - Context compaction starting
@@ -280,6 +292,9 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :coordinator, :operator_complete],
       [:beamlens, :coordinator, :operator_crashed],
       [:beamlens, :coordinator, :max_iterations_reached],
+      [:beamlens, :coordinator, :deadline_exceeded],
+      [:beamlens, :coordinator, :caller_down],
+      [:beamlens, :coordinator, :cancelled],
       [:beamlens, :compaction, :start],
       [:beamlens, :compaction, :stop]
     ]

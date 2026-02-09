@@ -68,6 +68,8 @@ defmodule Beamlens.Coordinator do
     :pending_trace_id,
     :caller,
     :skills,
+    :caller_monitor_ref,
+    :deadline_timer_ref,
     max_iterations: 25,
     notifications: %{},
     iteration: 0,
@@ -121,13 +123,18 @@ defmodule Beamlens.Coordinator do
     * `:notifications` - List of `Notification` structs to analyze (default: `[]`)
     * `:puck_client` - Optional `Puck.Client` to use instead of BAML
     * `:max_iterations` - Maximum iterations before stopping (default: 25)
-    * `:timeout` - Timeout for await in milliseconds (default: 300_000)
+    * `:timeout` - Timeout for the `GenServer.call` in milliseconds (default: 300_000)
+    * `:deadline` - Server-side deadline in milliseconds (default: value of `:timeout`).
+      When exceeded, the coordinator stops the investigation and returns
+      `{:error, :deadline_exceeded}`. Unlike `:timeout`, this cancels the
+      server-side work (stops operators, shuts down the LLM task).
     * `:skills` - List of skill atoms to make available (default: configured operators)
 
   ## Returns
 
     * `{:ok, result}` - Analysis completed successfully
-    * `{:error, reason}` - Analysis failed
+    * `{:error, :deadline_exceeded}` - Server-side deadline expired
+    * `{:error, :cancelled}` - Investigation was cancelled via `cancel/1`
 
   ## Result Structure
 
@@ -205,6 +212,18 @@ defmodule Beamlens.Coordinator do
     GenServer.call(server, :await, timeout)
   end
 
+  @doc """
+  Cancels a running investigation.
+
+  If an investigation is running, it will be stopped and the caller will
+  receive `{:error, :cancelled}`. If no investigation is running, this is a no-op.
+
+  Returns `:ok` immediately.
+  """
+  def cancel(server) do
+    GenServer.call(server, :cancel)
+  end
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
@@ -244,12 +263,19 @@ defmodule Beamlens.Coordinator do
   end
 
   @impl true
-  def terminate(_reason, %{pending_task: %Task{} = task}) do
-    Task.shutdown(task, :brutal_kill)
+  def terminate(_reason, state) do
+    if match?(%Task{}, state.pending_task) do
+      try do
+        Task.shutdown(state.pending_task, :brutal_kill)
+      catch
+        _, _ -> :ok
+      end
+    end
+
+    cancel_deadline_timer(state)
+    demonitor_caller(state)
     :ok
   end
-
-  def terminate(_reason, _state), do: :ok
 
   @impl true
   def handle_continue(
@@ -412,6 +438,13 @@ defmodule Beamlens.Coordinator do
     end
   end
 
+  def handle_info(
+        {:DOWN, ref, :process, _pid, _reason},
+        %{caller_monitor_ref: ref, status: :running} = state
+      ) do
+    cancel_invocation(state, :caller_down)
+  end
+
   def handle_info({:DOWN, ref, :process, pid, reason}, state)
       when not is_struct(state.pending_task, Task) or state.pending_task.ref != ref do
     case find_operator_by_ref(state.running_operators, ref) do
@@ -444,6 +477,22 @@ defmodule Beamlens.Coordinator do
     {:noreply, state, {:continue, :loop}}
   end
 
+  def handle_info(:deadline_exceeded, %{status: :running} = state) do
+    cancel_invocation(state, :deadline_exceeded)
+  end
+
+  def handle_info(:deadline_exceeded, state) do
+    {:noreply, state}
+  end
+
+  def handle_info(:cancel_invocation, %{status: :running} = state) do
+    cancel_invocation(state, :cancelled)
+  end
+
+  def handle_info(:cancel_invocation, state) do
+    {:noreply, state}
+  end
+
   def handle_info(msg, state) do
     emit_telemetry(:unexpected_message, state, %{message: inspect(msg)})
     {:noreply, state}
@@ -466,7 +515,9 @@ defmodule Beamlens.Coordinator do
   end
 
   def handle_call(:await, from, %{status: status} = state) do
-    state = %{state | caller: from}
+    {caller_pid, _} = from
+    caller_monitor_ref = Process.monitor(caller_pid)
+    state = %{state | caller: from, caller_monitor_ref: caller_monitor_ref}
 
     if status == :running do
       {:noreply, state}
@@ -475,14 +526,24 @@ defmodule Beamlens.Coordinator do
     end
   end
 
-  def handle_call({:invoke, context, notifications, _opts}, from, %{status: :idle} = state) do
-    state = prepare_invocation(state, context, notifications, from)
+  def handle_call({:invoke, context, notifications, opts}, from, %{status: :idle} = state) do
+    deadline = Keyword.get(opts, :deadline, Keyword.get(opts, :timeout, 300_000))
+    state = prepare_invocation(state, context, notifications, from, deadline)
     {:noreply, %{state | status: :running}, {:continue, :loop}}
   end
 
   def handle_call({:invoke, context, notifications, opts}, from, %{status: :running} = state) do
     queue = :queue.in({from, context, notifications, opts}, state.invocation_queue)
     {:noreply, %{state | invocation_queue: queue}}
+  end
+
+  def handle_call(:cancel, _from, %{status: :running} = state) do
+    send(self(), :cancel_invocation)
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:cancel, _from, state) do
+    {:reply, :ok, state}
   end
 
   defp handle_action(%GetNotifications{status: status}, state, trace_id) do
@@ -734,6 +795,9 @@ defmodule Beamlens.Coordinator do
   end
 
   defp finish(state) do
+    cancel_deadline_timer(state)
+    demonitor_caller(state)
+
     if state.caller do
       result = %{
         insights: Enum.reverse(state.insights),
@@ -743,11 +807,42 @@ defmodule Beamlens.Coordinator do
       GenServer.reply(state.caller, {:ok, result})
     end
 
+    dequeue_or_idle(%{state | caller: nil, caller_monitor_ref: nil, deadline_timer_ref: nil})
+  end
+
+  defp cancel_invocation(state, reason) do
+    if match?(%Task{}, state.pending_task), do: Task.shutdown(state.pending_task, :brutal_kill)
+
+    stop_all_operators(state.running_operators)
+
+    cancel_deadline_timer(state)
+    demonitor_caller(state)
+
+    emit_telemetry(reason, state)
+
+    if reason != :caller_down && state.caller do
+      GenServer.reply(state.caller, {:error, reason})
+    end
+
+    dequeue_or_idle(%{
+      state
+      | pending_task: nil,
+        pending_trace_id: nil,
+        caller: nil,
+        caller_monitor_ref: nil,
+        deadline_timer_ref: nil
+    })
+  end
+
+  defp dequeue_or_idle(state) do
     case :queue.out(state.invocation_queue) do
-      {{:value, {next_caller, next_context, next_notifications, _next_opts}}, remaining_queue} ->
+      {{:value, {next_caller, next_context, next_notifications, next_opts}}, remaining_queue} ->
+        deadline =
+          Keyword.get(next_opts, :deadline, Keyword.get(next_opts, :timeout, 300_000))
+
         new_state =
           state
-          |> prepare_invocation(next_context, next_notifications, next_caller)
+          |> prepare_invocation(next_context, next_notifications, next_caller, deadline)
           |> Map.put(:invocation_queue, remaining_queue)
           |> Map.put(:status, :running)
 
@@ -758,6 +853,8 @@ defmodule Beamlens.Coordinator do
           state
           | status: :idle,
             caller: nil,
+            caller_monitor_ref: nil,
+            deadline_timer_ref: nil,
             notifications: %{},
             insights: [],
             operator_results: [],
@@ -769,7 +866,11 @@ defmodule Beamlens.Coordinator do
     end
   end
 
-  defp prepare_invocation(state, context, notifications, caller) do
+  defp prepare_invocation(state, context, notifications, caller, deadline) do
+    {caller_pid, _} = caller
+    caller_monitor_ref = Process.monitor(caller_pid)
+    deadline_timer_ref = Process.send_after(self(), :deadline_exceeded, deadline)
+
     initial_notifications =
       Enum.reduce(notifications, %{}, fn notification, acc ->
         Map.put(acc, notification.id, %NotificationEntry{
@@ -784,12 +885,38 @@ defmodule Beamlens.Coordinator do
       state
       | context: initial_context,
         caller: caller,
+        caller_monitor_ref: caller_monitor_ref,
+        deadline_timer_ref: deadline_timer_ref,
         notifications: initial_notifications,
         insights: [],
         operator_results: [],
         running_operators: %{},
         iteration: 0
     }
+  end
+
+  defp cancel_deadline_timer(%{deadline_timer_ref: ref}) when is_reference(ref) do
+    Process.cancel_timer(ref)
+  end
+
+  defp cancel_deadline_timer(_state), do: :ok
+
+  defp demonitor_caller(%{caller_monitor_ref: ref}) when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+  end
+
+  defp demonitor_caller(_state), do: :ok
+
+  defp stop_all_operators(running_operators) do
+    Enum.each(running_operators, fn {pid, %{ref: ref}} ->
+      Process.demonitor(ref, [:flush])
+
+      try do
+        Operator.stop(pid)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
   end
 
   defp merge_operator_notifications(notifications, operator_result) do
