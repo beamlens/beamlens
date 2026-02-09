@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `CompletionResult` now derives `Jason.Encoder` so coordinator results can be JSON-encoded
 - Coordinator no longer crashes when the LLM returns an invalid or unparseable tool selection
 
 ## [0.3.1] - 2026-02-09
