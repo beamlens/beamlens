@@ -95,7 +95,7 @@ defmodule Beamlens.Skill.Logger do
 
     ### logger_recent(limit, level)
     Recent log entries. Level: "error", "warning", "info", "debug", or nil for all.
-    Returns: timestamp, level, message, module, function, line, domain
+    Returns: timestamp, level, message, module, func, line, domain
 
     ### logger_errors(limit)
     Recent error-level logs with full message content
