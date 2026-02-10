@@ -69,6 +69,22 @@ defmodule Beamlens.Skill.Logger.LogStoreTest do
       assert logs == []
     end
 
+    test "log entries use :func key instead of :function", %{store: _store} do
+      capture_log(fn ->
+        Logger.warning("shape test")
+      end)
+
+      LogStore.flush(@test_name)
+
+      [entry | _] =
+        @test_name
+        |> LogStore.get_logs(limit: 10)
+        |> Enum.filter(&String.contains?(&1.message, "shape test"))
+
+      assert %{timestamp: _, level: _, message: _, module: _, func: _, line: _, domain: _} = entry
+      refute Map.has_key?(entry, :function)
+    end
+
     test "returns logs", %{store: _store} do
       capture_log(fn ->
         Logger.warning("first")

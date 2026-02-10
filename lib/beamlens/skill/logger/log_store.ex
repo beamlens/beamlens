@@ -204,7 +204,7 @@ defmodule Beamlens.Skill.Logger.LogStore do
       level: level,
       message: format_message(msg),
       module: mod,
-      function: if(fun, do: "#{fun}/#{arity}"),
+      func: if(fun, do: "#{fun}/#{arity}"),
       line: Map.get(meta, :line),
       pid: Map.get(meta, :pid),
       domain: Map.get(meta, :domain, [])
@@ -298,7 +298,7 @@ defmodule Beamlens.Skill.Logger.LogStore do
       level: entry.level,
       message: entry.message,
       module: if(entry.module, do: inspect(entry.module)),
-      function: entry.function,
+      func: entry.func,
       line: entry.line,
       domain: entry.domain
     }
