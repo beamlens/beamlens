@@ -8,6 +8,11 @@ defmodule Beamlens.Coordinator.Strategy.PipelineTest do
   alias Beamlens.Coordinator.Strategy.Pipeline.Tools.{ClassifyResult, SynthesizeResult}
   alias Beamlens.Operator.Notification
 
+  setup do
+    start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
+    :ok
+  end
+
   defp mock_client do
     Puck.Client.new({Puck.Backends.Mock, error: :test_stop})
   end

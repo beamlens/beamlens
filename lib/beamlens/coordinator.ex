@@ -330,7 +330,8 @@ defmodule Beamlens.Coordinator do
       iteration: state.iteration
     })
 
-    if function_exported?(state.strategy, :continue_loop, 2) do
+    if Code.ensure_loaded?(state.strategy) and
+         function_exported?(state.strategy, :continue_loop, 2) do
       state.strategy.continue_loop(state, trace_id)
     else
       default_loop(state, trace_id)
