@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Logger skill: renamed `function` key to `func` in log entry maps to avoid collision with Lua's reserved `function` keyword, which caused repeated sandbox syntax errors and expensive context compaction
 - `CompletionResult` now derives `Jason.Encoder` so coordinator results can be JSON-encoded
 - Coordinator no longer crashes when the LLM returns an invalid or unparseable tool selection
 
