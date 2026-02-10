@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Tracer operator now exits immediately when the query is outside its tracing domain, instead of hallucinating invalid intents and exhausting retries
 - Pipeline strategy now always returns the synthesized answer as an insight, even when no operator notifications are raised
 - Pipeline synthesize stage uses operator snapshot data as fallback when no notifications are present, so the LLM can produce meaningful answers for healthy systems
 - Logger skill: renamed `function` key to `func` in log entry maps to avoid collision with Lua's reserved `function` keyword, which caused repeated sandbox syntax errors and expensive context compaction

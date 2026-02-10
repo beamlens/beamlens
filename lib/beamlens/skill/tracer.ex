@@ -74,6 +74,11 @@ defmodule Beamlens.Skill.Tracer do
     - Message-limited sessions (50 traces max)
     - Time-limited sessions (60 seconds max)
 
+    ## Out of Scope
+    If the query is not about tracing specific function calls, call done() immediately.
+    You cannot inspect memory, processes, supervisors, ETS tables, or OS resources.
+    Other operators handle those domains.
+
     ## Safety Restrictions
     - You MUST specify a concrete arity (no wildcards)
     - High-frequency stdlib functions are blocked (send, ets, GenServer internals)

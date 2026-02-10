@@ -28,6 +28,12 @@ defmodule Beamlens.Skill.TracerTest do
       assert String.contains?(prompt, "blocked")
       assert String.contains?(prompt, "arity")
     end
+
+    test "documents out-of-scope boundary" do
+      prompt = Tracer.system_prompt()
+      assert String.contains?(prompt, "Out of Scope")
+      assert String.contains?(prompt, "done()")
+    end
   end
 
   describe "snapshot/0" do
