@@ -280,6 +280,14 @@ The strategy owns action handling — it decides what to do with each tool the L
 Beamlens.Coordinator.run(%{reason: "health check"}, strategy: MyCustomStrategy)
 ```
 
+The built-in `Pipeline` strategy replaces the iterative loop with three focused stages: **classify** (determine intent and select skills), **gather** (invoke operators and await completion), and **synthesize** (produce a human-readable answer). Strategies that define `continue_loop/2` control the full execution flow instead of relying on the default LLM tool-calling loop.
+
+```elixir
+Beamlens.Coordinator.run(%{reason: "What OS is running?"},
+  strategy: Beamlens.Coordinator.Strategy.Pipeline
+)
+```
+
 ### Notification States
 
 | State | Description |
@@ -381,6 +389,10 @@ Operators and the Coordinator emit telemetry events for observability. Key event
 | `[:beamlens, :coordinator, :schedule]` | Follow-up investigation scheduled |
 | `[:beamlens, :coordinator, :schedule_rejected]` | Schedule rejected (operators still running) |
 | `[:beamlens, :coordinator, :scheduled_reinvoke]` | Scheduled timer fired, re-invocation started |
+| `[:beamlens, :coordinator, :pipeline_classify_start]` | Pipeline classify stage started |
+| `[:beamlens, :coordinator, :pipeline_classify_complete]` | Pipeline classify stage completed |
+| `[:beamlens, :coordinator, :pipeline_synthesize_start]` | Pipeline synthesize stage started |
+| `[:beamlens, :coordinator, :pipeline_synthesize_complete]` | Pipeline synthesize stage completed |
 | `[:beamlens, :llm, :start]` | LLM call started |
 | `[:beamlens, :llm, :stop]` | LLM call completed |
 | `[:beamlens, :compaction, :start]` | Context compaction started |
@@ -399,10 +411,12 @@ See `Beamlens.Telemetry` for the complete event list.
 
 ## LLM Integration
 
-Beamlens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via [Puck](https://github.com/bradleygolden/puck). Two BAML functions handle the agent loops:
+Beamlens uses [BAML](https://docs.boundaryml.com) for type-safe LLM prompts via [Puck](https://github.com/bradleygolden/puck). BAML functions handle the agent loops and pipeline stages:
 
 - **OperatorRun**: Operator analysis loop (uses `done()` to signal completion)
 - **CoordinatorRun**: Coordinator analysis with operator invocation capabilities
+- **PipelineClassify**: Determines intent and selects skills for the Pipeline strategy
+- **PipelineSynthesize**: Produces a human-readable answer from operator data
 
 Default LLM: Anthropic Claude Haiku (`claude-haiku-4-5-20251001`)
 

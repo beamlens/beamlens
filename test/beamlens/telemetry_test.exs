@@ -22,10 +22,10 @@ defmodule Beamlens.TelemetryTest do
   end
 
   describe "event_names/0" do
-    test "returns all 51 event names" do
+    test "returns all 55 event names" do
       events = Telemetry.event_names()
 
-      assert length(events) == 51
+      assert length(events) == 55
     end
 
     test "all events start with :beamlens" do
@@ -48,6 +48,15 @@ defmodule Beamlens.TelemetryTest do
       assert [:beamlens, :operator, :started] in events
       assert [:beamlens, :operator, :notification_sent] in events
       assert [:beamlens, :operator, :state_change] in events
+    end
+
+    test "includes pipeline strategy events" do
+      events = Telemetry.event_names()
+
+      assert [:beamlens, :coordinator, :pipeline_classify_start] in events
+      assert [:beamlens, :coordinator, :pipeline_classify_complete] in events
+      assert [:beamlens, :coordinator, :pipeline_synthesize_start] in events
+      assert [:beamlens, :coordinator, :pipeline_synthesize_complete] in events
     end
   end
 

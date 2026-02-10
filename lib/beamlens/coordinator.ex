@@ -26,8 +26,10 @@ defmodule Beamlens.Coordinator do
 
   The coordinator delegates tool dispatch to a pluggable strategy module.
   The default strategy is `Beamlens.Coordinator.Strategy.AgentLoop`, which
-  implements an iterative agentic loop with tool-calling. Pass `:strategy`
-  to `start_link/1` or `run/2` to use a different strategy.
+  implements an iterative agentic loop with tool-calling.
+  `Beamlens.Coordinator.Strategy.Pipeline` provides a faster
+  classify-gather-synthesize flow for straightforward queries. Pass
+  `:strategy` to `start_link/1` or `run/2` to use a different strategy.
 
   See `Beamlens.Coordinator.Strategy` for how to implement custom strategies.
 
@@ -68,6 +70,7 @@ defmodule Beamlens.Coordinator do
     :deadline_timer_ref,
     :scheduled_timer_ref,
     :strategy,
+    :strategy_state,
     max_iterations: 25,
     notifications: %{},
     iteration: 0,
@@ -327,6 +330,14 @@ defmodule Beamlens.Coordinator do
       iteration: state.iteration
     })
 
+    if function_exported?(state.strategy, :continue_loop, 2) do
+      state.strategy.continue_loop(state, trace_id)
+    else
+      default_loop(state, trace_id)
+    end
+  end
+
+  defp default_loop(state, trace_id) do
     context = %{
       state.context
       | metadata: Map.put(state.context.metadata || %{}, :trace_id, trace_id)
@@ -681,7 +692,8 @@ defmodule Beamlens.Coordinator do
         iteration: 0,
         caller: nil,
         caller_monitor_ref: nil,
-        scheduled_timer_ref: nil
+        scheduled_timer_ref: nil,
+        strategy_state: nil
     }
   end
 
@@ -865,7 +877,8 @@ defmodule Beamlens.Coordinator do
     Enum.map_join(skills, ", ", &module_name/1)
   end
 
-  defp build_operator_descriptions(nil) do
+  @doc false
+  def build_operator_descriptions(nil) do
     case Application.get_env(:beamlens, :skills, nil) do
       nil ->
         build_descriptions_for_skills(Operator.Supervisor.builtin_skills())
@@ -880,7 +893,8 @@ defmodule Beamlens.Coordinator do
     end
   end
 
-  defp build_operator_descriptions(skills) when is_list(skills) do
+  @doc false
+  def build_operator_descriptions(skills) when is_list(skills) do
     build_descriptions_for_skills(skills)
   end
 

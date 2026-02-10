@@ -157,7 +157,8 @@ defmodule Beamlens.MixProject do
           Beamlens.Coordinator.Tools,
           Beamlens.Coordinator.Status,
           Beamlens.Coordinator.Strategy,
-          Beamlens.Coordinator.Strategy.AgentLoop
+          Beamlens.Coordinator.Strategy.AgentLoop,
+          Beamlens.Coordinator.Strategy.Pipeline
         ],
         Skill: [
           Beamlens.Skill,
