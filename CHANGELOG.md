@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Pluggable coordinator strategy via `Beamlens.Coordinator.Strategy` behaviour — pass `:strategy` to `start_link/1` or `run/2` to use a custom execution strategy instead of the default `AgentLoop`
+- `Pipeline` strategy for faster, cheaper investigations — classifies the query, gathers data in parallel, and synthesizes a single answer with fewer LLM calls
+- Custom strategies can define an optional `continue_loop/2` callback to control the full execution flow instead of processing one tool action at a time
+- Telemetry events for Pipeline strategy stages: `pipeline_classify_start`, `pipeline_classify_complete`, `pipeline_synthesize_start`, `pipeline_synthesize_complete`
 - Coordinator enforces a server-side deadline to stop runaway investigations when the caller times out
 - Coordinator monitors the caller process and cancels if the caller exits
 - `Beamlens.Coordinator.cancel/1` to gracefully halt a running investigation

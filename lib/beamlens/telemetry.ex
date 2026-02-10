@@ -225,6 +225,25 @@ defmodule Beamlens.Telemetry do
     - Measurements: `%{system_time: integer}`
     - Metadata: `%{reason: String.t()}`
 
+  ### Pipeline Strategy Events
+
+  * `[:beamlens, :coordinator, :pipeline_classify_start]` - Pipeline classify stage started
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{running: boolean, notification_count: integer, trace_id: String.t()}`
+
+  * `[:beamlens, :coordinator, :pipeline_classify_complete]` - Pipeline classify stage completed
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{running: boolean, notification_count: integer, trace_id: String.t(),
+                   intent: atom(), skills: list(String.t())}`
+
+  * `[:beamlens, :coordinator, :pipeline_synthesize_start]` - Pipeline synthesize stage started
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{running: boolean, notification_count: integer, trace_id: String.t()}`
+
+  * `[:beamlens, :coordinator, :pipeline_synthesize_complete]` - Pipeline synthesize stage completed
+    - Measurements: `%{system_time: integer}`
+    - Metadata: `%{running: boolean, notification_count: integer, trace_id: String.t()}`
+
   ## Compaction Events
 
   * `[:beamlens, :compaction, :start]` - Context compaction starting
@@ -310,6 +329,10 @@ defmodule Beamlens.Telemetry do
       [:beamlens, :coordinator, :schedule],
       [:beamlens, :coordinator, :schedule_rejected],
       [:beamlens, :coordinator, :scheduled_reinvoke],
+      [:beamlens, :coordinator, :pipeline_classify_start],
+      [:beamlens, :coordinator, :pipeline_classify_complete],
+      [:beamlens, :coordinator, :pipeline_synthesize_start],
+      [:beamlens, :coordinator, :pipeline_synthesize_complete],
       [:beamlens, :compaction, :start],
       [:beamlens, :compaction, :stop]
     ]

@@ -8,11 +8,24 @@ defmodule Beamlens.Coordinator.Strategy do
 
   ## Return Values
 
-  Strategies return GenServer-compatible tuples from `handle_action/3`:
+  Strategies return GenServer-compatible tuples:
 
     * `{:noreply, state, {:continue, :loop}}` — continue iterating
     * `{:noreply, state}` — pause (e.g., Wait tool)
     * `{:finish, state}` — signal completion (coordinator calls `finish/1`)
+
+  ## Callbacks
+
+  ### `handle_action/3` (required)
+
+  Dispatches a single tool action selected by the LLM. Used by strategies
+  that follow the iterative loop pattern (e.g., `AgentLoop`).
+
+  ### `continue_loop/2` (optional)
+
+  Controls what happens each time the coordinator loop fires. When defined,
+  replaces the default LLM call with strategy-specific logic. Used by
+  strategies that own the full execution flow (e.g., `Pipeline`).
 
   ## Implementing a Strategy
 
@@ -27,8 +40,15 @@ defmodule Beamlens.Coordinator.Strategy do
 
   """
 
+  @type loop_result ::
+          {:noreply, struct()}
+          | {:noreply, struct(), {:continue, :loop}}
+          | {:finish, struct()}
+
   @callback handle_action(action :: struct(), state :: struct(), trace_id :: String.t()) ::
-              {:noreply, struct()}
-              | {:noreply, struct(), {:continue, :loop}}
-              | {:finish, struct()}
+              loop_result()
+
+  @callback continue_loop(state :: struct(), trace_id :: String.t()) :: loop_result()
+
+  @optional_callbacks [continue_loop: 2]
 end
