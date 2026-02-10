@@ -268,7 +268,17 @@ State transitions are driven by the LLM via the `set_state` tool.
 
 ## Coordinator
 
-The Coordinator is a GenServer that correlates operator notifications into unified insights. When you call `Beamlens.Coordinator.run/2`, it spawns operators, collects their notifications, and runs an LLM-driven analysis to produce insights.
+The Coordinator is a GenServer that correlates operator notifications into unified insights. When you call `Beamlens.Coordinator.run/2`, the configured strategy drives LLM-based analysis, invoking operators as needed and correlating their notifications into insights.
+
+### Execution Strategy
+
+The Coordinator delegates tool dispatch to a pluggable strategy module implementing the `Beamlens.Coordinator.Strategy` behaviour. The default strategy is `Beamlens.Coordinator.Strategy.AgentLoop`, which runs an iterative agentic loop with tool-calling.
+
+The strategy owns action handling — it decides what to do with each tool the LLM selects. The coordinator retains GenServer infrastructure (queueing, operator lifecycle, deadlines, caller monitoring).
+
+```elixir
+Beamlens.Coordinator.run(%{reason: "health check"}, strategy: MyCustomStrategy)
+```
 
 ### Notification States
 

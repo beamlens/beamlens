@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Pluggable coordinator strategy via `Beamlens.Coordinator.Strategy` behaviour — pass `:strategy` to `start_link/1` or `run/2` to use a custom execution strategy instead of the default `AgentLoop`
 - Coordinator enforces a server-side deadline to stop runaway investigations when the caller times out
 - Coordinator monitors the caller process and cancels if the caller exits
 - `Beamlens.Coordinator.cancel/1` to gracefully halt a running investigation

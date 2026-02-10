@@ -22,6 +22,15 @@ defmodule Beamlens.Coordinator do
       # result contains:
       # %{insights: [...], operator_results: [...]}
 
+  ## Strategy
+
+  The coordinator delegates tool dispatch to a pluggable strategy module.
+  The default strategy is `Beamlens.Coordinator.Strategy.AgentLoop`, which
+  implements an iterative agentic loop with tool-calling. Pass `:strategy`
+  to `start_link/1` or `run/2` to use a different strategy.
+
+  See `Beamlens.Coordinator.Strategy` for how to implement custom strategies.
+
   ## Status
 
   Coordinator has a run status:
@@ -32,25 +41,9 @@ defmodule Beamlens.Coordinator do
   use GenServer
 
   alias Beamlens.Coordinator.{
-    Insight,
     NotificationEntry,
-    NotificationView,
-    OperatorStatusView,
     RunningOperator,
     Tools
-  }
-
-  alias Beamlens.Coordinator.Tools.{
-    Done,
-    GetNotifications,
-    GetOperatorStatuses,
-    InvokeOperators,
-    MessageOperator,
-    ProduceInsight,
-    Schedule,
-    Think,
-    UpdateNotificationStatuses,
-    Wait
   }
 
   alias Beamlens.Operator
@@ -59,6 +52,8 @@ defmodule Beamlens.Coordinator do
   alias Beamlens.LLM.Utils
   alias Beamlens.Telemetry
   alias Puck.Context
+
+  @default_strategy Beamlens.Coordinator.Strategy.AgentLoop
 
   defstruct [
     :name,
@@ -72,6 +67,7 @@ defmodule Beamlens.Coordinator do
     :caller_monitor_ref,
     :deadline_timer_ref,
     :scheduled_timer_ref,
+    :strategy,
     max_iterations: 25,
     notifications: %{},
     iteration: 0,
@@ -94,6 +90,7 @@ defmodule Beamlens.Coordinator do
     * `:puck_client` - Optional `Puck.Client` to use instead of BAML
     * `:compaction_max_tokens` - Token threshold for compaction (default: 50_000)
     * `:compaction_keep_last` - Messages to keep verbatim after compaction (default: 5)
+    * `:strategy` - Strategy module for tool dispatch (default: `Beamlens.Coordinator.Strategy.AgentLoop`)
 
   """
   def start_link(opts) do
@@ -133,6 +130,7 @@ defmodule Beamlens.Coordinator do
       `{:error, :deadline_exceeded}`. Unlike `:timeout`, this cancels the
       server-side work (stops operators, shuts down the LLM task).
     * `:skills` - List of skill atoms to make available (default: configured operators)
+    * `:strategy` - Strategy module for tool dispatch (default: coordinator's configured strategy)
 
   ## Returns
 
@@ -254,6 +252,7 @@ defmodule Beamlens.Coordinator do
       notifications: initial_notifications,
       context: initial_context,
       skills: Keyword.get(opts, :skills),
+      strategy: Keyword.get(opts, :strategy, @default_strategy),
       status: if(start_loop, do: :running, else: :idle)
     }
 
@@ -349,30 +348,7 @@ defmodule Beamlens.Coordinator do
     case result do
       {:ok, response, new_context} ->
         state = %{state | context: new_context}
-
-        case ensure_parsed(response.content) do
-          {:ok, parsed} ->
-            handle_action(parsed, state, state.pending_trace_id)
-
-          {:error, reason} ->
-            emit_telemetry(:invalid_intent, state, %{
-              trace_id: state.pending_trace_id,
-              reason: reason
-            })
-
-            error_message = "Invalid tool selection: #{inspect(reason)}"
-
-            new_context = Utils.add_result(state.context, %{error: error_message})
-
-            new_state = %{
-              state
-              | context: new_context,
-                iteration: state.iteration + 1,
-                pending_trace_id: nil
-            }
-
-            {:noreply, new_state, {:continue, :loop}}
-        end
+        dispatch_action(response.content, state)
 
       {:error, reason} ->
         emit_telemetry(:llm_error, state, %{trace_id: state.pending_trace_id, reason: reason})
@@ -552,8 +528,9 @@ defmodule Beamlens.Coordinator do
 
   def handle_call({:invoke, context, notifications, opts}, from, %{status: :idle} = state) do
     deadline = Keyword.get(opts, :deadline, Keyword.get(opts, :timeout, @default_deadline))
+    strategy = Keyword.get(opts, :strategy, state.strategy)
     state = prepare_invocation(state, context, notifications, from, deadline)
-    {:noreply, %{state | status: :running}, {:continue, :loop}}
+    {:noreply, %{state | status: :running, strategy: strategy}, {:continue, :loop}}
   end
 
   def handle_call({:invoke, context, notifications, opts}, from, %{status: :running} = state) do
@@ -570,244 +547,32 @@ defmodule Beamlens.Coordinator do
     {:reply, :ok, state}
   end
 
-  defp handle_action(%GetNotifications{status: status}, state, trace_id) do
-    notifications = filter_notifications(state.notifications, status)
-
-    result =
-      Enum.map(notifications, fn {id, entry} ->
-        NotificationView.from_entry(id, entry)
-      end)
-
-    emit_telemetry(:get_notifications, state, %{
-      trace_id: trace_id,
-      status: status,
-      count: length(result)
-    })
-
-    new_context = Utils.add_result(state.context, result)
-
-    new_state = %{
-      state
-      | context: new_context,
-        iteration: state.iteration + 1,
-        pending_trace_id: nil
-    }
-
-    {:noreply, new_state, {:continue, :loop}}
-  end
-
-  defp handle_action(
-         %UpdateNotificationStatuses{notification_ids: ids, status: status, reason: reason},
-         state,
-         trace_id
-       ) do
-    new_notifications = update_notifications_status(state.notifications, ids, status)
-
-    result = %{updated: ids, status: status}
-    result = if reason, do: Map.put(result, :reason, reason), else: result
-
-    emit_telemetry(:update_notification_statuses, state, %{
-      trace_id: trace_id,
-      notification_ids: ids,
-      status: status
-    })
-
-    new_context = Utils.add_result(state.context, result)
-
-    new_state = %{
-      state
-      | notifications: new_notifications,
-        context: new_context,
-        iteration: state.iteration + 1,
-        pending_trace_id: nil
-    }
-
-    {:noreply, new_state, {:continue, :loop}}
-  end
-
-  defp handle_action(%ProduceInsight{} = tool, state, trace_id) do
-    insight =
-      Insight.new(%{
-        notification_ids: tool.notification_ids,
-        correlation_type: tool.correlation_type,
-        summary: tool.summary,
-        matched_observations: tool.matched_observations,
-        hypothesis_grounded: tool.hypothesis_grounded,
-        root_cause_hypothesis: tool.root_cause_hypothesis,
-        confidence: tool.confidence
-      })
-
-    emit_telemetry(:insight_produced, state, %{
-      trace_id: trace_id,
-      insight: insight
-    })
-
-    new_notifications =
-      update_notifications_status(state.notifications, tool.notification_ids, :resolved)
-
-    new_context = Utils.add_result(state.context, %{insight_produced: insight.id})
-
-    new_state = %{
-      state
-      | notifications: new_notifications,
-        context: new_context,
-        insights: [insight | state.insights],
-        iteration: state.iteration + 1,
-        pending_trace_id: nil
-    }
-
-    {:noreply, new_state, {:continue, :loop}}
-  end
-
-  defp handle_action(%Done{}, state, trace_id) do
-    running_operator_count = map_size(state.running_operators)
-    unread_count = count_by_status(state.notifications, :unread)
-
-    if running_operator_count > 0 do
-      reject_with_running_operators(state, trace_id, :done_rejected, "complete analysis")
-    else
-      emit_telemetry(:done, state, %{
-        trace_id: trace_id,
-        has_unread: unread_count > 0,
-        unread_count: unread_count
-      })
-
-      finish(state)
-    end
-  end
-
-  defp handle_action(%Think{thought: thought}, state, trace_id) do
-    emit_telemetry(:think, state, %{trace_id: trace_id, thought: thought})
-
-    result = %{thought: thought, recorded: true}
-    new_context = Utils.add_result(state.context, result)
-
-    new_state = %{
-      state
-      | context: new_context,
-        iteration: state.iteration + 1,
-        pending_trace_id: nil
-    }
-
-    {:noreply, new_state, {:continue, :loop}}
-  end
-
-  defp handle_action(%InvokeOperators{skills: skills, context: context}, state, trace_id) do
-    emit_telemetry(:invoke_operators, state, %{trace_id: trace_id, skills: skills})
-
-    new_running =
-      Enum.reduce(skills, state.running_operators, fn skill, acc ->
-        start_operator(skill, context, acc)
-      end)
-
-    started_count = map_size(new_running) - map_size(state.running_operators)
-    result = %{started: skills, count: started_count}
-    new_context = Utils.add_result(state.context, result)
-
-    new_state = %{
-      state
-      | running_operators: new_running,
-        context: new_context,
-        iteration: state.iteration + 1,
-        pending_trace_id: nil
-    }
-
-    {:noreply, new_state, {:continue, :loop}}
-  end
-
-  defp handle_action(%MessageOperator{skill: skill, message: message}, state, trace_id) do
-    emit_telemetry(:message_operator, state, %{trace_id: trace_id, skill: skill})
-
-    skill_module = resolve_skill_module(skill)
-
-    result =
-      case skill_module && find_operator_by_skill(state.running_operators, skill_module) do
-        nil ->
-          %{skill: skill, error: "operator not running"}
-
-        {pid, _info} ->
-          try do
-            case Operator.message(pid, message) do
-              {:ok, response} -> response
-              {:error, reason} -> %{skill: skill, error: inspect(reason)}
-            end
-          catch
-            :exit, _ -> %{skill: skill, error: "operator timed out"}
-          end
-      end
-
-    new_context = Utils.add_result(state.context, result)
-
-    new_state = %{
-      state
-      | context: new_context,
-        iteration: state.iteration + 1,
-        pending_trace_id: nil
-    }
-
-    {:noreply, new_state, {:continue, :loop}}
-  end
-
-  defp handle_action(%GetOperatorStatuses{}, state, trace_id) do
-    emit_telemetry(:get_operator_statuses, state, %{trace_id: trace_id})
-
-    statuses =
-      Enum.map(state.running_operators, fn {pid, %{skill: skill, started_at: started_at}} ->
-        if Process.alive?(pid) do
-          try do
-            status = Operator.status(pid)
-            OperatorStatusView.alive(skill, status, started_at)
-          catch
-            :exit, _ -> OperatorStatusView.dead(skill)
-          end
-        else
-          OperatorStatusView.dead(skill)
+  defp dispatch_action(content, state) do
+    case ensure_parsed(content) do
+      {:ok, parsed} ->
+        case state.strategy.handle_action(parsed, state, state.pending_trace_id) do
+          {:finish, new_state} -> finish(new_state)
+          other -> other
         end
-      end)
 
-    new_context = Utils.add_result(state.context, statuses)
+      {:error, reason} ->
+        emit_telemetry(:invalid_intent, state, %{
+          trace_id: state.pending_trace_id,
+          reason: reason
+        })
 
-    new_state = %{
-      state
-      | context: new_context,
-        iteration: state.iteration + 1,
-        pending_trace_id: nil
-    }
+        error_message = "Invalid tool selection: #{inspect(reason)}"
+        new_context = Utils.add_result(state.context, %{error: error_message})
 
-    {:noreply, new_state, {:continue, :loop}}
-  end
+        new_state = %{
+          state
+          | context: new_context,
+            iteration: state.iteration + 1,
+            pending_trace_id: nil
+        }
 
-  defp handle_action(%Schedule{ms: ms, reason: reason}, state, trace_id) do
-    if map_size(state.running_operators) > 0 do
-      reject_with_running_operators(state, trace_id, :schedule_rejected, "schedule follow-up")
-    else
-      emit_telemetry(:schedule, state, %{
-        trace_id: trace_id,
-        ms: ms,
-        reason: reason
-      })
-
-      timer_ref = Process.send_after(self(), {:scheduled_reinvoke, reason}, ms)
-
-      finish(%{state | scheduled_timer_ref: timer_ref})
+        {:noreply, new_state, {:continue, :loop}}
     end
-  end
-
-  defp handle_action(%Wait{ms: ms}, state, trace_id) do
-    emit_telemetry(:wait, state, %{trace_id: trace_id, ms: ms})
-
-    Process.send_after(self(), :continue_after_wait, ms)
-
-    new_context = Utils.add_result(state.context, %{waited: ms})
-
-    new_state = %{
-      state
-      | context: new_context,
-        iteration: state.iteration + 1,
-        pending_trace_id: nil
-    }
-
-    {:noreply, new_state}
   end
 
   defp finish(state) do
@@ -858,11 +623,14 @@ defmodule Beamlens.Coordinator do
         deadline =
           Keyword.get(next_opts, :deadline, Keyword.get(next_opts, :timeout, @default_deadline))
 
+        strategy = Keyword.get(next_opts, :strategy, state.strategy)
+
         new_state =
           state
           |> prepare_invocation(next_context, next_notifications, next_caller, deadline)
           |> Map.put(:invocation_queue, remaining_queue)
           |> Map.put(:status, :running)
+          |> Map.put(:strategy, strategy)
 
         {:noreply, new_state, {:continue, :loop}}
 
@@ -917,36 +685,6 @@ defmodule Beamlens.Coordinator do
     }
   end
 
-  defp reject_with_running_operators(state, trace_id, telemetry_event, action_name) do
-    running_operator_count = map_size(state.running_operators)
-
-    emit_telemetry(telemetry_event, state, %{
-      trace_id: trace_id,
-      running_operator_count: running_operator_count
-    })
-
-    running_skills =
-      state.running_operators
-      |> Map.values()
-      |> Enum.map_join(", ", &inspect(&1.skill))
-
-    error_message =
-      "Cannot #{action_name}: #{running_operator_count} operator(s) still running (#{running_skills}). " <>
-        "You must wait for all operators to complete before proceeding. " <>
-        "Use get_operator_statuses() to check their progress, or wait() to give them time."
-
-    new_context = Utils.add_result(state.context, %{error: error_message})
-
-    new_state = %{
-      state
-      | context: new_context,
-        iteration: state.iteration + 1,
-        pending_trace_id: nil
-    }
-
-    {:noreply, new_state, {:continue, :loop}}
-  end
-
   defp cancel_deadline_timer(%{deadline_timer_ref: ref}) when is_reference(ref) do
     Process.cancel_timer(ref)
   end
@@ -986,7 +724,8 @@ defmodule Beamlens.Coordinator do
     end)
   end
 
-  defp start_operator(skill_string, context, running_operators) do
+  @doc false
+  def start_operator(skill_string, context, running_operators) do
     skill_module = resolve_skill_module(skill_string)
 
     case skill_module && Operator.Supervisor.resolve_skill(skill_module) do
@@ -1020,7 +759,8 @@ defmodule Beamlens.Coordinator do
     end
   end
 
-  defp resolve_skill_module(skill_string) do
+  @doc false
+  def resolve_skill_module(skill_string) do
     module = String.to_existing_atom("Elixir." <> skill_string)
 
     case Operator.Supervisor.resolve_skill(module) do
@@ -1031,7 +771,8 @@ defmodule Beamlens.Coordinator do
     ArgumentError -> nil
   end
 
-  defp find_operator_by_skill(running_operators, skill_module) do
+  @doc false
+  def find_operator_by_skill(running_operators, skill_module) do
     Enum.find(running_operators, fn {_pid, %{skill: s}} -> s == skill_module end)
   end
 
@@ -1044,15 +785,17 @@ defmodule Beamlens.Coordinator do
       map_size(state.running_operators) == 0
   end
 
-  defp filter_notifications(notifications, nil), do: notifications
+  @doc false
+  def filter_notifications(notifications, nil), do: notifications
 
-  defp filter_notifications(notifications, status) do
+  def filter_notifications(notifications, status) do
     notifications
     |> Enum.filter(fn {_, %{status: s}} -> s == status end)
     |> Map.new()
   end
 
-  defp update_notifications_status(notifications, ids, new_status) do
+  @doc false
+  def update_notifications_status(notifications, ids, new_status) do
     Enum.reduce(ids, notifications, fn id, acc ->
       case Map.get(acc, id) do
         nil -> acc
@@ -1061,7 +804,8 @@ defmodule Beamlens.Coordinator do
     end)
   end
 
-  defp count_by_status(notifications, status) do
+  @doc false
+  def count_by_status(notifications, status) do
     Enum.count(notifications, fn {_, %{status: s}} -> s == status end)
   end
 
@@ -1203,7 +947,8 @@ defmodule Beamlens.Coordinator do
     """
   end
 
-  defp emit_telemetry(event, state, extra \\ %{}) do
+  @doc false
+  def emit_telemetry(event, state, extra \\ %{}) do
     :telemetry.execute(
       [:beamlens, :coordinator, event],
       %{system_time: System.system_time()},

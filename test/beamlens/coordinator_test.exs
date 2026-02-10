@@ -15,6 +15,23 @@ defmodule Beamlens.CoordinatorTest do
     Puck.Client.new({__MODULE__.BlockingBackend, %{}})
   end
 
+  defmodule SpyStrategy do
+    @behaviour Beamlens.Coordinator.Strategy
+
+    @impl true
+    def handle_action(action, state, trace_id) do
+      send(:spy_strategy_test, {:spy_action, action.__struct__, trace_id})
+
+      new_state = %{
+        state
+        | iteration: state.iteration + 1,
+          pending_trace_id: nil
+      }
+
+      {:noreply, new_state, {:continue, :loop}}
+    end
+  end
+
   defmodule BlockingBackend do
     @behaviour Puck.Backend
 
@@ -2999,6 +3016,233 @@ defmodule Beamlens.CoordinatorTest do
       assert result1 == {:error, :cancelled}
 
       assert_receive {:task2_result, {:ok, _}}, 5_000
+
+      stop_coordinator(pid)
+    end
+  end
+
+  describe "strategy" do
+    test "defaults to AgentLoop strategy" do
+      {:ok, pid} = start_coordinator()
+
+      state = :sys.get_state(pid)
+      assert state.strategy == Beamlens.Coordinator.Strategy.AgentLoop
+
+      stop_coordinator(pid)
+    end
+
+    test "accepts explicit strategy option at start" do
+      {:ok, pid} = start_coordinator(strategy: Beamlens.Coordinator.Strategy.AgentLoop)
+
+      state = :sys.get_state(pid)
+      assert state.strategy == Beamlens.Coordinator.Strategy.AgentLoop
+
+      stop_coordinator(pid)
+    end
+
+    test "custom strategy receives actions via handle_action/3" do
+      Process.register(self(), :spy_strategy_test)
+
+      {:ok, pid} = start_coordinator(strategy: Beamlens.CoordinatorTest.SpyStrategy)
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "spy-trace",
+            client: blocking_client()
+        }
+      end)
+
+      action_map = %{intent: "get_notifications"}
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      assert_receive {:spy_action, Beamlens.Coordinator.Tools.GetNotifications, "spy-trace"},
+                     1000
+
+      Process.unregister(:spy_strategy_test)
+      stop_coordinator(pid)
+    end
+
+    test "{:finish, state} return triggers finish/1" do
+      defmodule FinishStrategy do
+        @behaviour Beamlens.Coordinator.Strategy
+
+        @impl true
+        def handle_action(_action, state, _trace_id) do
+          {:finish, state}
+        end
+      end
+
+      {:ok, pid} = start_coordinator(strategy: FinishStrategy)
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      caller_ref = make_ref()
+      caller = {self(), caller_ref}
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "finish-trace",
+            caller: caller
+        }
+      end)
+
+      action_map = %{intent: "done"}
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      assert_receive {^caller_ref, {:ok, %{insights: [], operator_results: []}}}, 1000
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+
+      stop_coordinator(pid)
+    end
+
+    test "per-invocation strategy override via :strategy option" do
+      defmodule InvocationStrategy do
+        @behaviour Beamlens.Coordinator.Strategy
+
+        @impl true
+        def handle_action(_action, state, _trace_id) do
+          {:finish, state}
+        end
+      end
+
+      {:ok, pid} = start_coordinator()
+
+      state = :sys.get_state(pid)
+      assert state.strategy == Beamlens.Coordinator.Strategy.AgentLoop
+
+      done_backend =
+        Puck.Client.new({Puck.Backends.Mock, response: %{content: %{intent: "done"}}})
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: done_backend}
+      end)
+
+      result =
+        Coordinator.run(pid, %{reason: "test"}, strategy: InvocationStrategy, timeout: 2_000)
+
+      assert {:ok, %{insights: [], operator_results: []}} = result
+
+      stop_coordinator(pid)
+    end
+
+    test "startup strategy used as fallback when run/3 has no :strategy" do
+      defmodule StartupStrategy do
+        @behaviour Beamlens.Coordinator.Strategy
+
+        @impl true
+        def handle_action(_action, state, _trace_id) do
+          {:finish, state}
+        end
+      end
+
+      {:ok, pid} = start_coordinator(strategy: StartupStrategy)
+
+      state = :sys.get_state(pid)
+      assert state.strategy == StartupStrategy
+
+      done_backend =
+        Puck.Client.new({Puck.Backends.Mock, response: %{content: %{intent: "done"}}})
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: done_backend}
+      end)
+
+      result = Coordinator.run(pid, %{reason: "test"}, timeout: 2_000)
+
+      assert {:ok, %{insights: [], operator_results: []}} = result
+
+      stop_coordinator(pid)
+    end
+
+    test "queued invocation uses its own per-invocation strategy" do
+      defmodule QueuedStrategy do
+        @behaviour Beamlens.Coordinator.Strategy
+
+        @impl true
+        def handle_action(_action, state, _trace_id) do
+          {:finish, state}
+        end
+      end
+
+      {:ok, pid} = start_coordinator()
+
+      done_backend =
+        Puck.Client.new({Puck.Backends.Mock, response: %{content: %{intent: "done"}}})
+
+      :sys.replace_state(pid, fn state ->
+        %{state | client: done_backend}
+      end)
+
+      task1 =
+        Task.async(fn ->
+          Coordinator.run(pid, %{reason: "first"}, timeout: 5_000)
+        end)
+
+      task2 =
+        Task.async(fn ->
+          Coordinator.run(pid, %{reason: "second"}, strategy: QueuedStrategy, timeout: 5_000)
+        end)
+
+      {:ok, _} = Task.await(task1, 5_000)
+      {:ok, _} = Task.await(task2, 5_000)
+
+      state = :sys.get_state(pid)
+      assert state.status == :idle
+
+      stop_coordinator(pid)
+    end
+
+    test "strategy is injected via :sys.replace_state/2" do
+      defmodule InjectedStrategy do
+        @behaviour Beamlens.Coordinator.Strategy
+
+        @impl true
+        def handle_action(_action, state, _trace_id) do
+          {:finish, state}
+        end
+      end
+
+      {:ok, pid} = start_coordinator()
+
+      :sys.replace_state(pid, fn state ->
+        %{state | strategy: InjectedStrategy}
+      end)
+
+      state = :sys.get_state(pid)
+      assert state.strategy == InjectedStrategy
+
+      task = Task.async(fn -> :ok end)
+      Task.await(task)
+
+      caller_ref = make_ref()
+      caller = {self(), caller_ref}
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | status: :running,
+            pending_task: task,
+            pending_trace_id: "injected-trace",
+            caller: caller
+        }
+      end)
+
+      action_map = %{intent: "done"}
+      send(pid, {task.ref, {:ok, %{content: action_map}, Puck.Context.new()}})
+
+      assert_receive {^caller_ref, {:ok, %{insights: [], operator_results: []}}}, 1000
 
       stop_coordinator(pid)
     end
