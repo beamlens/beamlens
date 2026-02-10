@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pipeline strategy now always returns the synthesized answer as an insight, even when no operator notifications are raised
+- Pipeline synthesize stage uses operator snapshot data as fallback when no notifications are present, so the LLM can produce meaningful answers for healthy systems
 - Logger skill: renamed `function` key to `func` in log entry maps to avoid collision with Lua's reserved `function` keyword, which caused repeated sandbox syntax errors and expensive context compaction
 - `CompletionResult` now derives `Jason.Encoder` so coordinator results can be JSON-encoded
 - Coordinator no longer crashes when the LLM returns an invalid or unparseable tool selection

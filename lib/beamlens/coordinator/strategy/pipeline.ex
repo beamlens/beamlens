@@ -98,24 +98,17 @@ defmodule Beamlens.Coordinator.Strategy.Pipeline do
 
     notification_ids = Map.keys(state.notifications)
 
-    insights =
-      case notification_ids do
-        [] ->
-          state.insights
+    insight =
+      Insight.new(%{
+        notification_ids: notification_ids,
+        correlation_type: :symptomatic,
+        summary: answer,
+        matched_observations: extract_observations(state.notifications),
+        hypothesis_grounded: false,
+        confidence: :medium
+      })
 
-        [_ | _] ->
-          insight =
-            Insight.new(%{
-              notification_ids: notification_ids,
-              correlation_type: :symptomatic,
-              summary: answer,
-              matched_observations: extract_observations(state.notifications),
-              hypothesis_grounded: false,
-              confidence: :medium
-            })
-
-          [insight | state.insights]
-      end
+    insights = [insight | state.insights]
 
     new_notifications =
       Coordinator.update_notifications_status(
@@ -140,7 +133,7 @@ defmodule Beamlens.Coordinator.Strategy.Pipeline do
     Coordinator.emit_telemetry(:pipeline_synthesize_start, state, %{trace_id: trace_id})
 
     query = extract_query(state.context)
-    operator_data = build_operator_data(state.notifications)
+    operator_data = build_operator_data(state.notifications, state.operator_results)
 
     client =
       build_pipeline_client(
@@ -168,13 +161,29 @@ defmodule Beamlens.Coordinator.Strategy.Pipeline do
     Utils.extract_text_content(first.content)
   end
 
-  defp build_operator_data(notifications) do
+  defp build_operator_data(notifications, _operator_results)
+       when map_size(notifications) > 0 do
     notifications
     |> Enum.map(fn {id, entry} ->
       id
       |> NotificationView.from_entry(entry)
       |> Map.from_struct()
       |> Map.take([:id, :operator, :severity, :context, :observation, :detected_at])
+    end)
+    |> Jason.encode!()
+  end
+
+  defp build_operator_data(_notifications, operator_results) do
+    operator_results
+    |> Enum.map(fn result ->
+      %{
+        operator: result |> Map.get(:skill, "unknown") |> to_string(),
+        state: result |> Map.get(:state, :unknown) |> to_string(),
+        snapshots:
+          result
+          |> Map.get(:snapshots, [])
+          |> Enum.map(fn snap -> Map.get(snap, :data, %{}) end)
+      }
     end)
     |> Jason.encode!()
   end
