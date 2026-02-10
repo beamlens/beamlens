@@ -6,7 +6,7 @@ defmodule Beamlens.Coordinator.Strategy.PipelineTest do
   alias Beamlens.Coordinator
   alias Beamlens.Coordinator.Strategy.Pipeline
   alias Beamlens.Coordinator.Strategy.Pipeline.Tools.{ClassifyResult, SynthesizeResult}
-  alias Beamlens.Operator.Notification
+  alias Beamlens.Operator.{Notification, Snapshot}
 
   setup do
     start_supervised!({Registry, keys: :unique, name: Beamlens.OperatorRegistry})
@@ -270,6 +270,48 @@ defmodule Beamlens.Coordinator.Strategy.PipelineTest do
       stop_coordinator(pid)
     end
 
+    test "uses operator_results as synthesize data when no notifications" do
+      {:ok, pid} = start_pipeline_coordinator()
+
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {ref, :synthesize_start},
+        [:beamlens, :coordinator, :pipeline_synthesize_start],
+        fn _event, _measurements, metadata, _ ->
+          send(parent, {:telemetry, :synthesize_start, metadata})
+        end,
+        nil
+      )
+
+      snapshot = Snapshot.new(%{memory_mb: 512})
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | status: :running,
+            strategy_state: :gathering,
+            running_operators: %{},
+            notifications: %{},
+            operator_results: [
+              %{skill: Beamlens.Skill.Beam, state: :healthy, snapshots: [snapshot]}
+            ],
+            context: Coordinator.build_initial_context(%{reason: "test query"})
+        }
+      end)
+
+      send(pid, :continue_after_wait)
+
+      assert_receive {:telemetry, :synthesize_start, _}, 2_000
+
+      state = :sys.get_state(pid)
+      assert state.strategy_state == :synthesizing
+
+      stop_coordinator(pid)
+      :telemetry.detach({ref, :synthesize_start})
+    end
+
     test "transitions to :synthesizing when operators complete" do
       {:ok, pid} = start_pipeline_coordinator()
 
@@ -382,7 +424,7 @@ defmodule Beamlens.Coordinator.Strategy.PipelineTest do
       stop_coordinator(pid)
     end
 
-    test "handles no notifications gracefully" do
+    test "creates insight even with no notifications" do
       {:ok, pid} = start_pipeline_coordinator()
 
       task = completed_task()
@@ -406,7 +448,9 @@ defmodule Beamlens.Coordinator.Strategy.PipelineTest do
       send_action(pid, task, synthesize_result)
 
       assert_receive {^caller_ref, {:ok, result}}, 1_000
-      assert result.insights == []
+      assert [insight] = result.insights
+      assert insight.summary == "No issues found."
+      assert insight.notification_ids == []
 
       stop_coordinator(pid)
     end
