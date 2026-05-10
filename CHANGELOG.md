@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-10
+
+### Changed
+
+- **Breaking:** Logger skill renamed `function` key to `func` in log entry maps to avoid collision with Lua's reserved `function` keyword, which caused repeated sandbox syntax errors and expensive context compaction. Custom code reading log entries via `entry.function` must update to `entry.func`.
+- Updated dependencies — notably `puck` 0.2.9 → 0.2.25, `baml_elixir` 1.0.0-pre.24 → 1.0.0-pre.27, `zoi` 0.15.0 → 0.18.3, and `telemetry` 1.3.0 → 1.4.1.
+
 ### Added
 
 - Pluggable coordinator strategy via `Beamlens.Coordinator.Strategy` behaviour — pass `:strategy` to `start_link/1` or `run/2` to use a custom execution strategy instead of the default `AgentLoop`
@@ -23,7 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tracer operator now exits immediately when the query is outside its tracing domain, instead of hallucinating invalid intents and exhausting retries
 - Pipeline strategy now always returns the synthesized answer as an insight, even when no operator notifications are raised
 - Pipeline synthesize stage uses operator snapshot data as fallback when no notifications are present, so the LLM can produce meaningful answers for healthy systems
-- Logger skill: renamed `function` key to `func` in log entry maps to avoid collision with Lua's reserved `function` keyword, which caused repeated sandbox syntax errors and expensive context compaction
 - `CompletionResult` now derives `Jason.Encoder` so coordinator results can be JSON-encoded
 - Coordinator no longer crashes when the LLM returns an invalid or unparseable tool selection
 
@@ -102,7 +108,8 @@ See the updated [README.md](README.md)!
 
 First release!
 
-[Unreleased]: https://github.com/beamlens/beamlens/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/beamlens/beamlens/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/beamlens/beamlens/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/beamlens/beamlens/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/beamlens/beamlens/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/beamlens/beamlens/compare/v0.1.0...v0.2.0
