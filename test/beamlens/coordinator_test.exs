@@ -2761,6 +2761,10 @@ defmodule Beamlens.CoordinatorTest do
 
       {:ok, pid} = start_coordinator()
 
+      :sys.replace_state(pid, fn state ->
+        %{state | client: blocking_client()}
+      end)
+
       handler_id = attach_coordinator_running_handler()
 
       send(pid, {:scheduled_reinvoke, "follow-up check"})
