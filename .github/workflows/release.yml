@@ -1,0 +1,205 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+env:
+  ELIXIR_VERSION: '1.19'
+  OTP_VERSION: '28'
+
+jobs:
+  verify:
+    name: Verify Release Preconditions
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      is_prerelease: ${{ steps.tag.outputs.is_prerelease }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Parse and validate tag
+      id: tag
+      run: |
+        TAG="${GITHUB_REF_NAME}"
+        if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+          echo "::error::Tag '$TAG' is not a valid SemVer tag (expected vX.Y.Z or vX.Y.Z-suffix)"
+          exit 1
+        fi
+        VERSION="${TAG#v}"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        if [[ "$VERSION" == *-* ]]; then
+          echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+        fi
+        echo "Releasing version: $VERSION"
+
+    - name: Verify tag commit is on main
+      run: |
+        git fetch origin main
+        if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          echo "::error::Tag commit $GITHUB_SHA is not reachable from origin/main. Refusing to release from a non-main commit."
+          exit 1
+        fi
+        echo "Tag commit is reachable from main"
+
+    - name: Verify mix.exs @version matches tag
+      run: |
+        MIX_VERSION=$(grep -E '^\s*@version\s+"' mix.exs | sed -E 's/.*"([^"]+)".*/\1/')
+        TAG_VERSION="${{ steps.tag.outputs.version }}"
+        if [ "$MIX_VERSION" != "$TAG_VERSION" ]; then
+          echo "::error::mix.exs @version is '$MIX_VERSION' but tag is 'v$TAG_VERSION'. They must match."
+          exit 1
+        fi
+        echo "Version match: $MIX_VERSION"
+
+    - name: Verify CHANGELOG has entry for this version
+      run: |
+        VERSION="${{ steps.tag.outputs.version }}"
+        if ! grep -qE "^## \[${VERSION}\]" CHANGELOG.md; then
+          echo "::error::CHANGELOG.md is missing a '## [$VERSION]' entry."
+          exit 1
+        fi
+        echo "CHANGELOG entry found for $VERSION"
+
+    - name: Verify version is not already on Hex
+      run: |
+        VERSION="${{ steps.tag.outputs.version }}"
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://hex.pm/api/packages/beamlens/releases/${VERSION}")
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "::error::beamlens $VERSION is already published on Hex."
+          exit 1
+        fi
+        if [ "$HTTP_CODE" != "404" ]; then
+          echo "::error::Unexpected HTTP $HTTP_CODE from hex.pm while checking version. Aborting."
+          exit 1
+        fi
+        echo "Version $VERSION is not yet on Hex"
+
+  checks:
+    name: Re-run Checks on Tag
+    needs: verify
+    uses: ./.github/workflows/checks.yml
+
+  build:
+    name: Build Hex Package
+    needs: [verify, checks]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ env.ELIXIR_VERSION }}
+        otp-version: ${{ env.OTP_VERSION }}
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Build Hex package
+      run: mix hex.build
+
+    - name: Show package contents
+      run: |
+        TAR_FILE=$(ls beamlens-*.tar)
+        echo "=== Outer archive: $TAR_FILE ==="
+        tar -tf "$TAR_FILE"
+        echo ""
+        echo "=== Package contents ==="
+        mkdir -p tmp_inspect
+        tar -xf "$TAR_FILE" -C tmp_inspect
+        tar -tzf tmp_inspect/contents.tar.gz | sort
+
+    - name: Upload package artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: hex-package
+        path: beamlens-*.tar
+        retention-days: 30
+        if-no-files-found: error
+
+  publish:
+    name: Publish to Hex
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: hex
+      url: https://hex.pm/packages/beamlens/${{ needs.verify.outputs.version }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ env.ELIXIR_VERSION }}
+        otp-version: ${{ env.OTP_VERSION }}
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Compile dependencies
+      run: mix deps.compile
+
+    - name: Publish package and docs to Hex
+      env:
+        HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+      run: mix hex.publish --yes
+
+  github-release:
+    name: Create GitHub Release
+    needs: [verify, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download package artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: hex-package
+
+    - name: Extract CHANGELOG section for this version
+      run: |
+        VERSION="${{ needs.verify.outputs.version }}"
+        awk -v ver="$VERSION" '
+          $0 ~ "^## \\[" ver "\\]" { found=1; next }
+          found && /^## \[/ { exit }
+          found { print }
+        ' CHANGELOG.md > release_notes.md
+        if [ ! -s release_notes.md ]; then
+          echo "::error::Extracted release notes are empty"
+          exit 1
+        fi
+        echo "=== Release notes ==="
+        cat release_notes.md
+
+    - name: Create GitHub release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PRERELEASE_FLAG=""
+        if [ "${{ needs.verify.outputs.is_prerelease }}" = "true" ]; then
+          PRERELEASE_FLAG="--prerelease"
+        fi
+        gh release create "${GITHUB_REF_NAME}" \
+          --title "${GITHUB_REF_NAME}" \
+          --notes-file release_notes.md \
+          $PRERELEASE_FLAG \
+          beamlens-*.tar
